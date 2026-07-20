@@ -57,11 +57,14 @@ describe('tooltip', () => {
   it('does not render an unanchored directional caret unless requested', () => {
     const comp = tooltip({ content: 'Help text', position: 'bottom' });
     const [model] = comp.init();
-    expect(comp.view({ ...model, visible: true }).kind).toBe('box');
+    const view = comp.view({ ...model, visible: true });
+    expect(view.kind).toBe('event');
+    if (view.kind === 'event') expect(view.child.kind).toBe('column');
 
     const anchored = tooltip({ content: 'Help text', position: 'bottom', caret: true });
     const [anchoredModel] = anchored.init();
-    expect(anchored.view({ ...anchoredModel, visible: true }).kind).toBe('column');
+    const anchoredView = anchored.view({ ...anchoredModel, visible: true });
+    expect(anchoredView.kind).toBe('event');
   });
 
   it('measures border and vertical padding in bubble height', () => {
@@ -81,6 +84,26 @@ describe('tooltip', () => {
   it('uses the floating elevation surface for tooltip backgrounds', () => {
     const bg = tooltipContract.bg(defaultTheme);
     expect(bg.rgb).toEqual((defaultTheme.elevation.floating.surface ?? defaultTheme.colors.surfaceRaised).rgb);
+  });
+
+  it('honors hover delay and cancels pending display on leave', () => {
+    const comp = tooltip({ content: 'Delayed help', delay: 50 });
+    const [model] = comp.init();
+    const [pending] = comp.update({ type: 'hover-enter' }, model);
+    expect(pending).toMatchObject({ triggered: true, visible: false });
+    expect(comp.subscriptions!(pending)._kind.kind).toBe('batch');
+    const [left] = comp.update({ type: 'hover-leave' }, pending);
+    expect(left).toMatchObject({ triggered: false, visible: false });
+    expect(comp.update({ type: 'delay-elapsed' }, left)[0]).toBe(left);
+  });
+
+  it('shows immediately for zero delay and clamps to a narrow viewport', () => {
+    const comp = tooltip({ content: 'A long tooltip that must wrap completely', delay: 0 });
+    const [initial] = comp.init();
+    const [shown] = comp.update({ type: 'hover-enter' }, initial);
+    const [narrow] = comp.update({ type: 'resize', cols: 8 }, shown);
+    expect(shown.visible).toBe(true);
+    expect(comp.view(narrow).kind).toBe('event');
   });
 });
 
@@ -168,11 +191,11 @@ describe('tooltip surface contract', () => {
     }
   });
 
-  it('subscriptions while hidden return Sub.none (no leaked panic listener)', () => {
+  it('subscriptions while hidden retain only pointer hover handling', () => {
     const comp = tooltip({ content: 'Help text' });
     const [initial] = comp.init();
     const sub = comp.subscriptions!(initial);
-    expect((sub as any)._kind.kind).toBe('none');
+    expect((sub as any)._kind.kind).toBe('elementMouse');
   });
 });
 

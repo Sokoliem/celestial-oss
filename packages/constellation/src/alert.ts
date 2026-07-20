@@ -69,11 +69,15 @@ const SIZE_PADDING: Record<AlertSize, number> = {
 };
 
 export function alert(config: AlertConfig): ComponentDescriptor<AlertModel, AlertMsg> {
-  const variant = config.variant ?? 'info';
-  const size = config.size ?? 'md';
+  const variant = config.variant && config.variant in VARIANT_TONE ? config.variant : 'info';
+  const size = config.size === 'sm' || config.size === 'lg' ? config.size : 'md';
   const padding = SIZE_PADDING[size];
   const padStr = ' '.repeat(padding);
-  const interactionId = config.id ?? generateFocusGroupId(`alert-${config.title ?? config.message}`);
+  const title = config.title;
+  const message = config.message;
+  const dismissible = config.dismissible ?? false;
+  const onDismiss = config.onDismiss;
+  const interactionId = config.id ?? generateFocusGroupId(`alert-${title ?? message}`);
   const dismissTag = `${interactionId}:dismiss`;
   const hoverTag = `${interactionId}:hover-dismiss`;
   const leaveTag = `${interactionId}:leave-dismiss`;
@@ -86,7 +90,7 @@ export function alert(config: AlertConfig): ComponentDescriptor<AlertModel, Aler
     update(msg: AlertMsg, model: AlertModel): [AlertModel, Cmd<AlertMsg>] {
       switch (msg.type) {
         case 'dismiss':
-          config.onDismiss?.();
+          onDismiss?.();
           return [{ visible: false }, Cmd.none()];
         case 'show':
           return [{ visible: true, hoveredDismiss: false }, Cmd.none()];
@@ -110,9 +114,9 @@ export function alert(config: AlertConfig): ComponentDescriptor<AlertModel, Aler
 
       const iconKind = variant === 'danger' ? 'danger' : variant;
       const iconText = row(statusIcon({ kind: iconKind, color: variantColor, themeCtx: config.themeCtx, theme: config.theme }), text(' ', titleStyle));
-      const titleText = config.title ? row(iconText, text(`${config.title}`, titleStyle)) : iconText;
-      const msgText = text(`${padStr}${config.message}`, msgStyle);
-      const dismissText = config.dismissible
+      const titleText = title ? row(iconText, text(title, titleStyle)) : iconText;
+      const msgText = text(`${padStr}${message}`, msgStyle);
+      const dismissText = dismissible
         ? row(
             text(' ', msgStyle),
             event(
@@ -137,7 +141,7 @@ export function alert(config: AlertConfig): ComponentDescriptor<AlertModel, Aler
     },
 
     subscriptions(model: AlertModel): Sub<AlertMsg> {
-      if (!model.visible || !config.dismissible) return Sub.none();
+      if (!model.visible || !dismissible) return Sub.none();
       const mouse = Sub.elementMouse<AlertMsg>((mouseEvent) => {
         if (mouseEvent.elementId !== `${interactionId}:dismiss-control`) return { type: 'noop' };
         if (mouseEvent.handlerTag === dismissTag) return { type: 'dismiss' };

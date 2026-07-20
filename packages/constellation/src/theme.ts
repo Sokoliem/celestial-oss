@@ -28,6 +28,7 @@ import {
   type TypographyToken,
 } from '@celestial/core/corona';
 import type { ThemeContext } from '@celestial/core/nebula';
+import { positiveInteger } from './internal.js';
 
 // ─── Backward-compatible type aliases ───────────────────────────────────────
 
@@ -56,19 +57,31 @@ export const createConstellationTheme = createTheme;
 /** @deprecated Use `createTheme` from `@celestial/core/corona` */
 export const resolveConstellationTheme = createTheme;
 
+const TONES: ReadonlySet<string> = new Set(['neutral', 'accent', 'info', 'success', 'warning', 'danger']);
+const SIZES: ReadonlySet<string> = new Set(['none', 'xs', 'sm', 'md', 'lg', 'xl', '2xl']);
+
+export function normalizeTone(tone: unknown, fallback: Tone = 'neutral'): Tone {
+  return typeof tone === 'string' && TONES.has(tone) ? (tone as Tone) : fallback;
+}
+
+export function normalizeSize(size: unknown, fallback: Size = 'md'): Size {
+  return typeof size === 'string' && SIZES.has(size) ? (size as Size) : fallback;
+}
+
 export function resolveToneColor(themeOrInput: SemanticTheme | ThemeInput | undefined, tone: Tone = 'neutral') {
-  return coronaResolveToneColor(themeOrInput, tone);
+  return coronaResolveToneColor(themeOrInput, normalizeTone(tone));
 }
 
 export function resolveSpacing(size: Size = 'md', themeOrInput?: SemanticTheme | ThemeInput): number {
-  return coronaResolveSpacing(size, themeOrInput);
+  return coronaResolveSpacing(normalizeSize(size), themeOrInput);
 }
 
 // ─── Constellation-specific style helpers ───────────────────────────────────
 
 export function resolveTextStyle(themeOrInput: SemanticTheme | ThemeInput | undefined, tone: Tone = 'neutral', overrides: Partial<StyleProps> = {}): Style {
   const theme = createTheme(themeOrInput as ThemeInput | undefined);
-  const resolvedTone = tone === 'neutral' ? theme.colors.text : theme.colors.tones[tone];
+  const safeTone = normalizeTone(tone);
+  const resolvedTone = safeTone === 'neutral' ? theme.colors.text : theme.colors.tones[safeTone];
   return style({ color: resolvedTone, ...overrides });
 }
 
@@ -79,12 +92,13 @@ export function resolveMutedStyle(themeOrInput: SemanticTheme | ThemeInput | und
 
 export function resolveBorderStyle(themeOrInput: SemanticTheme | ThemeInput | undefined, tone: Tone = 'neutral', overrides: Partial<StyleProps> = {}): Style {
   const theme = createTheme(themeOrInput as ThemeInput | undefined);
-  const borderColor = tone === 'neutral' ? theme.colors.border : theme.colors.tones[tone];
+  const safeTone = normalizeTone(tone);
+  const borderColor = safeTone === 'neutral' ? theme.colors.border : theme.colors.tones[safeTone];
   return style({ color: borderColor, ...overrides });
 }
 
 export function clampWidth(width: number | undefined, fallback: number): number {
-  return Math.max(1, Math.floor(width ?? fallback));
+  return positiveInteger(width, fallback);
 }
 
 // ─── Token resolution bridge ──────────────────────────────────────────────
@@ -121,10 +135,12 @@ export function resolveAnimatedBorderColor(theme: SemanticTheme, resting: Color,
     return resting;
   }
 
-  const cycle = (tick % 24) / 24;
+  const safeTick = Number.isFinite(tick) ? tick : 0;
+  const safeMaxMix = Number.isFinite(maxMix) ? Math.max(0, maxMix) : 0.22;
+  const cycle = (((safeTick % 24) + 24) % 24) / 24;
   const wave = 0.5 - Math.cos(cycle * Math.PI * 2) * 0.5;
   const eased = theme.motion.easing.default(wave);
-  return color.lerpOklch(resting, emphasis, Math.min(0.08 + eased * maxMix, 0.38));
+  return color.lerpOklch(resting, emphasis, Math.min(0.08 + eased * safeMaxMix, 0.38));
 }
 
 /**
@@ -134,7 +150,7 @@ export function resolveAnimatedBorderColor(theme: SemanticTheme, resting: Color,
  */
 export function resolveScale(config: { themeCtx?: ThemeContext; theme?: ThemeInput }, tone: Tone): ColorScale {
   const theme = resolveTheme(config);
-  return theme.scales[tone];
+  return theme.scales[normalizeTone(tone)];
 }
 
 export type { ColorScale } from '@celestial/core/corona';

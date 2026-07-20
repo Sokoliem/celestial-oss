@@ -9,8 +9,10 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
 import { style } from '@celestial/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/nebula';
-import { Cmd, column, row, Sub, text } from '@celestial/nebula';
+import { Cmd, column, event, row, Sub, setVNodeMeta, text } from '@celestial/nebula';
 import { type LocaleLike, measureTextWidth, resolveLocale, sliceTextByWidth } from '@celestial/rosetta';
+import { generateFocusGroupId } from './focus-group.js';
+import { boundedInteger } from './internal.js';
 import { useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
@@ -81,18 +83,40 @@ export type DatePickerMsg =
   | Msg<'cursor-up'>
   | Msg<'cursor-down'>
   | Msg<'select'>
+  | Msg<'select-day', { day: number }>
   | Msg<'today'>
   | Msg<'focus'>
-  | Msg<'blur'>;
+  | Msg<'blur'>
+  | Msg<'noop'>;
+
+const MIN_CALENDAR_YEAR = 1;
+const MAX_CALENDAR_YEAR = 9999;
+
+function normalizeYear(year: number | undefined, fallback: number): number {
+  return boundedInteger(year, fallback, MIN_CALENDAR_YEAR, MAX_CALENDAR_YEAR);
+}
+
+function normalizeMonth(month: number | undefined, fallback: number): number {
+  return boundedInteger(month, fallback, 1, 12);
+}
+
+function calendarDate(year: number, month: number, day: number): Date {
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date;
+}
 
 /** Get the number of days in a given month. */
 export function daysInMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate();
+  const safeYear = normalizeYear(year, 1970);
+  const safeMonth = normalizeMonth(month, 1);
+  return calendarDate(safeYear, safeMonth + 1, 0).getUTCDate();
 }
 
 /** Get the day of week (0=Sun, 6=Sat) for the first day of a month. */
 export function firstDayOfMonth(year: number, month: number): number {
-  return new Date(year, month - 1, 1).getDay();
+  return calendarDate(normalizeYear(year, 1970), normalizeMonth(month, 1), 1).getUTCDay();
 }
 
 /** Get today's date as a SimpleDate. */
@@ -116,13 +140,37 @@ const WEEKDAY_REFERENCE_SUNDAY = Date.UTC(2024, 0, 7);
  * @returns A ComponentDescriptor for the date picker.
  */
 export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePickerModel, DatePickerMsg> {
-  const firstDow = config.firstDayOfWeek ?? 0;
+  const firstDow = config.firstDayOfWeek === 1 ? 1 : 0;
   const locale = resolveLocale(config.locale);
+  const interactionId = generateFocusGroupId('date-picker');
+  const previousTag = `${interactionId}:previous`;
+  const nextTag = `${interactionId}:next`;
+  const dayTag = `${interactionId}:day`;
+  const todayTag = `${interactionId}:today`;
+  const onSelect = config.onSelect;
+  const todayAtCreation = getToday();
+  const normalizeDate = (date: SimpleDate, fallback = todayAtCreation): SimpleDate => {
+    const year = normalizeYear(date.year, fallback.year);
+    const month = normalizeMonth(date.month, fallback.month);
+    return { year, month, day: boundedInteger(date.day, fallback.day, 1, daysInMonth(year, month)) };
+  };
+  const initialSelected = config.selected ? normalizeDate({ ...config.selected }) : null;
+  const normalizeModel = (model: DatePickerModel): DatePickerModel => {
+    const viewYear = normalizeYear(model.viewYear, todayAtCreation.year);
+    const viewMonth = normalizeMonth(model.viewMonth, todayAtCreation.month);
+    return {
+      viewYear,
+      viewMonth,
+      cursorDay: boundedInteger(model.cursorDay, 1, 1, daysInMonth(viewYear, viewMonth)),
+      selected: model.selected ? normalizeDate(model.selected) : null,
+      focused: Boolean(model.focused),
+    };
+  };
 
   return {
     init(): [DatePickerModel, Cmd<DatePickerMsg>] {
       const today = getToday();
-      const sel = config.selected ?? null;
+      const sel = initialSelected;
       const viewYear = sel?.year ?? today.year;
       const viewMonth = sel?.month ?? today.month;
       const cursorDay = sel?.day ?? today.day;
@@ -138,9 +186,11 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
       ];
     },
 
-    update(msg: DatePickerMsg, model: DatePickerModel): [DatePickerModel, Cmd<DatePickerMsg>] {
+    update(msg: DatePickerMsg, unsafeModel: DatePickerModel): [DatePickerModel, Cmd<DatePickerMsg>] {
+      const model = normalizeModel(unsafeModel);
       switch (msg.type) {
         case 'prev-month': {
+          if (model.viewYear === MIN_CALENDAR_YEAR && model.viewMonth === 1) return [model, Cmd.none()];
           let m = model.viewMonth - 1;
           let y = model.viewYear;
           if (m < 1) {
@@ -151,6 +201,7 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
           return [{ ...model, viewMonth: m, viewYear: y, cursorDay: Math.min(model.cursorDay, maxDay) }, Cmd.none()];
         }
         case 'next-month': {
+          if (model.viewYear === MAX_CALENDAR_YEAR && model.viewMonth === 12) return [model, Cmd.none()];
           let m = model.viewMonth + 1;
           let y = model.viewYear;
           if (m > 12) {
@@ -161,12 +212,12 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
           return [{ ...model, viewMonth: m, viewYear: y, cursorDay: Math.min(model.cursorDay, maxDay) }, Cmd.none()];
         }
         case 'prev-year': {
-          const y = model.viewYear - 1;
+          const y = Math.max(MIN_CALENDAR_YEAR, model.viewYear - 1);
           const maxDay = daysInMonth(y, model.viewMonth);
           return [{ ...model, viewYear: y, cursorDay: Math.min(model.cursorDay, maxDay) }, Cmd.none()];
         }
         case 'next-year': {
-          const y = model.viewYear + 1;
+          const y = Math.min(MAX_CALENDAR_YEAR, model.viewYear + 1);
           const maxDay = daysInMonth(y, model.viewMonth);
           return [{ ...model, viewYear: y, cursorDay: Math.min(model.cursorDay, maxDay) }, Cmd.none()];
         }
@@ -174,6 +225,7 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
           if (model.cursorDay > 1) {
             return [{ ...model, cursorDay: model.cursorDay - 1 }, Cmd.none()];
           }
+          if (model.viewYear === MIN_CALENDAR_YEAR && model.viewMonth === 1) return [model, Cmd.none()];
           // Wrap to previous month's last day
           let prevMonth = model.viewMonth - 1;
           let prevYear = model.viewYear;
@@ -189,6 +241,7 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
           if (model.cursorDay < maxDay) {
             return [{ ...model, cursorDay: model.cursorDay + 1 }, Cmd.none()];
           }
+          if (model.viewYear === MAX_CALENDAR_YEAR && model.viewMonth === 12) return [model, Cmd.none()];
           // Wrap to next month's day 1
           let nextMonth = model.viewMonth + 1;
           let nextYear = model.viewYear;
@@ -201,6 +254,7 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
         case 'cursor-up': {
           const nd = model.cursorDay - 7;
           if (nd >= 1) return [{ ...model, cursorDay: nd }, Cmd.none()];
+          if (model.viewYear === MIN_CALENDAR_YEAR && model.viewMonth === 1) return [model, Cmd.none()];
           // Wrap to previous month
           let prevMonth = model.viewMonth - 1;
           let prevYear = model.viewYear;
@@ -216,6 +270,7 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
           const nd = model.cursorDay + 7;
           const maxDay = daysInMonth(model.viewYear, model.viewMonth);
           if (nd <= maxDay) return [{ ...model, cursorDay: nd }, Cmd.none()];
+          if (model.viewYear === MAX_CALENDAR_YEAR && model.viewMonth === 12) return [model, Cmd.none()];
           // Wrap to next month
           let nextMonth = model.viewMonth + 1;
           let nextYear = model.viewYear;
@@ -232,8 +287,16 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
             month: model.viewMonth,
             day: model.cursorDay,
           };
-          config.onSelect?.(selected);
+          onSelect?.(selected);
           return [{ ...model, selected }, Cmd.none()];
+        }
+        case 'select-day': {
+          if (!Number.isInteger(msg.day) || msg.day < 1 || msg.day > daysInMonth(model.viewYear, model.viewMonth)) {
+            return [unsafeModel, Cmd.none()];
+          }
+          const selected = { year: model.viewYear, month: model.viewMonth, day: msg.day };
+          onSelect?.(selected);
+          return [{ ...model, cursorDay: msg.day, selected, focused: true }, Cmd.none()];
         }
         case 'today': {
           const today = getToday();
@@ -251,10 +314,13 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
           return [{ ...model, focused: true }, Cmd.none()];
         case 'blur':
           return [{ ...model, focused: false }, Cmd.none()];
+        case 'noop':
+          return [unsafeModel, Cmd.none()];
       }
     },
 
-    view(model: DatePickerModel): VNode {
+    view(unsafeModel: DatePickerModel): VNode {
+      const model = normalizeModel(unsafeModel);
       const tokens = useTokens(datePickerContract, config, 'DatePicker');
 
       const titleStyle = style({ bold: true, color: tokens.selected });
@@ -263,7 +329,7 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
       const selectedStyle = style({ color: tokens.selected, bold: true });
       const todayStyle = style({ color: tokens.selected });
 
-      const title = `◀ ${formatMonthTitle(locale, model.viewYear, model.viewMonth)} ▶`;
+      const title = formatMonthTitle(locale, model.viewYear, model.viewMonth);
       const dayHeader = formatWeekdayHeaders(locale, firstDow);
 
       const totalDays = daysInMonth(model.viewYear, model.viewMonth);
@@ -294,7 +360,19 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
 
         const dayStyle = isCursor ? cursorStyle : isSelected ? selectedStyle : isToday ? todayStyle : undefined;
 
-        currentWeek.push(text(dayStr, dayStyle));
+        const dayNode = text(dayStr, dayStyle);
+        setVNodeMeta(dayNode, {
+          testId: `date-${model.viewYear}-${model.viewMonth}-${d}`,
+          a11y: { role: 'button', label: `${title} ${d}`, checked: isSelected },
+        });
+        currentWeek.push(
+          event(
+            `${interactionId}:day:${d}`,
+            dayNode,
+            { onClick: dayTag },
+            { label: `${title} ${d}`, intent: 'select', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Enter' },
+          ),
+        );
         col++;
 
         if (col === 7) {
@@ -314,18 +392,45 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
       }
 
       const hintStyle = style({ dim: true, color: tokens.muted });
-      return column(
-        text(title, titleStyle),
-        text(dayHeader, headerStyle),
-        ...calendarLines,
-        text(''),
-        text('[←→↑↓] navigate  [enter] select  [t] today', hintStyle),
+      const titleNode = row(
+        event(
+          `${interactionId}:previous`,
+          text('◀', titleStyle),
+          { onClick: previousTag },
+          { label: 'Previous month', intent: 'navigate', affordances: ['click'], cursor: 'pointer' },
+        ),
+        text(` ${title} `, titleStyle),
+        event(
+          `${interactionId}:next`,
+          text('▶', titleStyle),
+          { onClick: nextTag },
+          { label: 'Next month', intent: 'navigate', affordances: ['click'], cursor: 'pointer' },
+        ),
       );
+      const todayNode = event(
+        `${interactionId}:today`,
+        text('[Today]', hintStyle),
+        { onClick: todayTag },
+        { label: 'Today', intent: 'navigate', affordances: ['click'], cursor: 'pointer', keyboardHint: 'T' },
+      );
+      return column(titleNode, text(dayHeader, headerStyle), ...calendarLines, text(''), row(text('[←→↑↓] navigate  [enter] select  ', hintStyle), todayNode));
     },
 
-    subscriptions(model: DatePickerModel): Sub<DatePickerMsg> {
-      if (!model.focused) return Sub.none();
+    subscriptions(unsafeModel: DatePickerModel): Sub<DatePickerMsg> {
+      const model = normalizeModel(unsafeModel);
+      const mouse = Sub.elementMouse<DatePickerMsg>((mouseEvent) => {
+        if (!mouseEvent.elementId.startsWith(`${interactionId}:`)) return { type: 'noop' };
+        if (mouseEvent.handlerTag === previousTag) return { type: 'prev-month' };
+        if (mouseEvent.handlerTag === nextTag) return { type: 'next-month' };
+        if (mouseEvent.handlerTag === todayTag) return { type: 'today' };
+        if (mouseEvent.handlerTag === dayTag && mouseEvent.elementId.startsWith(`${interactionId}:day:`)) {
+          return { type: 'select-day', day: Number(mouseEvent.elementId.slice(`${interactionId}:day:`.length)) };
+        }
+        return { type: 'noop' };
+      });
+      if (!model.focused) return mouse;
       return Sub.batch<DatePickerMsg>(
+        mouse,
         Sub.key('left', { type: 'cursor-left' }),
         Sub.key('right', { type: 'cursor-right' }),
         Sub.key('up', { type: 'cursor-up' }),

@@ -4,6 +4,7 @@ import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, component, empty, event, focus, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { measureTextWidth, truncateCellText } from '@celestial/rosetta';
 import { assignFocusGroup, generateFocusGroupId } from './focus-group.js';
+import { positiveInteger } from './internal.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
 import { applyTypography, useTokens } from './theme.js';
 import { type ComponentDescriptor, normalizeContent } from './types.js';
@@ -78,11 +79,14 @@ const DEFAULT_WIDTH = 40;
 const DEFAULT_HEIGHT = 20;
 
 export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, DrawerMsg> {
-  const position = config.position ?? 'left';
-  const variant = config.variant ?? 'default';
-  const width = config.width ?? DEFAULT_WIDTH;
-  const height = config.height ?? DEFAULT_HEIGHT;
-  const backdropMode = config.backdrop ?? 'transparent';
+  const position = config.position === 'right' || config.position === 'top' || config.position === 'bottom' ? config.position : 'left';
+  const variant = config.variant === 'overlay' || config.variant === 'rail' ? config.variant : 'default';
+  const width = positiveInteger(config.width, DEFAULT_WIDTH);
+  const height = positiveInteger(config.height, DEFAULT_HEIGHT);
+  const backdropMode = config.backdrop === 'opaque' ? 'opaque' : 'transparent';
+  const title = config.title === undefined ? undefined : String(config.title);
+  const contentNodes = normalizeContent(Array.isArray(config.content) ? [...config.content] : config.content);
+  const onClose = config.onClose;
   if (config.closable === false) throw new Error('Drawers must be dismissible. Use a panel for a persistent surface.');
   const closable = true;
   const trapFocus = variant === 'overlay' && closable;
@@ -105,7 +109,7 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
         case 'close':
           if (!model.open) return [model, Cmd.none()];
           try {
-            config.onClose?.();
+            onClose?.();
           } catch {
             // Closing must not strand a surface if a host callback fails.
           }
@@ -122,7 +126,7 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
           if (!model.open) return [model, Cmd.none()];
           broadcastSurfacePanic();
           try {
-            config.onClose?.();
+            onClose?.();
           } catch {
             // best-effort
           }
@@ -140,12 +144,14 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
       }
 
       const tokens = useTokens(drawerContract, config, 'Drawer');
-      const contentArr = normalizeContent(config.content).map((node) => (trapFocus ? assignFocusGroup(node, groupId) : node));
+      const contentArr = contentNodes.map((node) => (trapFocus ? assignFocusGroup(node, groupId) : node));
       const drawerStyle = style({ border: border.double, borderColor: tokens.border, background: tokens.bg, padding: [0, 1] });
       const headerStyle = style({ background: tokens.headerBg });
       const hoveredControlStyle = style({ color: tokens.hoverText, background: tokens.hoverBg, bold: true });
 
       const renderDrawerContent = (surfaceWidth: number, surfaceHeight: number) => {
+        surfaceWidth = positiveInteger(surfaceWidth, width);
+        surfaceHeight = positiveInteger(surfaceHeight, height);
         const closeHint = closable
           ? event(
               `${groupId}:close`,
@@ -163,7 +169,7 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
 
         const innerWidth = Math.max(0, surfaceWidth - 4);
         const closeWidth = closable ? 3 : 0;
-        const visibleTitle = truncateCellText(config.title ?? '', Math.max(0, innerWidth - closeWidth));
+        const visibleTitle = truncateCellText(title ?? '', Math.max(0, innerWidth - closeWidth));
         const titleGap = Math.max(0, innerWidth - measureTextWidth(visibleTitle) - closeWidth);
         const headerRow = row(
           text(visibleTitle, applyTypography(tokens.titleStyle, { background: tokens.headerBg })),
@@ -178,7 +184,7 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
         });
         setVNodeMeta(drawerContent, {
           testId: `drawer-${position}`,
-          a11y: { role: 'dialog', label: config.title },
+          a11y: { role: 'dialog', label: title },
         });
         return drawerContent;
       };
@@ -204,8 +210,10 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
       };
 
       const renderOverlay = (viewportWidth: number, viewportHeight: number): VNode => {
-        const surfaceWidth = Math.max(1, Math.min(Math.floor(model.width), viewportWidth));
-        const surfaceHeight = Math.max(1, Math.min(Math.floor(model.height), viewportHeight));
+        viewportWidth = positiveInteger(viewportWidth, width);
+        viewportHeight = positiveInteger(viewportHeight, height);
+        const surfaceWidth = Math.min(positiveInteger(model.width, width), viewportWidth);
+        const surfaceHeight = Math.min(positiveInteger(model.height, height), viewportHeight);
         const remainingWidth = Math.max(0, viewportWidth - surfaceWidth);
         const remainingHeight = Math.max(0, viewportHeight - surfaceHeight);
         const surface = renderDrawerContent(surfaceWidth, surfaceHeight);
@@ -239,13 +247,13 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
       if (variant === 'overlay') {
         if (model.open) {
           const overlayNode = component((context) => {
-            const viewportWidth = Math.max(1, Math.floor(context?.available.cols ?? context?.terminal.cols ?? model.width));
-            const viewportHeight = Math.max(1, Math.floor(context?.available.rows ?? context?.terminal.rows ?? model.height));
+            const viewportWidth = positiveInteger(context?.available.cols ?? context?.terminal.cols, model.width);
+            const viewportHeight = positiveInteger(context?.available.rows ?? context?.terminal.rows, model.height);
             return renderOverlay(viewportWidth, viewportHeight);
           });
           setVNodeMeta(overlayNode, {
             testId: `drawer-overlay-${position}`,
-            a11y: { role: 'dialog', label: config.title },
+            a11y: { role: 'dialog', label: title },
           });
           return overlayNode;
         }

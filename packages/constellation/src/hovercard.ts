@@ -18,10 +18,12 @@
 
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
 import { border, style } from '@celestial/corona';
-import { box, Cmd, column, event, type Msg, Sub, setVNodeMeta, text, type ThemeContext, type VNode } from '@celestial/nebula';
+import { box, Cmd, column, event, type Msg, Sub, setVNodeMeta, type ThemeContext, text, type VNode } from '@celestial/nebula';
+import { nonNegativeInteger, positiveInteger } from './internal.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
+import { transformVNode } from './vnode-transform.js';
 
 export interface HovercardTokens {
   readonly text: Color;
@@ -75,9 +77,11 @@ export type HovercardMsg =
   | Msg<'resize', { cols: number }>;
 
 export function hovercard(config: HovercardConfig): ComponentDescriptor<HovercardModel, HovercardMsg> {
-  const showDelay = Math.max(0, config.showDelay ?? 200);
-  const hideDelay = Math.max(0, config.hideDelay ?? 150);
-  const surfaceId = `hovercard-${config.id}`;
+  const showDelay = nonNegativeInteger(config.showDelay, 200, 2_147_483_647);
+  const hideDelay = nonNegativeInteger(config.hideDelay, 150, 2_147_483_647);
+  const surfaceId = `hovercard-${String(config.id)}`;
+  const triggerNode = config.trigger;
+  const contentNode = config.content;
   const triggerId = `${surfaceId}:trigger`;
   const cardId = `${surfaceId}:card`;
   const closeId = `${surfaceId}:close`;
@@ -112,7 +116,7 @@ export function hovercard(config: HovercardConfig): ComponentDescriptor<Hovercar
           broadcastSurfacePanic();
           return [{ ...model, state: 'idle', hoveredClose: false }, Cmd.none()];
         case 'resize':
-          return [{ ...model, viewportCols: Math.max(1, Math.floor(msg.cols)) }, Cmd.none()];
+          return [{ ...model, viewportCols: positiveInteger(msg.cols, 1) }, Cmd.none()];
         case 'hover-close':
           return [{ ...model, hoveredClose: true }, Cmd.none()];
         case 'leave-close':
@@ -124,14 +128,15 @@ export function hovercard(config: HovercardConfig): ComponentDescriptor<Hovercar
     view(model: HovercardModel): VNode {
       const trigger = event(
         triggerId,
-        config.trigger,
+        triggerNode,
         { onMouseEnter: enterTag, onMouseLeave: leaveTag },
         { label: 'Hovercard trigger', intent: 'inspect', affordances: ['hover'], cursor: 'pointer' },
       );
       if (model.state !== 'open') return trigger;
       const tokens = useTokens(hovercardContract, config, 'Hovercard');
-      const preferredWidth = Math.max(12, Math.floor(config.width ?? 36));
-      const width = Math.max(8, Math.min(preferredWidth, model.viewportCols === undefined ? preferredWidth : model.viewportCols - 2));
+      const preferredWidth = Math.max(12, positiveInteger(config.width, 36));
+      const viewportCols = model.viewportCols === undefined ? preferredWidth : positiveInteger(model.viewportCols, preferredWidth);
+      const width = Math.max(1, Math.min(preferredWidth, Math.max(1, viewportCols - 2)));
       const close = event(
         closeId,
         text(
@@ -148,7 +153,7 @@ export function hovercard(config: HovercardConfig): ComponentDescriptor<Hovercar
       const card = event(
         cardId,
         box(
-          column(enableHovercardTextWrapping(config.content), close),
+          column(enableHovercardTextWrapping(contentNode), close),
           style({ border: border.rounded, borderColor: tokens.border, background: tokens.background, padding: 1 }),
           { width, fit: 'content', overflow: 'hidden' },
         ),
@@ -188,29 +193,5 @@ export function hovercard(config: HovercardConfig): ComponentDescriptor<Hovercar
 }
 
 function enableHovercardTextWrapping(node: VNode): VNode {
-  switch (node.kind) {
-    case 'text':
-      return node.wrap === undefined ? { ...node, wrap: true } : node;
-    case 'row':
-    case 'column':
-    case 'box':
-    case 'tabGroup':
-      return { ...node, children: node.children.map(enableHovercardTextWrapping) };
-    case 'focus':
-    case 'scroll':
-    case 'event':
-    case 'hover':
-    case 'overlay':
-    case 'flex':
-    case 'portal':
-      return { ...node, child: enableHovercardTextWrapping(node.child) };
-    case 'component':
-      return { ...node, render: (context) => enableHovercardTextWrapping(node.render(context)) };
-    case 'memo':
-      return { ...node, render: () => enableHovercardTextWrapping(node.render()) };
-    case 'suspense':
-      return { ...node, child: enableHovercardTextWrapping(node.child), fallback: enableHovercardTextWrapping(node.fallback) };
-    default:
-      return node;
-  }
+  return transformVNode(node, (current) => (current.kind === 'text' && current.wrap === undefined ? { ...current, wrap: true } : current));
 }

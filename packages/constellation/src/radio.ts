@@ -3,6 +3,7 @@ import { style } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { Cmd, column, event, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { generateFocusGroupId } from './focus-group.js';
+import { boundedInteger, MAX_RENDER_CELLS } from './internal.js';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
@@ -58,65 +59,81 @@ export type RadioGroupMsg =
   | Msg<'noop'>;
 
 export function radioGroup(config: RadioGroupConfig): ComponentDescriptor<RadioGroupModel, RadioGroupMsg> {
-  const options = config.options;
+  const options = config.options.slice(0, MAX_RENDER_CELLS).map((option) => ({ ...option }));
   const interactionId = generateFocusGroupId('radio-group');
   const selectTag = `${interactionId}:select`;
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
+  const normalizeIndex = (index: number | undefined): number => (options.length === 0 ? 0 : boundedInteger(index, 0, 0, options.length - 1));
+  const normalizeModel = (model: RadioGroupModel): RadioGroupModel => {
+    const hoveredIndex = model.hoveredIndex;
+    return {
+      ...model,
+      selected: normalizeIndex(model.selected),
+      highlighted: normalizeIndex(model.highlighted),
+      focused: Boolean(model.focused),
+      hoveredIndex: hoveredIndex !== null && hoveredIndex !== undefined && Number.isInteger(hoveredIndex) && options[hoveredIndex] ? hoveredIndex : null,
+    };
+  };
   return {
     init(): [RadioGroupModel, Cmd<RadioGroupMsg>] {
-      return [{ selected: config.selected ?? 0, highlighted: config.selected ?? 0, focused: config.focused ?? false }, Cmd.none()];
+      const selected = normalizeIndex(config.selected);
+      return [{ selected, highlighted: selected, focused: config.focused ?? false }, Cmd.none()];
     },
     update(msg: RadioGroupMsg, model: RadioGroupModel): [RadioGroupModel, Cmd<RadioGroupMsg>] {
+      const safeModel = normalizeModel(model);
       switch (msg.type) {
         case 'up':
-          return [{ ...model, highlighted: Math.max(0, model.highlighted - 1) }, Cmd.none()];
+          return [{ ...safeModel, highlighted: Math.max(0, safeModel.highlighted - 1) }, Cmd.none()];
         case 'down':
-          return [{ ...model, highlighted: Math.min(options.length - 1, model.highlighted + 1) }, Cmd.none()];
+          return [{ ...safeModel, highlighted: Math.min(Math.max(0, options.length - 1), safeModel.highlighted + 1) }, Cmd.none()];
         case 'select': {
-          const opt = options[model.highlighted];
-          if (opt) config.onChange?.(opt.value, model.highlighted);
-          return [{ ...model, selected: model.highlighted }, Cmd.none()];
+          const opt = options[safeModel.highlighted];
+          if (!opt) return [model, Cmd.none()];
+          config.onChange?.(opt.value, safeModel.highlighted);
+          return [{ ...safeModel, selected: safeModel.highlighted }, Cmd.none()];
         }
         case 'select-at': {
-          const index = Math.max(0, Math.min(options.length - 1, msg.index));
+          if (!Number.isInteger(msg.index)) return [model, Cmd.none()];
+          const index = normalizeIndex(msg.index);
           const opt = options[index];
           if (!opt) return [model, Cmd.none()];
           config.onChange?.(opt.value, index);
           return [{ ...model, selected: index, highlighted: index, focused: true }, Cmd.none()];
         }
         case 'hover-at':
-          return options[msg.index] ? [{ ...model, hoveredIndex: msg.index }, Cmd.none()] : [model, Cmd.none()];
+          return Number.isInteger(msg.index) && options[msg.index] ? [{ ...safeModel, hoveredIndex: msg.index }, Cmd.none()] : [model, Cmd.none()];
         case 'leave':
-          return [{ ...model, hoveredIndex: null }, Cmd.none()];
+          return safeModel.hoveredIndex === null ? [model, Cmd.none()] : [{ ...safeModel, hoveredIndex: null }, Cmd.none()];
         case 'focus':
-          return [{ ...model, focused: true }, Cmd.none()];
+          return [{ ...safeModel, focused: true }, Cmd.none()];
         case 'blur':
-          return [{ ...model, focused: false }, Cmd.none()];
+          return [{ ...safeModel, focused: false }, Cmd.none()];
         case 'noop':
           return [model, Cmd.none()];
       }
     },
     view(model: RadioGroupModel): VNode {
+      const safeModel = normalizeModel(model);
       const tokens = useTokens(radioContract, config, 'RadioGroup');
       const hlStyle = style({ color: tokens.highlight, bold: true });
       const selStyle = style({ color: tokens.selected });
       const items = options.map((opt, i) => {
-        const ind = i === model.selected ? '(●)' : '( )';
-        const isHovered = i === model.hoveredIndex;
-        const isHighlighted = i === model.highlighted;
+        const ind = i === safeModel.selected ? '(●)' : '( )';
+        const isHovered = i === safeModel.hoveredIndex;
+        const isHighlighted = i === safeModel.highlighted;
         const prefix = isHovered || isHighlighted ? '▸ ' : '  ';
         const s = isHovered
           ? style({ color: tokens.borderHover, bold: true, reverse: true })
           : isHighlighted
             ? hlStyle
-            : i === model.selected
+            : i === safeModel.selected
               ? selStyle
               : applyTypography(tokens.labelStyle);
         const item = text(`${prefix}${ind} ${opt.label}`, s);
         setVNodeMeta(item, {
           testId: opt.value,
-          a11y: { role: 'radio', label: opt.label, checked: i === model.selected },
+          a11y: { role: 'radio', label: opt.label, checked: i === safeModel.selected },
         });
         return event(
           `${interactionId}:option:${i}`,

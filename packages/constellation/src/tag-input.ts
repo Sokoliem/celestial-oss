@@ -11,6 +11,8 @@ import { style, visualWidth } from '@celestial/corona';
 import type { KeyEvent, Msg, ThemeContext, VNode } from '@celestial/nebula';
 import { Cmd, event, focus, row, Sub, setVNodeMeta, text } from '@celestial/nebula';
 import { applySingleLineKey, graphemes, insertSingleLinePaste, replaceSelection } from './editable-text.js';
+import { generateFocusGroupId } from './focus-group.js';
+import { nonNegativeInteger } from './internal.js';
 import { useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
@@ -115,9 +117,9 @@ export function tagInputHitTest(tags: readonly string[], relX: number): Msg<'rem
  * @returns A ComponentDescriptor for the tag input.
  */
 export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputModel, TagInputMsg> {
-  const maxTags = config.maxTags ?? Infinity;
+  const maxTags = nonNegativeInteger(config.maxTags, 10_000, 10_000);
   const placeholder = config.placeholder ?? 'Type and press Enter...';
-  const inputId = `tag-input-${Math.random().toString(36).slice(2, 10)}`;
+  const inputId = generateFocusGroupId('tag-input');
   const inputTag = `${inputId}:focus`;
   const removeTagPrefix = `${inputId}:remove:`;
 
@@ -129,7 +131,7 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
     init(): [TagInputModel, Cmd<TagInputMsg>] {
       return [
         {
-          tags: config.tags ? [...config.tags] : [],
+          tags: config.tags ? config.tags.slice(0, maxTags) : [],
           inputBuffer: '',
           cursorPos: 0,
           highlightedTag: -1,

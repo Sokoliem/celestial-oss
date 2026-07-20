@@ -1,7 +1,9 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
 import { style } from '@celestial/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/nebula';
-import { Cmd, row, Sub, setVNodeMeta, text } from '@celestial/nebula';
+import { Cmd, event, row, Sub, setVNodeMeta, text } from '@celestial/nebula';
+import { generateFocusGroupId } from './focus-group.js';
+import { boundedInteger, clampRange, finiteNumber } from './internal.js';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
@@ -51,6 +53,7 @@ export interface NumberInputModel {
   editing: boolean;
   buffer: string;
   focused: boolean;
+  hoveredControl?: 'decrement' | 'increment' | 'value' | null;
 }
 
 // ─── Messages ───────────────────────────────────────────────────────────────
@@ -68,32 +71,36 @@ export type NumberInputMsg =
   | Msg<'commit'>
   | Msg<'cancel-edit'>
   | Msg<'focus'>
-  | Msg<'blur'>;
+  | Msg<'blur'>
+  | Msg<'hover-control', { control: 'decrement' | 'increment' | 'value' }>
+  | Msg<'leave-control'>
+  | Msg<'noop'>;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Detect decimal places from step value (e.g. 0.01 => 2, 5 => 0). */
 function detectPrecision(step: number): number {
-  const str = String(step);
-  const dot = str.indexOf('.');
-  return dot === -1 ? 0 : str.length - dot - 1;
+  if (!Number.isFinite(step)) return 0;
+  const [coefficient, exponentText] = Math.abs(step).toString().toLowerCase().split('e');
+  const decimalPlaces = coefficient!.split('.')[1]?.length ?? 0;
+  const exponent = exponentText ? Number(exponentText) : 0;
+  return Math.max(0, decimalPlaces - exponent);
 }
 
 /** Clamp a value within [min, max]. */
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
 /** Snap a value to the nearest step, anchored at min (or 0 if min is -Infinity). */
-function snapToStep(value: number, step: number, min: number, max: number): number {
-  if (step <= 0) return clamp(value, min, max);
+function snapToStep(value: number, step: number, min: number, max: number, precision: number, fallback: number): number {
+  const bounded = clampRange(value, min, max, fallback);
   const anchor = Number.isFinite(min) ? min : 0;
-  const steps = Math.round((value - anchor) / step);
+  const offset = bounded - anchor;
+  if (!Number.isFinite(offset)) return bounded;
+  const stepIndex = offset / step;
+  if (!Number.isFinite(stepIndex)) return bounded;
+  const steps = Math.round(stepIndex);
   const snapped = anchor + steps * step;
-  // Fix floating point: round to precision of step
-  const precision = detectPrecision(step);
+  if (!Number.isFinite(snapped)) return bounded;
   const rounded = Number(snapped.toFixed(precision));
-  return clamp(rounded, min, max);
+  return clampRange(rounded, min, max, bounded);
 }
 
 /** Format a number for display with the given precision. */
@@ -112,15 +119,24 @@ function isValidChar(char: string, buffer: string): boolean {
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function numberInput(config: NumberInputConfig): ComponentDescriptor<NumberInputModel, NumberInputMsg> {
-  const min = config.min ?? -Infinity;
-  const max = config.max ?? Infinity;
-  const step = config.step ?? 1;
-  const precision = config.precision ?? detectPrecision(step);
+  const configuredMin = config.min === undefined || Number.isNaN(config.min) ? Number.NEGATIVE_INFINITY : config.min;
+  const configuredMax = config.max === undefined || Number.isNaN(config.max) ? Number.POSITIVE_INFINITY : config.max;
+  const min = Math.min(configuredMin, configuredMax);
+  const max = Math.max(configuredMin, configuredMax);
+  const configuredStep = finiteNumber(config.step, 1);
+  const step = configuredStep > 0 ? configuredStep : 1;
+  const precision = boundedInteger(config.precision, detectPrecision(step), 0, 100);
+  const interactionId = generateFocusGroupId(`number-input-${config.label ?? 'value'}`);
+  const decrementTag = `${interactionId}:decrement`;
+  const incrementTag = `${interactionId}:increment`;
+  const editTag = `${interactionId}:edit`;
+  const hoverTag = `${interactionId}:hover`;
+  const leaveTag = `${interactionId}:leave`;
 
-  function applyChange(value: number): number {
-    const clamped = clamp(value, min, max);
+  function applyChange(value: number, fallback = 0): number {
+    const clamped = clampRange(value, min, max, clampRange(fallback, min, max, 0));
     // Round to precision to avoid floating-point drift
-    return Number(clamped.toFixed(precision));
+    return Number.isFinite(clamped) ? Number(clamped.toFixed(precision)) : clamped;
   }
 
   function notifyChange(value: number): void {
@@ -135,40 +151,35 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
     },
 
     update(msg: NumberInputMsg, model: NumberInputModel): [NumberInputModel, Cmd<NumberInputMsg>] {
+      const currentValue = applyChange(model.value);
+      const normalizedModel = { ...model, value: currentValue };
+      const changeBy = (delta: number): [NumberInputModel, Cmd<NumberInputMsg>] => {
+        const next = applyChange(currentValue + delta, currentValue);
+        if (next !== currentValue) notifyChange(next);
+        return [{ ...normalizedModel, value: next, focused: true }, Cmd.none()];
+      };
       switch (msg.type) {
-        case 'increment': {
-          const next = applyChange(model.value + step);
-          notifyChange(next);
-          return [{ ...model, value: next }, Cmd.none()];
-        }
-        case 'decrement': {
-          const next = applyChange(model.value - step);
-          notifyChange(next);
-          return [{ ...model, value: next }, Cmd.none()];
-        }
-        case 'increment-large': {
-          const next = applyChange(model.value + step * 10);
-          notifyChange(next);
-          return [{ ...model, value: next }, Cmd.none()];
-        }
-        case 'decrement-large': {
-          const next = applyChange(model.value - step * 10);
-          notifyChange(next);
-          return [{ ...model, value: next }, Cmd.none()];
-        }
+        case 'increment':
+          return changeBy(step);
+        case 'decrement':
+          return changeBy(-step);
+        case 'increment-large':
+          return changeBy(step * 10);
+        case 'decrement-large':
+          return changeBy(step * -10);
         case 'set-min': {
-          if (!Number.isFinite(min)) return [model, Cmd.none()];
-          notifyChange(min);
-          return [{ ...model, value: min }, Cmd.none()];
+          if (!Number.isFinite(min)) return [normalizedModel, Cmd.none()];
+          if (currentValue !== min) notifyChange(min);
+          return [{ ...normalizedModel, value: min }, Cmd.none()];
         }
         case 'set-max': {
-          if (!Number.isFinite(max)) return [model, Cmd.none()];
-          notifyChange(max);
-          return [{ ...model, value: max }, Cmd.none()];
+          if (!Number.isFinite(max)) return [normalizedModel, Cmd.none()];
+          if (currentValue !== max) notifyChange(max);
+          return [{ ...normalizedModel, value: max }, Cmd.none()];
         }
         case 'start-edit': {
-          const buf = formatValue(model.value, precision);
-          return [{ ...model, editing: true, buffer: buf }, Cmd.none()];
+          const buf = formatValue(currentValue, precision);
+          return [{ ...normalizedModel, editing: true, buffer: buf, focused: true }, Cmd.none()];
         }
         case 'char': {
           if (!model.editing) return [model, Cmd.none()];
@@ -185,9 +196,9 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
             // Invalid input: revert to previous value
             return [{ ...model, editing: false, buffer: '' }, Cmd.none()];
           }
-          const snapped = snapToStep(parsed, step, min, max);
-          notifyChange(snapped);
-          return [{ ...model, value: snapped, editing: false, buffer: '' }, Cmd.none()];
+          const snapped = snapToStep(parsed, step, min, max, precision, currentValue);
+          if (snapped !== currentValue) notifyChange(snapped);
+          return [{ ...normalizedModel, value: snapped, editing: false, buffer: '' }, Cmd.none()];
         }
         case 'cancel-edit': {
           return [{ ...model, editing: false, buffer: '' }, Cmd.none()];
@@ -198,11 +209,18 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
         case 'blur': {
           return [{ ...model, editing: false, buffer: '', focused: false }, Cmd.none()];
         }
+        case 'hover-control':
+          return [{ ...normalizedModel, hoveredControl: msg.control }, Cmd.none()];
+        case 'leave-control':
+          return [{ ...normalizedModel, hoveredControl: null }, Cmd.none()];
+        case 'noop':
+          return [normalizedModel, Cmd.none()];
       }
     },
 
     view(model: NumberInputModel): VNode {
       const tokens = useTokens(numberInputContract, config, 'NumberInput');
+      const value = applyChange(model.value);
       const parts: VNode[] = [];
       const borderColor = model.focused ? tokens.borderFocus : tokens.border;
       const focusedStyle = model.focused ? style({ color: tokens.text }) : undefined;
@@ -224,12 +242,19 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
         parts.push(text('_', cursorStyle));
       } else {
         // Normal mode: ▼ value ▲
-        const atMin = model.value <= min;
-        const atMax = model.value >= max;
+        const atMin = value <= min;
+        const atMax = value >= max;
         const downStyle = atMin ? dimStyle : focusedStyle;
         const upStyle = atMax ? dimStyle : focusedStyle;
 
-        parts.push(text('\u25BC ', downStyle));
+        parts.push(
+          event(
+            `${interactionId}:decrement`,
+            text('\u25BC ', model.hoveredControl === 'decrement' ? style({ color: tokens.borderHover, bold: true, reverse: true }) : downStyle),
+            atMin ? {} : { onClick: decrementTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+            { label: 'Decrease value', intent: 'edit', affordances: atMin ? [] : ['hover', 'click'], cursor: atMin ? undefined : 'pointer' },
+          ),
+        );
 
         // Prefix
         if (config.prefix) {
@@ -237,11 +262,25 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
         }
 
         // Value display
-        const display = formatValue(model.value, precision);
+        const display = formatValue(value, precision);
         if (display === '0' && !model.focused && config.placeholder) {
-          parts.push(text(config.placeholder, applyTypography(tokens.placeholderStyle, { color: tokens.placeholder })));
+          parts.push(
+            event(
+              `${interactionId}:value`,
+              text(config.placeholder, applyTypography(tokens.placeholderStyle, { color: tokens.placeholder })),
+              { onClick: editTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+              { label: config.label ?? 'Edit value', intent: 'edit', affordances: ['hover', 'click'], cursor: 'text' },
+            ),
+          );
         } else {
-          parts.push(text(display, focusedStyle));
+          parts.push(
+            event(
+              `${interactionId}:value`,
+              text(display, model.hoveredControl === 'value' ? style({ color: tokens.borderHover, underline: true }) : focusedStyle),
+              { onClick: editTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+              { label: config.label ?? 'Edit value', intent: 'edit', affordances: ['hover', 'click'], cursor: 'text' },
+            ),
+          );
         }
 
         // Suffix
@@ -249,7 +288,14 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
           parts.push(text(config.suffix, focusedStyle));
         }
 
-        parts.push(text(' \u25B2', upStyle));
+        parts.push(
+          event(
+            `${interactionId}:increment`,
+            text(' \u25B2', model.hoveredControl === 'increment' ? style({ color: tokens.borderHover, bold: true, reverse: true }) : upStyle),
+            atMax ? {} : { onClick: incrementTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+            { label: 'Increase value', intent: 'edit', affordances: atMax ? [] : ['hover', 'click'], cursor: atMax ? undefined : 'pointer' },
+          ),
+        );
       }
 
       // Right border indicator
@@ -264,7 +310,19 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
     },
 
     subscriptions(model: NumberInputModel): Sub<NumberInputMsg> {
-      if (!model.focused) return Sub.none();
+      const pointer = Sub.elementMouse<NumberInputMsg>((mouseEvent) => {
+        if (!mouseEvent.elementId.startsWith(`${interactionId}:`)) return { type: 'noop' };
+        const control = mouseEvent.elementId.slice(`${interactionId}:`.length);
+        if (mouseEvent.handlerTag === decrementTag) return { type: 'decrement' };
+        if (mouseEvent.handlerTag === incrementTag) return { type: 'increment' };
+        if (mouseEvent.handlerTag === editTag) return { type: 'start-edit' };
+        if (mouseEvent.handlerTag === hoverTag && (control === 'decrement' || control === 'increment' || control === 'value')) {
+          return { type: 'hover-control', control };
+        }
+        if (mouseEvent.handlerTag === leaveTag) return { type: 'leave-control' };
+        return { type: 'noop' };
+      });
+      if (!model.focused) return pointer;
 
       if (model.editing) {
         // Edit mode: digit keys, dot, minus, backspace, enter (commit), escape (cancel)
@@ -281,11 +339,12 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
         subs.push(Sub.key('enter', { type: 'commit' } as NumberInputMsg));
         subs.push(Sub.key('escape', { type: 'cancel-edit' } as NumberInputMsg));
 
-        return Sub.batch<NumberInputMsg>(...subs);
+        return Sub.batch<NumberInputMsg>(pointer, ...subs);
       }
 
       // Normal mode: arrow keys, page up/down, home/end, enter to edit
       return Sub.batch<NumberInputMsg>(
+        pointer,
         Sub.key('up', { type: 'increment' } as NumberInputMsg),
         Sub.key('down', { type: 'decrement' } as NumberInputMsg),
         Sub.key('pageup', { type: 'increment-large' } as NumberInputMsg),

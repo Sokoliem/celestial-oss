@@ -96,48 +96,58 @@ function findNextEnabled(tabList: Tab[], from: number, direction: 1 | -1): numbe
 }
 
 export function tabs(config: TabsConfig): ComponentDescriptor<TabsModel, TabsMsg> {
-  const tabList = config.tabs;
+  const tabList = config.tabs.slice(0, 10_000).map((tab) => ({ ...tab }));
   const interactionId = generateFocusGroupId('tabs');
   const selectTag = `${interactionId}:select`;
   const closeTag = `${interactionId}:close`;
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
+  const validIndex = (index: number | null | undefined): number | null => {
+    if (index === null || index === undefined || !Number.isFinite(index)) return null;
+    const normalized = Math.trunc(index);
+    return normalized >= 0 && normalized < tabList.length ? normalized : null;
+  };
   return {
     init(): [TabsModel, Cmd<TabsMsg>] {
-      return [{ active: config.active ?? 0, focused: config.focused ?? false }, Cmd.none()];
+      return [{ active: validIndex(config.active) ?? (tabList.length > 0 ? 0 : -1), focused: config.focused ?? false }, Cmd.none()];
     },
     update(msg: TabsMsg, model: TabsModel): [TabsModel, Cmd<TabsMsg>] {
+      const active = validIndex(model.active) ?? (tabList.length > 0 ? 0 : -1);
       switch (msg.type) {
         case 'left': {
-          const i = findNextEnabled(tabList, model.active, -1);
+          const i = findNextEnabled(tabList, active, -1);
           tabList[i] && config.onChange?.(tabList[i]!.key, i);
           return [{ ...model, active: i }, Cmd.none()];
         }
         case 'right': {
-          const i = findNextEnabled(tabList, model.active, 1);
+          const i = findNextEnabled(tabList, active, 1);
           tabList[i] && config.onChange?.(tabList[i]!.key, i);
           return [{ ...model, active: i }, Cmd.none()];
         }
         case 'select': {
-          const t = tabList[model.active];
-          if (t && !t.disabled) config.onChange?.(t.key, model.active);
-          return [model, Cmd.none()];
+          const t = tabList[active];
+          if (t && !t.disabled) config.onChange?.(t.key, active);
+          return [{ ...model, active }, Cmd.none()];
         }
         case 'activate': {
-          const idx = msg.index;
+          const idx = validIndex(msg.index);
+          if (idx === null) return [{ ...model, active }, Cmd.none()];
           const t = tabList[idx];
           if (!t || t.disabled) return [model, Cmd.none()];
           config.onChange?.(t.key, idx);
           return [{ ...model, active: idx, focused: true }, Cmd.none()];
         }
         case 'close': {
-          const idx = msg.index;
+          const idx = validIndex(msg.index);
+          if (idx === null) return [{ ...model, active }, Cmd.none()];
           const t = tabList[idx];
           if (t?.closeable) config.onClose?.(t.key, idx);
           return [model, Cmd.none()];
         }
-        case 'hover-at':
-          return tabList[msg.index] ? [{ ...model, hoveredIndex: msg.index }, Cmd.none()] : [model, Cmd.none()];
+        case 'hover-at': {
+          const index = validIndex(msg.index);
+          return index === null ? [{ ...model, active }, Cmd.none()] : [{ ...model, active, hoveredIndex: index }, Cmd.none()];
+        }
         case 'leave':
           return [{ ...model, hoveredIndex: null }, Cmd.none()];
         case 'focus':
@@ -150,6 +160,8 @@ export function tabs(config: TabsConfig): ComponentDescriptor<TabsModel, TabsMsg
     },
     view(model: TabsModel): VNode {
       const tokens = useTokens(tabsContract, config, 'Tabs');
+      const active = validIndex(model.active) ?? (tabList.length > 0 ? 0 : -1);
+      const hoveredIndex = validIndex(model.hoveredIndex);
       const dimStyle = applyTypography(tokens.captionStyle, { dim: true, color: tokens.inactive });
       const disabledStyle = applyTypography(tokens.captionStyle, { dim: true, color: tokens.inactive, strikethrough: true });
       const sepStyle = style({ dim: true, color: tokens.divider });
@@ -161,16 +173,16 @@ export function tabs(config: TabsConfig): ComponentDescriptor<TabsModel, TabsMsg
         // P0-3: per-tab accent overrides the default `tokens.active` underline.
         const accent = config.accentResolver?.(tab, i) ?? tokens.active;
         const activeStyle = applyTypography(tokens.titleStyle, { color: accent, bold: true, underline: true });
-        const customStyle = config.tabStyleResolver?.(tab, i, i === model.active) ?? null;
+        const customStyle = config.tabStyleResolver?.(tab, i, i === active) ?? null;
         const hoverStyle = style({ color: accent, bold: true, reverse: true });
-        const s = customStyle ?? (tab.disabled ? disabledStyle : model.hoveredIndex === i ? hoverStyle : i === model.active ? activeStyle : dimStyle);
+        const s = customStyle ?? (tab.disabled ? disabledStyle : hoveredIndex === i ? hoverStyle : i === active ? activeStyle : dimStyle);
         const prefix = config.renderTabPrefix?.(tab, i) ?? null;
         // P0-3: optional suffix node rendered before the close affordance.
         const suffix = config.renderTabSuffix?.(tab, i) ?? null;
         const labelNode = text(label, s);
         setVNodeMeta(labelNode, {
           testId: tab.key,
-          a11y: { role: 'tab', label: tab.label, selected: i === model.active },
+          a11y: { role: 'tab', label: tab.label, selected: i === active },
         });
         let tabNode: VNode;
         if (prefix === null && suffix === null && !tab.closeable) {
@@ -212,7 +224,7 @@ export function tabs(config: TabsConfig): ComponentDescriptor<TabsModel, TabsMsg
       }
       const container = row(...items);
       setVNodeMeta(container, {
-        testId: config.tabs.map((t) => t.key).join('-') || 'tablist',
+        testId: tabList.map((t) => t.key).join('-') || 'tablist',
         a11y: { role: 'tablist', label: 'tabs' },
       });
       return container;
@@ -235,9 +247,10 @@ export function tabs(config: TabsConfig): ComponentDescriptor<TabsModel, TabsMsg
       });
       if (!model.focused) return mouse;
       const subs: Sub<TabsMsg>[] = [mouse, Sub.key('left', { type: 'left' }), Sub.key('right', { type: 'right' }), Sub.key('enter', { type: 'select' })];
-      const activeTab = tabList[model.active];
+      const active = validIndex(model.active) ?? (tabList.length > 0 ? 0 : -1);
+      const activeTab = tabList[active];
       if (activeTab?.closeable) {
-        subs.push(Sub.key('delete', { type: 'close', index: model.active }));
+        subs.push(Sub.key('delete', { type: 'close', index: active }));
       }
       return Sub.batch<TabsMsg>(...subs);
     },

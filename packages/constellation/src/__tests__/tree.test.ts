@@ -276,4 +276,25 @@ describe('tree', () => {
       expect(extractText(b1Node as Parameters<typeof extractText>[0])).toContain('├──');
     }
   });
+
+  it('snapshots caller-owned trees and rejects cycles and duplicate keys', () => {
+    const mutable = [{ label: 'Original', key: 'root', children: [{ label: 'Child', key: 'child' }] }];
+    const component = tree({ nodes: mutable });
+    mutable[0]!.label = 'Changed';
+    const [model] = component.init();
+    expect(extractText(component.view(model) as Parameters<typeof extractText>[0])).toContain('Original');
+    expect(extractText(component.view(model) as Parameters<typeof extractText>[0])).not.toContain('Changed');
+
+    const cyclic: any = { label: 'Cycle', key: 'cycle' };
+    cyclic.children = [cyclic];
+    expect(() => tree({ nodes: [cyclic] })).toThrow(/cycles/i);
+    expect(() =>
+      tree({
+        nodes: [
+          { label: 'A', key: 'same' },
+          { label: 'B', key: 'same' },
+        ],
+      }),
+    ).toThrow(/unique/i);
+  });
 });

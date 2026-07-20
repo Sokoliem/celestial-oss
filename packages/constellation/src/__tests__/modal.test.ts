@@ -1,4 +1,5 @@
-import { app, Cmd, cmdKind, collectFocusNodes, column, focus, Sub, text } from '@celestial/core/nebula';
+import { app, Cmd, cmdKind, collectFocusNodes, column, focus, localState, memo, portal, Sub, suspense, text } from '@celestial/core/nebula';
+import { renderToLines } from '@celestial/test';
 import { describe, expect, it, vi } from 'vitest';
 import { modal } from '../modal.js';
 
@@ -163,6 +164,55 @@ describe('modal', () => {
     const vnode = component.view({ open: true });
     const focusNodes = collectFocusNodes(vnode);
     expect(focusNodes.find((node) => node.id === 'component-field')?.group).toBeDefined();
+  });
+
+  it('assigns focus groups through deferred and layered VNode boundaries', () => {
+    const component = modal({
+      title: 'Deferred content',
+      content: portal(
+        'modal-layer',
+        suspense(
+          memo(() => focus('memo-field', text('Memo field')), []),
+          focus('fallback-field', text('Fallback field')),
+          true,
+        ),
+      ),
+    });
+
+    const root = component.view({ open: true });
+    const innerBox = root.kind === 'box' ? root.children[0] : undefined;
+    const contentColumn = innerBox?.kind === 'box' ? innerBox.children[0] : undefined;
+    const portalNode = contentColumn?.kind === 'column' ? contentColumn.children[3] : undefined;
+    expect(portalNode?.kind).toBe('portal');
+    if (portalNode?.kind !== 'portal' || portalNode.child.kind !== 'suspense') return;
+    const renderedMemo = portalNode.child.child.kind === 'memo' ? portalNode.child.child.render() : undefined;
+    expect(renderedMemo?.kind).toBe('focus');
+    if (renderedMemo?.kind === 'focus') expect(renderedMemo.group).toBeDefined();
+    expect(portalNode.child.fallback.kind).toBe('focus');
+    if (portalNode.child.fallback.kind === 'focus')
+      expect(portalNode.child.fallback.group).toBe(renderedMemo?.kind === 'focus' ? renderedMemo.group : undefined);
+  });
+
+  it('wraps text materialized by memo and local-state boundaries', () => {
+    const component = modal({
+      title: 'Deferred wrapping',
+      width: 24,
+      content: column(
+        memo(() => text('Memo content keeps its final letter.'), []),
+        localState(
+          'modal-local',
+          () => 0,
+          (state: number) => state,
+          () => text('Local content also remains complete.'),
+        ),
+      ),
+    });
+    const [model] = component.init();
+    const lines = renderToLines(component.view(model), { width: 24, height: 30 });
+    const rendered = lines.join('\n');
+
+    expect(rendered).toContain('letter.');
+    expect(rendered).toContain('complete.');
   });
 
   it('uses unique modal groups and close ids across instances', () => {

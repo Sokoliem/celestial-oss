@@ -1,9 +1,11 @@
+import { selectListRange } from '@celestial/core';
 import type { Color, SemanticTheme, StateToken, TableTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
 import { alignmentForType, autoSizeColumns, border, formatCell as coronaFormatCell, detectColumnType, style } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
-import { selectListRange } from '@celestial/core';
+import { padCellText } from '@celestial/rosetta';
 import { generateFocusGroupId } from './focus-group.js';
+import { boundedInteger, MAX_RENDER_CELLS, positiveInteger } from './internal.js';
 import { applyState, applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
@@ -136,7 +138,7 @@ export type DataTableMsg =
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+  return Number.isFinite(value) ? Math.max(min, Math.min(max, Math.trunc(value))) : min;
 }
 
 /** Get the value of a column key from a row object */
@@ -147,7 +149,7 @@ function getCellValue<T>(row: T, key: string): unknown {
 /** Format a cell value as a string */
 function formatCell<T>(col: DataColumn<T>, row: T): string {
   const value = getCellValue(row, col.key);
-  if (col.render) return col.render(value, row);
+  if (col.render) return String(col.render(value, row) ?? '');
   if (value === null || value === undefined) return '';
   return String(value);
 }
@@ -206,27 +208,29 @@ function ensureCursorVisible(cursorRow: number, scrollOffset: number, visibleRow
 
 /** Pad or truncate a string to a specific width, respecting alignment */
 function padCell(content: string, width: number, align: 'left' | 'center' | 'right' = 'left'): string {
-  if (content.length > width) return content.slice(0, width);
-  const pad = width - content.length;
-  switch (align) {
-    case 'right':
-      return ' '.repeat(pad) + content;
-    case 'center': {
-      const left = Math.floor(pad / 2);
-      const right = pad - left;
-      return ' '.repeat(left) + content + ' '.repeat(right);
-    }
-    default:
-      return content + ' '.repeat(pad);
-  }
+  return padCellText(content, positiveInteger(width, 1), { align });
+}
+
+function fitColumnWidths(widths: readonly number[], overhead: number): number[] {
+  const budget = Math.max(widths.length, MAX_RENDER_CELLS - overhead);
+  const total = widths.reduce((sum, width) => sum + width, 0);
+  if (total <= budget) return [...widths];
+  const scale = budget / total;
+  const fitted = widths.map((width) => Math.max(1, Math.floor(width * scale)));
+  let remaining = budget - fitted.reduce((sum, width) => sum + width, 0);
+  for (let index = 0; index < fitted.length && remaining > 0; index++, remaining--) fitted[index]! += 1;
+  return fitted;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<DataTableModel, DataTableMsg> {
-  const { columns, data, getKey, visibleRows = 20, selectable = true, multiSelect = false, filterable = false, onSelect, onSort } = config;
+  const columns = config.columns.map((column) => ({ ...column }));
+  const data = [...config.data];
+  const { getKey, selectable = true, multiSelect = false, filterable = false, onSelect, onSort } = config;
   if (columns.length === 0) throw new Error('DataTable requires at least one column.');
-  if (!Number.isInteger(visibleRows) || visibleRows <= 0) throw new Error('DataTable visibleRows must be a positive integer.');
+  if (columns.length > 1_000) throw new RangeError('DataTable supports at most 1,000 columns.');
+  const visibleRows = positiveInteger(config.visibleRows, 20);
   const interactionId = generateFocusGroupId('data-table');
   const rowTag = `${interactionId}:row`;
   const sortTag = `${interactionId}:sort`;
@@ -519,8 +523,10 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
         const sizing = autoSizeColumns(headerLabels, stringRows, 120);
         colWidths = sizing.finalWidths;
       } else {
-        colWidths = columns.map((c) => c.width ?? 10);
+        colWidths = columns.map((c) => positiveInteger(c.width, 10));
       }
+      const tableOverhead = (columns.length - 1) * 3 + 2 + (config.rowNumbers ? 7 : 0);
+      colWidths = fitColumnWidths(colWidths, tableOverhead);
 
       // ─── Resolve column alignments (auto from type or explicit) ──
       const colAligns = columns.map((col, ci) => {
@@ -530,7 +536,7 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
       });
 
       // ─── Header color cycling ──────────────────────────────────
-      const headerColors = config.cyclingHeaderColors && config.tableTheme?.headerColors;
+      const headerColors = config.cyclingHeaderColors && config.tableTheme?.headerColors?.length ? config.tableTheme.headerColors : undefined;
 
       const elements: VNode[] = [];
 
@@ -587,7 +593,7 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
 
       // ─── Separator ─────────────────────────────────────────────
       const rnExtra = config.rowNumbers ? 4 + 3 : 0;
-      const totalWidth = colWidths.reduce((sum, w) => sum + w, 0) + (columns.length - 1) * 3 + 2 + rnExtra;
+      const totalWidth = boundedInteger(colWidths.reduce((sum, w) => sum + w, 0) + (columns.length - 1) * 3 + 2 + rnExtra, 1, 1);
       elements.push(text('─'.repeat(totalWidth), dividerStyle));
 
       // ─── Scroll indicator (top) ────────────────────────────────
@@ -687,9 +693,7 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
         statusParts.push(`${model.selectedKeys.size} selected`);
       }
       if (model.rangeSelectionKeys.size > 1) {
-        const rangeIndexes = processedRows
-          .map((rowData, index) => (model.rangeSelectionKeys.has(getKey(rowData)) ? index : -1))
-          .filter((index) => index >= 0);
+        const rangeIndexes = processedRows.map((rowData, index) => (model.rangeSelectionKeys.has(getKey(rowData)) ? index : -1)).filter((index) => index >= 0);
         if (rangeIndexes.length > 1) statusParts.push(`range ${rangeIndexes[0]! + 1}-${rangeIndexes[rangeIndexes.length - 1]! + 1}`);
       }
       if (model.sortState) {

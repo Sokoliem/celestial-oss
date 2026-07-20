@@ -31,6 +31,7 @@ import {
   text,
 } from '@celestial/core/nebula';
 import { generateFocusGroupId } from './focus-group.js';
+import { positiveInteger } from './internal.js';
 import { type Command, createPaletteState, getSelectedCommand, type PaletteMsg, type PaletteState, paletteUpdate } from './palette.js';
 import { useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
@@ -227,10 +228,10 @@ function toPaletteMsg(msg: CommandPaletteMsg): PaletteMsg | null {
  * @returns A ComponentDescriptor for the command palette.
  */
 export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDescriptor<CommandPaletteModel, CommandPaletteMsg> {
-  const commands = config.commands;
+  const commands = config.commands.slice(0, 100_000).map((command) => ({ ...command }));
   const placeholder = config.placeholder ?? 'Type a command...';
-  const maxVisible = config.maxVisible ?? 10;
-  const width = config.width ?? 42;
+  const maxVisible = positiveInteger(config.maxVisible, 10);
+  const width = positiveInteger(config.width, 42);
   const surfaceId = config.id ?? generateFocusGroupId('command-palette');
   const selectTag = `${surfaceId}:select-command`;
   const hoverTag = `${surfaceId}:hover-command`;
@@ -271,7 +272,7 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
       }
 
       if (msg.type === 'cp-select-at') {
-        if (msg.index < 0 || msg.index >= model.palette.filteredIds.length) return [model, Cmd.none()];
+        if (!Number.isInteger(msg.index) || msg.index < 0 || msg.index >= model.palette.filteredIds.length) return [model, Cmd.none()];
         const pointedPalette = { ...model.palette, selectedIndex: msg.index };
         const selected = getSelectedCommand(pointedPalette, commands);
         if (selected) config.onSelect?.(selected.msg);
@@ -282,7 +283,7 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
       }
 
       if (msg.type === 'cp-hover-at') {
-        if (msg.index < 0 || msg.index >= model.palette.filteredIds.length) return [model, Cmd.none()];
+        if (!Number.isInteger(msg.index) || msg.index < 0 || msg.index >= model.palette.filteredIds.length) return [model, Cmd.none()];
         return [{ ...model, palette: { ...model.palette, selectedIndex: msg.index }, hoveredIndex: msg.index }, Cmd.none()];
       }
 
@@ -330,7 +331,7 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
       ];
 
       // Build command list — scroll the visible window to include the selected item
-      const selectedIdx = model.palette.selectedIndex;
+      const selectedIdx = Number.isInteger(model.palette.selectedIndex) ? model.palette.selectedIndex : 0;
       let start = 0;
       if (selectedIdx >= maxVisible) {
         start = selectedIdx - maxVisible + 1;

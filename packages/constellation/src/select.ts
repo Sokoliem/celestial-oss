@@ -3,6 +3,7 @@ import { style } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { Cmd, column, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { generateFocusGroupId } from './focus-group.js';
+import { positiveInteger } from './internal.js';
 import { applyState, applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 import { createVirtualScrollState, getVisibleRange, scrollToIndex, type VirtualScrollConfig, type VirtualScrollState } from './virtual-scroll.js';
@@ -99,10 +100,10 @@ function findNextEnabledOption(options: SelectOption[], from: number, direction:
 }
 
 export function select(config: SelectConfig): ComponentDescriptor<SelectModel, SelectMsg> {
-  const options = config.options;
+  const options = config.options.slice(0, 100_000).map((option) => ({ ...option }));
   const placeholder = config.placeholder ?? 'Select...';
-  const display = config.display ?? 'dropdown';
-  const maxVisible = Math.max(1, config.maxVisibleOptions ?? 10);
+  const display = config.display === 'listbox' ? 'listbox' : 'dropdown';
+  const maxVisible = config.maxVisibleOptions === Number.POSITIVE_INFINITY ? Math.max(1, options.length) : positiveInteger(config.maxVisibleOptions, 10);
   const interactionId = generateFocusGroupId(`select-${placeholder}`);
   const toggleTag = `${interactionId}:toggle`;
   const selectTag = `${interactionId}:select`;
@@ -118,47 +119,54 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
     return scrollToIndex(vsConfig(), model.scroll, highlighted);
   }
 
+  function validIndex(index: number | null | undefined): number | null {
+    if (index === null || index === undefined || !Number.isFinite(index)) return null;
+    const normalized = Math.trunc(index);
+    return normalized >= 0 && normalized < options.length ? normalized : null;
+  }
+
   return {
     init(): [SelectModel, Cmd<SelectMsg>] {
-      const initialHighlight = config.selected ?? 0;
+      const selected = validIndex(config.selected);
+      const initialHighlight = selected ?? (options.length > 0 ? 0 : -1);
       const initialScroll = scrollToIndex(vsConfig(), createVirtualScrollState(vsConfig()), initialHighlight);
-      return [
-        { open: false, highlighted: initialHighlight, selected: config.selected ?? null, focused: config.focused ?? false, scroll: initialScroll },
-        Cmd.none(),
-      ];
+      return [{ open: false, highlighted: initialHighlight, selected, focused: config.focused ?? false, scroll: initialScroll }, Cmd.none()];
     },
     update(msg: SelectMsg, model: SelectModel): [SelectModel, Cmd<SelectMsg>] {
+      const highlighted = validIndex(model.highlighted) ?? (options.length > 0 ? 0 : -1);
+      const selected = validIndex(model.selected);
       switch (msg.type) {
         case 'toggle': {
           if (display === 'listbox') {
-            const opt = options[model.highlighted];
-            if (opt && !opt.disabled) config.onChange?.(opt.value, model.highlighted);
-            return [{ ...model, selected: opt?.disabled ? model.selected : model.highlighted }, Cmd.none()];
+            const opt = options[highlighted];
+            if (opt && !opt.disabled) config.onChange?.(opt.value, highlighted);
+            return [{ ...model, highlighted, selected: opt?.disabled ? selected : highlighted }, Cmd.none()];
           }
           if (model.open) {
-            const next = model.selected ?? 0;
+            const next = selected ?? (options.length > 0 ? 0 : -1);
             return [{ ...model, open: false, highlighted: next, scroll: scrollHighlightedIntoView(model, next) }, Cmd.none()];
           }
-          return [{ ...model, open: true, scroll: scrollHighlightedIntoView(model, model.highlighted) }, Cmd.none()];
+          return [{ ...model, highlighted, selected, open: true, scroll: scrollHighlightedIntoView(model, highlighted) }, Cmd.none()];
         }
         case 'up': {
-          const next = findNextEnabledOption(options, model.highlighted, -1);
+          const next = findNextEnabledOption(options, highlighted, -1);
           return [{ ...model, highlighted: next, scroll: scrollHighlightedIntoView(model, next) }, Cmd.none()];
         }
         case 'down': {
-          const next = findNextEnabledOption(options, model.highlighted, 1);
+          const next = findNextEnabledOption(options, highlighted, 1);
           return [{ ...model, highlighted: next, scroll: scrollHighlightedIntoView(model, next) }, Cmd.none()];
         }
         case 'select': {
-          const opt = options[model.highlighted];
+          const opt = options[highlighted];
           if (opt && !opt.disabled) {
-            config.onChange?.(opt.value, model.highlighted);
-            return [{ ...model, selected: model.highlighted, open: false }, Cmd.none()];
+            config.onChange?.(opt.value, highlighted);
+            return [{ ...model, highlighted, selected: highlighted, open: false }, Cmd.none()];
           }
           return [model, Cmd.none()];
         }
         case 'select-at': {
-          const index = Math.max(0, Math.min(options.length - 1, msg.index));
+          const index = validIndex(msg.index);
+          if (index === null) return [model, Cmd.none()];
           const opt = options[index];
           if (!opt || opt.disabled) return [model, Cmd.none()];
           config.onChange?.(opt.value, index);
@@ -175,7 +183,8 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
           ];
         }
         case 'hover-at': {
-          const index = Math.max(0, Math.min(options.length - 1, msg.index));
+          const index = validIndex(msg.index);
+          if (index === null) return [model, Cmd.none()];
           if (!options[index]) return [model, Cmd.none()];
           return [{ ...model, hoveredIndex: index, highlighted: index, scroll: scrollHighlightedIntoView(model, index) }, Cmd.none()];
         }
@@ -184,7 +193,7 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
         case 'leave':
           return [{ ...model, hovered: false, hoveredIndex: null }, Cmd.none()];
         case 'close': {
-          const next = model.selected ?? 0;
+          const next = selected ?? (options.length > 0 ? 0 : -1);
           return [{ ...model, open: false, highlighted: next, scroll: scrollHighlightedIntoView(model, next) }, Cmd.none()];
         }
         case 'focus':
@@ -197,7 +206,9 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
     },
     view(model: SelectModel): VNode {
       const tokens = useTokens(selectContract, config, 'Select');
-      const selectedOpt = model.selected !== null ? options[model.selected] : undefined;
+      const selectedIndex = validIndex(model.selected);
+      const highlighted = validIndex(model.highlighted) ?? (options.length > 0 ? 0 : -1);
+      const selectedOpt = selectedIndex !== null ? options[selectedIndex] : undefined;
       const label = selectedOpt?.label ?? placeholder;
       const dimStyle = applyTypography(tokens.placeholderStyle);
       const hlStyle = applyState(tokens.highlightState, { color: tokens.highlight });
@@ -221,18 +232,18 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
             items.push(text(`  ${opt.group}`, groupStyle));
             lastGroup = opt.group;
           }
-          const isHovered = i === model.hoveredIndex;
+          const isHovered = i === validIndex(model.hoveredIndex);
           const s = opt.disabled
             ? disabledStyle
             : isHovered
               ? style({ color: tokens.borderHover, bold: true, reverse: true })
-              : i === model.highlighted
+              : i === highlighted
                 ? hlStyle
                 : applyTypography(tokens.labelStyle);
           items.push(
             event(
               `${interactionId}:option:${i}`,
-              text((i === model.highlighted ? tokens.indicator + ' ' : '  ') + opt.label, s),
+              text((i === highlighted ? tokens.indicator + ' ' : '  ') + opt.label, s),
               opt.disabled ? {} : { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
               {
                 label: opt.label,

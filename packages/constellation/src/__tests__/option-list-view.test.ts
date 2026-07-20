@@ -1,3 +1,4 @@
+import { extractNodeText } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { filterByFuzzy, filterByLabel, moveOptionHighlight, type OptionListItem, optionListView } from '../option-list-view.js';
 
@@ -167,6 +168,36 @@ describe('optionListView — virtualization + view', () => {
     const [m] = c.init();
     const v = c.view(m);
     expect(v.kind).toBe('text');
+  });
+
+  it('bounds invalid viewport limits and snapshots caller-owned items', () => {
+    const mutable = [{ id: '0', label: 'original', value: 'original' }];
+    const c = optionListView({ items: mutable, maxVisible: Number.POSITIVE_INFINITY });
+    mutable[0]!.label = 'changed';
+    const [model] = c.init();
+    expect(extractNodeText(c.view(model))).toContain('original');
+    expect(extractNodeText(c.view(model))).not.toContain('changed');
+  });
+
+  it('rejects duplicate ids that would make selection ambiguous', () => {
+    expect(() =>
+      optionListView({
+        items: [
+          { id: 'same', label: 'A', value: 'a' },
+          { id: 'same', label: 'B', value: 'b' },
+        ],
+      }),
+    ).toThrow(/unique/i);
+  });
+
+  it('supports direct pointer-style selection and keeps its mouse subscription active', () => {
+    const onSelect = vi.fn();
+    const c = optionListView({ items: items('a', 'b'), onSelect });
+    const [model] = c.init();
+    expect(c.subscriptions!(model)._kind.kind).toBe('elementMouse');
+    const [updated] = c.update({ type: 'opt-click', id: '1' }, model);
+    expect(updated.highlightedIndex).toBe(1);
+    expect(onSelect).toHaveBeenCalledWith('1', 'b');
   });
 });
 

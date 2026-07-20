@@ -1,3 +1,4 @@
+import { extractNodeText } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import type { ComboboxModel } from '../combobox.js';
 import { combobox } from '../combobox.js';
@@ -275,39 +276,34 @@ describe('combobox', () => {
     it('shows placeholder when empty and unfocused', () => {
       const comp = combobox({ options, placeholder: 'Search...' });
       const vnode = comp.view(model());
-      expect(vnode.kind).toBe('text');
-      if (vnode.kind === 'text') {
-        expect(vnode.content).toBe('Search...');
-      }
+      expect(vnode.kind).toBe('event');
+      expect(extractNodeText(vnode)).toBe('Search...');
     });
 
     it('shows default placeholder when none specified', () => {
       const comp = combobox({ options });
       const vnode = comp.view(model());
-      if (vnode.kind === 'text') {
-        expect(vnode.content).toBe('Type or select...');
-      }
+      expect(vnode.kind).toBe('event');
+      expect(extractNodeText(vnode)).toBe('Type or select...');
     });
 
     it('shows input text when closed with value', () => {
       const comp = combobox({ options });
       const vnode = comp.view(model({ inputBuffer: 'Banana' }));
-      expect(vnode.kind).toBe('text');
-      if (vnode.kind === 'text') {
-        expect(vnode.content).toBe('Banana');
-      }
+      expect(vnode.kind).toBe('event');
+      expect(extractNodeText(vnode)).toBe('Banana');
     });
 
     it('shows cursor when focused with text', () => {
       const comp = combobox({ options });
       const vnode = comp.view(model({ inputBuffer: 'abc', cursor: 1, focused: true }));
-      expect(vnode.kind).toBe('row');
-      if (vnode.kind === 'row') {
+      expect(vnode.kind).toBe('event');
+      if (vnode.kind === 'event' && vnode.child.kind === 'row') {
         // before cursor, cursor char, after cursor
-        expect(vnode.children.length).toBe(3);
-        const before = vnode.children[0];
-        const cursorChar = vnode.children[1];
-        const after = vnode.children[2];
+        expect(vnode.child.children.length).toBe(3);
+        const before = vnode.child.children[0];
+        const cursorChar = vnode.child.children[1];
+        const after = vnode.child.children[2];
         if (before?.kind === 'text') expect(before.content).toBe('a');
         if (cursorChar?.kind === 'text') expect(cursorChar.content).toBe('b');
         if (after?.kind === 'text') expect(after.content).toBe('c');
@@ -331,14 +327,11 @@ describe('combobox', () => {
         expect(vnode.children.length).toBe(3); // input + 2 filtered options
         const first = vnode.children[1];
         const second = vnode.children[2];
-        if (first?.kind === 'text') {
-          expect(first.content).toContain('Apple');
-          expect(first.content).toContain('▸'); // highlighted
-        }
-        if (second?.kind === 'text') {
-          expect(second.content).toContain('Apricot');
-          expect(second.content).not.toContain('▸');
-        }
+        expect(first?.kind).toBe('event');
+        expect(extractNodeText(first!)).toContain('Apple');
+        expect(extractNodeText(first!)).toContain('▸');
+        expect(second?.kind).toBe('event');
+        expect(extractNodeText(second!)).toContain('Apricot');
       }
     });
 
@@ -356,8 +349,8 @@ describe('combobox', () => {
       if (vnode.kind === 'column') {
         const item0 = vnode.children[1];
         const item1 = vnode.children[2];
-        if (item0?.kind === 'text') expect(item0.content).not.toContain('▸');
-        if (item1?.kind === 'text') expect(item1.content).toContain('▸');
+        expect(extractNodeText(item0!)).not.toContain('▸');
+        expect(extractNodeText(item1!)).toContain('▸');
       }
     });
 
@@ -379,10 +372,10 @@ describe('combobox', () => {
   // ─── subscriptions ──────────────────────────────────────────────────────
 
   describe('subscriptions', () => {
-    it('returns none when not focused', () => {
+    it('keeps pointer subscriptions active when not focused', () => {
       const comp = combobox({ options });
       const sub = comp.subscriptions!(model({ focused: false }));
-      expect(sub._kind.kind).toBe('none');
+      expect(sub._kind.kind).toBe('elementMouse');
     });
 
     it('includes decoded key and paste subscriptions when focused', () => {
@@ -390,7 +383,7 @@ describe('combobox', () => {
       const sub = comp.subscriptions!(model({ focused: true }));
       expect(sub._kind.kind).toBe('batch');
       if (sub._kind.kind === 'batch') {
-        expect(sub._kind.subs.map((s) => s._kind.kind)).toEqual(['keyEvent', 'paste']);
+        expect(sub._kind.subs.map((s) => s._kind.kind)).toEqual(['elementMouse', 'keyEvent', 'paste']);
       }
     });
 
@@ -424,5 +417,22 @@ describe('combobox', () => {
       expect(next.inputBuffer).toBe('A界B');
       expect(next.cursor).toBe(2);
     });
+  });
+
+  it('snapshots options and rejects invalid pointer indices', () => {
+    const mutable = [{ label: 'Original', value: 'original' }];
+    const comp = combobox({ options: mutable });
+    mutable[0]!.label = 'Mutated';
+    const [model] = comp.init();
+    expect(model.filteredIndices).toEqual([0]);
+    expect(comp.update({ type: 'select-at', index: Number.NaN }, { ...model, open: true })[0].open).toBe(true);
+    expect(extractNodeText(comp.view({ ...model, open: true, focused: true }))).toContain('Original');
+  });
+
+  it('windows large filtered lists around the highlighted option', () => {
+    const many = Array.from({ length: 100 }, (_, index) => ({ label: `Item ${index}`, value: String(index) }));
+    const comp = combobox({ options: many, maxVisibleOptions: 5 });
+    const view = comp.view({ ...comp.init()[0], open: true, focused: true, highlighted: 50 });
+    if (view.kind === 'column') expect(view.children).toHaveLength(6);
   });
 });

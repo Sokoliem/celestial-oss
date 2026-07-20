@@ -171,6 +171,8 @@ describe('contextMenuView', () => {
     expect(layout?.x).toBe(5);
     expect(layout?.y).toBe(7);
     expect(layout?.rowCount).toBe(3);
+    expect(layout?.firstItemIndex).toBe(0);
+    expect(layout?.totalRowCount).toBe(3);
     expect(layout?.height).toBe(5); // 3 rows + 2 borders
     expect(layout?.innerHeight).toBe(3);
     expect(layout?.innerWidth).toBe(layout!.width - 2);
@@ -188,6 +190,32 @@ describe('contextMenuView', () => {
     const layout = measureContextMenuLayout({ state, viewport: { cols: 20, rows: 10 } });
     expect(layout?.x).toBeLessThanOrEqual(20 - layout!.width);
     expect(layout?.y).toBeLessThanOrEqual(10 - layout!.height);
+  });
+
+  it('windows tall menus and keeps the keyboard selection visible', async () => {
+    const { measureContextMenuLayout } = await import('../context-menu-view.js');
+    const items = Array.from({ length: 12 }, (_, index) => ({ label: `Item ${index}`, msg: index }));
+    const state = stateOf({ items, selectedIndex: 11 });
+    const layout = measureContextMenuLayout({ state, viewport: { cols: 30, rows: 6 } });
+    const node = contextMenuView({ state, tokens, viewport: { cols: 30, rows: 6 } });
+
+    expect(layout?.height).toBe(6);
+    expect(layout?.rowCount).toBe(4);
+    expect(layout?.firstItemIndex).toBe(8);
+    expect(layout?.totalRowCount).toBe(12);
+    expect(collectText(node)).toContain('Item 11');
+    expect(collectText(node)).not.toContain('Item 0 ');
+  });
+
+  it('normalizes non-finite geometry and width overrides', async () => {
+    const { measureContextMenuLayout } = await import('../context-menu-view.js');
+    const state = stateOf({ items: [{ label: 'Safe', msg: 'safe' }], x: Number.NaN, y: Number.POSITIVE_INFINITY });
+    const layout = measureContextMenuLayout({ state, viewport: { cols: 20, rows: 8 }, width: Number.POSITIVE_INFINITY });
+
+    expect(layout?.x).toBe(0);
+    expect(layout?.y).toBe(0);
+    expect(layout?.width).toBeGreaterThan(0);
+    expect(layout?.width).toBeLessThanOrEqual(20);
   });
 
   it('clampBounds restricts placement inside a sub-region of the viewport', async () => {
@@ -302,7 +330,10 @@ describe('contextMenuView', () => {
 
 describe('measureContextMenuItemWidth', () => {
   it('returns the default minimum (12) when items are narrower than it', () => {
-    const items: MenuItem<string>[] = [{ label: 'A', msg: 'a' }, { label: 'BC', msg: 'b' }];
+    const items: MenuItem<string>[] = [
+      { label: 'A', msg: 'a' },
+      { label: 'BC', msg: 'b' },
+    ];
     expect(measureContextMenuItemWidth(items)).toBe(12);
   });
 

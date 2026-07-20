@@ -1,4 +1,5 @@
 import type { TextNode, VNode } from '@celestial/nebula';
+import { measureTextWidth } from '@celestial/rosetta';
 import { describe, expect, it } from 'vitest';
 import { divider } from '../divider.js';
 
@@ -125,5 +126,26 @@ describe('divider', () => {
     if (isTextNode(result)) {
       expect(result.content.length).toBeGreaterThan(0);
     }
+  });
+
+  it('keeps wide labels within the requested cell width without splitting graphemes', () => {
+    const result = divider({ label: '界界界界', width: 10 });
+    expect(isTextNode(result)).toBe(true);
+    if (isTextNode(result)) {
+      expect(measureTextWidth(result.content)).toBe(10);
+      expect(result.content).not.toContain('\ud83d');
+    }
+  });
+
+  it('normalizes non-finite widths and insets', () => {
+    const result = divider({ width: Number.POSITIVE_INFINITY, inset: Number.NaN });
+    expect(isTextNode(result)).toBe(true);
+    if (isTextNode(result)) expect(measureTextWidth(result.content)).toBe(40);
+  });
+
+  it('falls back safely from invalid runtime style values', () => {
+    const result = divider({ width: 12, label: 'Safe', size: 'invalid', tone: 'invalid', align: 'invalid' } as unknown as Parameters<typeof divider>[0]);
+    expect(isTextNode(result)).toBe(true);
+    if (isTextNode(result)) expect(measureTextWidth(result.content)).toBe(12);
   });
 });

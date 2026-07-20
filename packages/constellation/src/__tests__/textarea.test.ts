@@ -723,7 +723,10 @@ describe('textarea', () => {
     if (keyEvent) {
       const entryKind = subKind(keyEvent);
       if (entryKind.kind === 'keyEvent') {
-        expect(entryKind.toMsg({ key: 'enter', ctrl: true, alt: false, shift: false })).toEqual({ type: 'key', event: { key: 'enter', ctrl: true, alt: false, shift: false } });
+        expect(entryKind.toMsg({ key: 'enter', ctrl: true, alt: false, shift: false })).toEqual({
+          type: 'key',
+          event: { key: 'enter', ctrl: true, alt: false, shift: false },
+        });
       }
     }
   });

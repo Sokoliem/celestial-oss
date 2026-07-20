@@ -1,3 +1,4 @@
+import { extractNodeText } from '@celestial/core/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { radioGroup } from '../radio.js';
 
@@ -110,5 +111,24 @@ describe('radioGroup', () => {
         expect(second.content).toContain('Medium');
       }
     }
+  });
+
+  it('snapshots options and rejects non-finite pointer indices', () => {
+    const mutable = [{ label: 'Original', value: 'original' }];
+    const comp = radioGroup({ options: mutable, selected: Number.POSITIVE_INFINITY });
+    mutable[0]!.label = 'Changed';
+    const [model] = comp.init();
+    expect(model.selected).toBe(0);
+    expect(extractNodeText(comp.view(model))).toContain('Original');
+    expect(comp.update({ type: 'select-at', index: Number.NaN }, model)[0]).toBe(model);
+  });
+
+  it('normalizes corrupt external model indices before keyboard selection', () => {
+    const onChange = vi.fn();
+    const comp = radioGroup({ options, onChange });
+    const corrupt = { selected: Number.NaN, highlighted: Number.POSITIVE_INFINITY, focused: true };
+    const [updated] = comp.update({ type: 'select' }, corrupt);
+    expect(updated.selected).toBe(0);
+    expect(onChange).toHaveBeenCalledWith('sm', 0);
   });
 });

@@ -570,6 +570,33 @@ describe('dataTable', () => {
       expect(hasUpArrow).toBe(true);
       expect(hasDownArrow).toBe(true);
     });
+
+    it('pads wide cell content by terminal width without clipping the final letter', () => {
+      const component = dataTable({
+        columns: [{ key: 'name', header: 'Name', width: 5 }],
+        data: [{ id: 'wide', name: '界界A' }],
+        getKey: (row) => row.id,
+      });
+      const [model] = component.init();
+      const texts = collectText(component.view(model) as Parameters<typeof collectText>[0]);
+
+      expect(texts).toContain('界界A');
+    });
+
+    it('snapshots column and row arrays at construction', () => {
+      const mutableColumns: DataColumn<Person>[] = [{ key: 'name', header: 'Original', width: 12 }];
+      const mutableData = [{ id: 'original', name: 'Stable', age: 1, role: 'Test' }];
+      const component = dataTable({ columns: mutableColumns, data: mutableData, getKey: (row) => row.id });
+      mutableColumns[0] = { key: 'name', header: 'Mutated', width: 12 };
+      mutableData[0] = { id: 'replacement', name: 'Changed', age: 2, role: 'Test' };
+      const [model] = component.init();
+      const texts = collectText(component.view(model) as Parameters<typeof collectText>[0]).join('\n');
+
+      expect(texts).toContain('Original');
+      expect(texts).toContain('Stable');
+      expect(texts).not.toContain('Mutated');
+      expect(texts).not.toContain('Changed');
+    });
   });
 
   // ─── Subscriptions ────────────────────────────────────────────────────────

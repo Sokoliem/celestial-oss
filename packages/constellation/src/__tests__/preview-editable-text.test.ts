@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  applySingleLineKey,
-  deleteBackward,
-  graphemeIndexAtCell,
-  graphemes,
-  insertSingleLinePaste,
-  replaceSelection,
-} from '../editable-text.js';
+import { applySingleLineKey, clampCursor, deleteBackward, graphemeIndexAtCell, graphemes, insertSingleLinePaste, replaceSelection } from '../editable-text.js';
 
 const key = (keyName: string, char?: string, modifiers: Partial<{ alt: boolean; ctrl: boolean; shift: boolean }> = {}) => ({
   key: keyName,
@@ -40,5 +33,12 @@ describe('editable text', () => {
     expect(graphemeIndexAtCell('A界B', 1)).toBe(1);
     expect(graphemeIndexAtCell('A界B', 2)).toBe(2);
     expect(graphemeIndexAtCell('A界B', 3)).toBe(2);
+  });
+
+  it('normalizes non-finite cursor and terminal-cell offsets', () => {
+    expect(clampCursor('abc', Number.NaN)).toBe(0);
+    expect(clampCursor('abc', Number.POSITIVE_INFINITY)).toBe(0);
+    expect(replaceSelection({ value: 'abc', cursor: Number.NaN, selectionAnchor: Number.POSITIVE_INFINITY }, 'x')).toEqual({ value: 'xabc', cursor: 1 });
+    expect(graphemeIndexAtCell('A界B', Number.NaN)).toBe(0);
   });
 });

@@ -3,6 +3,7 @@ import { style } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { Cmd, event, row, Sub, text } from '@celestial/core/nebula';
 import { generateFocusGroupId } from './focus-group.js';
+import { clampRange } from './internal.js';
 import { useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
@@ -48,6 +49,8 @@ export type PaginationMsg =
 export function pagination(config: PaginationConfig): ComponentDescriptor<PaginationModel, PaginationMsg> {
   if (!Number.isFinite(config.total) || config.total < 0) throw new Error('Pagination total must be a finite, non-negative number.');
   if (!Number.isFinite(config.pageSize) || config.pageSize <= 0) throw new Error('Pagination pageSize must be a finite number greater than zero.');
+  const quotient = config.total / config.pageSize;
+  const totalPages = Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, Number.isFinite(quotient) ? Math.ceil(quotient) : Number.MAX_SAFE_INTEGER));
   const interactionId = generateFocusGroupId('pagination');
   const prevTag = `${interactionId}:prev`;
   const nextTag = `${interactionId}:next`;
@@ -55,48 +58,63 @@ export function pagination(config: PaginationConfig): ComponentDescriptor<Pagina
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
 
-  /** Compute totalPages dynamically from current config values. */
-  function computeTotalPages(): number {
-    return Math.max(1, Math.ceil(config.total / config.pageSize));
+  function normalizePage(page: number, fallback = 1): number {
+    return Math.trunc(clampRange(page, 1, totalPages, fallback));
+  }
+
+  function visiblePages(current: number): Array<number | 'ellipsis'> {
+    const candidates = new Set<number>();
+    for (const page of [1, 2, 3, current - 1, current, current + 1, totalPages - 1, totalPages]) {
+      if (page >= 1 && page <= totalPages) candidates.add(page);
+    }
+    const pages = [...candidates].sort((a, b) => a - b);
+    const result: Array<number | 'ellipsis'> = [];
+    for (const page of pages) {
+      const previous = result[result.length - 1];
+      if (typeof previous === 'number' && page - previous > 1) result.push('ellipsis');
+      result.push(page);
+    }
+    return result;
   }
 
   return {
     init(): [PaginationModel, Cmd<PaginationMsg>] {
-      const totalPages = computeTotalPages();
-      return [{ current: Math.max(1, Math.min(totalPages, config.current ?? 1)), totalPages }, Cmd.none()];
+      return [{ current: normalizePage(config.current ?? 1), totalPages }, Cmd.none()];
     },
     update(msg: PaginationMsg, model: PaginationModel): [PaginationModel, Cmd<PaginationMsg>] {
-      const totalPages = computeTotalPages();
+      const current = normalizePage(model.current);
       switch (msg.type) {
         case 'prev': {
-          if (model.current <= 1) return [model, Cmd.none()];
-          const p = model.current - 1;
+          if (current <= 1) return [{ ...model, current, totalPages }, Cmd.none()];
+          const p = current - 1;
           config.onChange?.(p);
           return [{ ...model, current: p, totalPages }, Cmd.none()];
         }
         case 'next': {
-          if (model.current >= totalPages) return [model, Cmd.none()];
-          const p = model.current + 1;
+          if (current >= totalPages) return [{ ...model, current, totalPages }, Cmd.none()];
+          const p = current + 1;
           config.onChange?.(p);
           return [{ ...model, current: p, totalPages }, Cmd.none()];
         }
         case 'goto': {
-          const page = Math.max(1, Math.min(totalPages, msg.page));
-          if (page === model.current) return [model, Cmd.none()];
+          const page = normalizePage(msg.page, current);
+          if (page === current) return [{ ...model, current, totalPages }, Cmd.none()];
           config.onChange?.(page);
           return [{ ...model, current: page, totalPages }, Cmd.none()];
         }
-        case 'hover':
-          return [{ ...model, hovered: msg.target }, Cmd.none()];
+        case 'hover': {
+          const target = typeof msg.target === 'number' ? normalizePage(msg.target, current) : msg.target;
+          return [{ ...model, current, totalPages, hovered: target }, Cmd.none()];
+        }
         case 'leave':
-          return [{ ...model, hovered: null }, Cmd.none()];
+          return [{ ...model, current, totalPages, hovered: null }, Cmd.none()];
         case 'noop':
-          return [model, Cmd.none()];
+          return [{ ...model, current, totalPages }, Cmd.none()];
       }
     },
     view(model: PaginationModel): VNode {
       const tokens = useTokens(paginationContract, config, 'Pagination');
-      const totalPages = computeTotalPages();
+      const current = normalizePage(model.current);
       const activeStyle = style({ color: tokens.active, bold: true });
       const dimStyle = style({ dim: true, color: tokens.muted });
       const pageStyle = style({ color: tokens.textSoft });
@@ -105,41 +123,32 @@ export function pagination(config: PaginationConfig): ComponentDescriptor<Pagina
       const parts: VNode[] = [
         event(
           `${interactionId}:prev`,
-          text(model.current > 1 ? '< ' : '  ', model.hovered === 'prev' ? hoverStyle : model.current > 1 ? arrowStyle : dimStyle),
-          model.current > 1 ? { onClick: prevTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag } : {},
+          text(current > 1 ? '< ' : '  ', model.hovered === 'prev' ? hoverStyle : current > 1 ? arrowStyle : dimStyle),
+          current > 1 ? { onClick: prevTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag } : {},
           {
             label: 'Previous page',
             intent: 'navigate',
-            affordances: model.current > 1 ? ['click'] : [],
-            cursor: model.current > 1 ? 'pointer' : undefined,
+            affordances: current > 1 ? ['click'] : [],
+            cursor: current > 1 ? 'pointer' : undefined,
             keyboardHint: 'Left',
           },
         ),
       ];
-      let leftEllipsisShown = false;
-      let rightEllipsisShown = false;
-      for (let i = 1; i <= totalPages; i++) {
-        if (totalPages > 7 && i > 3 && i < totalPages - 1 && Math.abs(i - model.current) > 1) {
-          if (i < model.current && !leftEllipsisShown) {
-            parts.push(text('... ', dimStyle));
-            leftEllipsisShown = true;
-          }
-          if (i > model.current && !rightEllipsisShown) {
-            parts.push(text('... ', dimStyle));
-            rightEllipsisShown = true;
-          }
+      for (const page of visiblePages(current)) {
+        if (page === 'ellipsis') {
+          parts.push(text('... ', dimStyle));
           continue;
         }
         parts.push(
           event(
-            `${interactionId}:page:${i}`,
-            text(`${i} `, model.hovered === i ? hoverStyle : i === model.current ? activeStyle : pageStyle),
-            i === model.current ? {} : { onClick: pageTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+            `${interactionId}:page:${page}`,
+            text(`${page} `, model.hovered === page ? hoverStyle : page === current ? activeStyle : pageStyle),
+            page === current ? {} : { onClick: pageTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
             {
-              label: `Page ${i}`,
+              label: `Page ${page}`,
               intent: 'navigate',
-              affordances: i === model.current ? [] : ['click'],
-              cursor: i === model.current ? undefined : 'pointer',
+              affordances: page === current ? [] : ['click'],
+              cursor: page === current ? undefined : 'pointer',
             },
           ),
         );
@@ -147,13 +156,13 @@ export function pagination(config: PaginationConfig): ComponentDescriptor<Pagina
       parts.push(
         event(
           `${interactionId}:next`,
-          text(model.current < totalPages ? '>' : ' ', model.hovered === 'next' ? hoverStyle : model.current < totalPages ? arrowStyle : dimStyle),
-          model.current < totalPages ? { onClick: nextTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag } : {},
+          text(current < totalPages ? '>' : ' ', model.hovered === 'next' ? hoverStyle : current < totalPages ? arrowStyle : dimStyle),
+          current < totalPages ? { onClick: nextTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag } : {},
           {
             label: 'Next page',
             intent: 'navigate',
-            affordances: model.current < totalPages ? ['click'] : [],
-            cursor: model.current < totalPages ? 'pointer' : undefined,
+            affordances: current < totalPages ? ['click'] : [],
+            cursor: current < totalPages ? 'pointer' : undefined,
             keyboardHint: 'Right',
           },
         ),

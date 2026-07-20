@@ -1,5 +1,6 @@
 import { color } from '@celestial/core/corona';
 import type { RowNode, VNode } from '@celestial/core/nebula';
+import { extractNodeText } from '@celestial/core/nebula';
 import { describe, expect, it } from 'vitest';
 import { badge, badgeGroup } from '../badge.js';
 import type { ConstellationThemeInput } from '../theme.js';
@@ -63,6 +64,12 @@ describe('badge', () => {
     const [model] = comp.init();
     const view = comp.view(model);
     expect(view).toBeDefined();
+  });
+
+  it('falls back safely from invalid runtime size and variant values', () => {
+    const comp = badge({ label: 'Stable', variant: 'invalid', size: 'invalid' } as unknown as Parameters<typeof badge>[0]);
+    const [model] = comp.init();
+    expect(extractNodeText(comp.view(model))).toBe(' [Stable] ');
   });
 });
 
