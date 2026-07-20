@@ -300,6 +300,9 @@ importers:
       '@celestial/corona':
         specifier: workspace:*
         version: link:../corona
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../rosetta
     devDependencies:
       tsup:
         specifier: ^8.3.0

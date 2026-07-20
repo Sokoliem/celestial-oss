@@ -1,7 +1,8 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { border, resolveGlyph, style, tooltipVariantGlyphs, visualWidth, wrap } from '@celestial/core/corona';
+import { border, resolveGlyph, style, tooltipVariantGlyphs } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, row, Sub, text } from '@celestial/core/nebula';
+import { measureTextWidth, wrapCellText } from '@celestial/rosetta';
 import { caretFor } from './anchored-overlay.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
 import type { ConstellationTone } from './theme.js';
@@ -91,14 +92,14 @@ const VARIANT_TONE: Record<TooltipVariant, ConstellationTone> = {
 
 function wrapTooltipContent(content: string, maxWidth: number): string[] {
   const normalized = content.trim();
-  return normalized.length === 0 ? [''] : wrap(normalized, maxWidth).split('\n');
+  return normalized.length === 0 ? [''] : wrapCellText(normalized, maxWidth);
 }
 
 export function measureTooltipBubble(options: TooltipBubbleOptions): TooltipBubbleMeasurement {
   const maxWidth = Math.max(12, options.maxWidth ?? 40);
   const contentWidth = Math.max(8, maxWidth - 6);
   const lines = wrapTooltipContent(options.content, contentWidth);
-  const longestLine = lines.reduce((max, line) => Math.max(max, visualWidth(line)), 0);
+  const longestLine = lines.reduce((max, line) => Math.max(max, measureTextWidth(line)), 0);
   const width = Math.max(12, Math.min(maxWidth, longestLine + 6));
   // One cell of padding and one border cell on both vertical edges.
   const height = lines.length + 4;

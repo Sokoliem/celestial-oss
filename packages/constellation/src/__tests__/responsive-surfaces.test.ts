@@ -1,5 +1,6 @@
 import { visualWidth } from '@celestial/core/corona';
 import { text } from '@celestial/core/nebula';
+import { measureTextWidth } from '@celestial/rosetta';
 import { renderToLines } from '@celestial/test';
 import { describe, expect, it } from 'vitest';
 import { commandPalette } from '../command-palette.js';
@@ -38,6 +39,43 @@ describe('responsive transient surfaces', () => {
     expect(lines.every((line) => visualWidth(line) <= width)).toBe(true);
   });
 
+  it('recomputes modal and confirm-dialog width from resize messages', () => {
+    const modalComponent = modal({
+      title: 'Release readiness',
+      content: text('Prefix extraordinarilylongverificationword-final.'),
+    });
+    const [modalModel] = modalComponent.init();
+    const [resizedModal] = modalComponent.update({ type: 'resize', cols: 24, rows: 16 }, modalModel);
+    const modalView = modalComponent.view(resizedModal);
+    const modalLines = renderToLines(modalView, { width: 24, height: 32 });
+
+    expect(modalView.kind).toBe('box');
+    if (modalView.kind === 'box') expect(modalView.width).toBe(22);
+    expect(modalLines.join('\n')).toContain('final.');
+
+    const confirmComponent = confirmDialog({ title: 'Publish?', message: 'Prefix extraordinarilylongverificationword-final.' });
+    const [confirmModel] = confirmComponent.init();
+    const [resizedConfirm] = confirmComponent.update({ type: 'resize', cols: 24, rows: 16 }, confirmModel);
+    const confirmView = confirmComponent.view(resizedConfirm);
+    const confirmLines = renderToLines(confirmView, { width: 24, height: 32 });
+
+    expect(confirmView.kind).toBe('box');
+    if (confirmView.kind === 'box') expect(confirmView.width).toBe(22);
+    expect(confirmLines.join('\n')).toContain('final.');
+  });
+
+  it('preserves the final grapheme when a modal wraps joined emoji', () => {
+    const family = '👨‍👩‍👧‍👦';
+    const component = modal({ title: 'Unicode', content: text(`Status ${family}${family}${family} done.`) });
+    const [model] = component.init();
+    const [resized] = component.update({ type: 'resize', cols: 18, rows: 16 }, model);
+    const lines = renderToLines(component.view(resized), { width: 18, height: 32 });
+    const rendered = lines.join('\n');
+
+    expect(rendered.split(family).length - 1).toBe(3);
+    expect(rendered).toContain('done.');
+  });
+
   it.each([16, 24, 44] as const)('reflows toast copy without clipping at %i columns', (width) => {
     const manager = createToastManager({ width });
     const [model] = manager.init();
@@ -71,7 +109,15 @@ describe('responsive transient surfaces', () => {
     const measurement = measureTooltipBubble({ content: '界界 界界', maxWidth: 12 });
 
     expect(measurement.lines).toEqual(['界界', '界界']);
-    expect(measurement.lines.every((line) => visualWidth(line) <= 8)).toBe(true);
+    expect(measurement.lines.every((line) => measureTextWidth(line) <= 8)).toBe(true);
+  });
+
+  it('does not split regional-indicator flags while wrapping tooltip text', () => {
+    const flags = '🇺🇸🇨🇦🇯🇵🇫🇷🇩🇪';
+    const measurement = measureTooltipBubble({ content: flags, maxWidth: 12 });
+
+    expect(measurement.lines.join('')).toBe(flags);
+    expect(measurement.lines.every((line) => measureTextWidth(line) <= 8)).toBe(true);
   });
 
   it('keeps a wide-glyph drawer title from overwriting its close affordance', () => {

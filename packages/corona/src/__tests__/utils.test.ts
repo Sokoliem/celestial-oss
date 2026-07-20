@@ -69,4 +69,10 @@ describe('visualWidth (shared utility)', () => {
   it('should handle empty string', () => {
     expect(visualWidth('')).toBe(0);
   });
+
+  it('measures flags and joined emoji as grapheme clusters', () => {
+    expect(visualWidth('🇺🇸')).toBe(2);
+    expect(visualWidth('👨‍👩‍👧‍👦')).toBe(2);
+    expect(visualWidth('e\u0301')).toBe(1);
+  });
 });

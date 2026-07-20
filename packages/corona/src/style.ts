@@ -7,8 +7,7 @@
 import type { Border } from './border.js';
 import { border as borderNs } from './border.js';
 import type { Color } from './color.js';
-import { charWidth } from './unicode-width.js';
-import { stripAnsi, visualWidth } from './utils.js';
+import { sliceByVisualWidth, stripAnsi, visualWidth } from './utils.js';
 
 export type BreakpointName = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
@@ -176,67 +175,8 @@ function alignText(text: string, width: number, align: 'left' | 'center' | 'righ
 export function truncate(text: string, maxWidth: number): string {
   const stripped = stripAnsi(text);
   if (visualWidth(stripped) <= maxWidth) return text;
-
-  // ANSI-aware truncation using a state machine for correct escape handling.
-  // States: 'text' | 'escape-start' | 'csi' | 'osc'
-  let result = '';
-  let visibleLen = 0;
-  let state: 'text' | 'escape-start' | 'csi' | 'osc' = 'text';
-  let hasSGR = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]!;
-
-    if (state === 'text') {
-      if (ch === '\x1b') {
-        state = 'escape-start';
-        result += ch;
-        continue;
-      }
-      const cp = text.codePointAt(i)!;
-      const w = charWidth(cp);
-      if (visibleLen + w > maxWidth) break;
-      if (cp > 0xffff) {
-        result += text[i]! + text[i + 1]!;
-        i++;
-      } else {
-        result += ch;
-      }
-      visibleLen += w;
-    } else if (state === 'escape-start') {
-      result += ch;
-      if (ch === '[') {
-        state = 'csi';
-      } else if (ch === ']') {
-        state = 'osc';
-      } else {
-        // SS2/SS3 or other single-char escape: consume this char and return to text
-        state = 'text';
-      }
-    } else if (state === 'csi') {
-      result += ch;
-      // CSI sequences end on any letter [a-zA-Z]
-      if (/[a-zA-Z]/.test(ch)) {
-        if (ch === 'm') hasSGR = true;
-        state = 'text';
-      }
-    } else if (state === 'osc') {
-      result += ch;
-      // OSC terminates on BEL (\x07) or ST (\x1b\\)
-      if (ch === '\x07') {
-        state = 'text';
-      } else if (ch === '\\' && i > 0 && text[i - 1] === '\x1b') {
-        state = 'text';
-      }
-    }
-  }
-
-  // If any SGR codes were opened, append a reset to leave terminal clean
-  if (hasSGR) {
-    result += '\x1b[0m';
-  }
-
-  return result;
+  const [result] = sliceByVisualWidth(text, maxWidth);
+  return /\x1b\[[0-9;]*m/.test(result) ? `${result}\x1b[0m` : result;
 }
 
 // --- Style implementation ---

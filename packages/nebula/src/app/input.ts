@@ -52,7 +52,16 @@ export function installInput<Model, M>(ctx: RuntimeContext<Model, M>): void {
       clearTimeout(pendingKeyFlush);
       pendingKeyFlush = null;
     }
-    dispatchKeyEvents(keyDecoder.push(data));
+    const events = keyDecoder.push(data);
+    // A bare Escape is a complete, latency-sensitive dismissal action in the
+    // application runtime. Terminals normally deliver modified-key/CSI input
+    // as one chunk; consumers that need arbitrary chunk streaming can use the
+    // exported decoder directly and choose their own ambiguity timeout.
+    if (events.length === 0 && data.length === 1 && data[0] === 0x1b) {
+      dispatchKeyEvents(keyDecoder.flush());
+      return;
+    }
+    dispatchKeyEvents(events);
     if (keyDecoder.pendingBytes > 0) {
       pendingKeyFlush = setTimeout(() => {
         pendingKeyFlush = null;

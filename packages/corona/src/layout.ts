@@ -4,8 +4,7 @@
  * Functions for composing terminal output spatially.
  */
 
-import { charWidth } from './unicode-width.js';
-import { visualWidth } from './utils.js';
+import { sliceByVisualWidth, visualWidth } from './utils.js';
 
 /** Join two blocks of text horizontally */
 export function joinH(left: string, right: string, gap: number = 0): string {
@@ -213,56 +212,14 @@ export function wrap(text: string, maxWidth: number): string {
           result.push(current);
           current = '';
         }
-        let chunk = '';
-        let chunkWidth = 0;
-        let escState: 'text' | 'escape-start' | 'csi' | 'osc' = 'text';
-        for (let i = 0; i < word.length; i++) {
-          const ch = word[i]!;
-
-          if (escState === 'text') {
-            if (ch === '\x1b') {
-              escState = 'escape-start';
-              chunk += ch;
-              continue;
-            }
-            const cp = word.codePointAt(i)!;
-            const w = charWidth(cp);
-            if (chunkWidth + w > maxWidth) {
-              result.push(chunk);
-              chunk = '';
-              chunkWidth = 0;
-            }
-            if (cp > 0xffff) {
-              chunk += word[i]! + word[i + 1]!;
-              i++;
-            } else {
-              chunk += ch;
-            }
-            chunkWidth += w;
-          } else if (escState === 'escape-start') {
-            chunk += ch;
-            if (ch === '[') {
-              escState = 'csi';
-            } else if (ch === ']') {
-              escState = 'osc';
-            } else {
-              escState = 'text';
-            }
-          } else if (escState === 'csi') {
-            chunk += ch;
-            if (/[a-zA-Z]/.test(ch)) {
-              escState = 'text';
-            }
-          } else if (escState === 'osc') {
-            chunk += ch;
-            if (ch === '\x07') {
-              escState = 'text';
-            } else if (ch === '\\' && i > 0 && word[i - 1] === '\x1b') {
-              escState = 'text';
-            }
-          }
+        let remaining = word;
+        while (visualWidth(remaining) > maxWidth) {
+          const [chunk, rest] = sliceByVisualWidth(remaining, maxWidth);
+          if (chunk.length === 0) break;
+          result.push(chunk);
+          remaining = rest;
         }
-        if (chunk) result.push(chunk);
+        if (remaining) result.push(remaining);
         continue;
       }
 

@@ -2,6 +2,8 @@
  * Extracted from ../vdom.ts. Behavior-preserving split.
  */
 
+import { segmentGraphemes } from '@celestial/rosetta';
+
 /** Strip ANSI escape sequences (SGR and OSC) */
 function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
@@ -130,6 +132,32 @@ function isEmojiCapable(cp: number): boolean {
 
 const VISUAL_WIDTH_CACHE = new Map<string, number>();
 
+/** Measure one user-perceived character without summing joined emoji parts. */
+function graphemeWidth(grapheme: string): number {
+  let width = 0;
+  let previousCodePoint = 0;
+  let previousWidth = 0;
+
+  for (const character of grapheme) {
+    const codePoint = character.codePointAt(0)!;
+
+    // VS16 promotes emoji-capable text glyphs (for example, heart) to two
+    // cells. ZWJ sequences and combining clusters otherwise occupy the width
+    // of their widest rendered member, not the sum of their code points.
+    if (codePoint === 0xfe0f && previousWidth === 1 && isEmojiCapable(previousCodePoint)) {
+      width = Math.max(width, 2);
+      continue;
+    }
+
+    const measured = charWidth(codePoint);
+    width = Math.max(width, measured);
+    previousCodePoint = codePoint;
+    previousWidth = measured;
+  }
+
+  return width;
+}
+
 /** Measure visual width of a string in terminal cells */
 export function visualWidth(str: string): number {
   const clean = stripAnsi(str);
@@ -138,27 +166,7 @@ export function visualWidth(str: string): number {
     return cached;
   }
 
-  let width = 0;
-  let prevCp = 0;
-  let prevWidth = 0;
-  for (let i = 0; i < clean.length; i++) {
-    const code = clean.codePointAt(i)!;
-    // Skip the low surrogate of a surrogate pair
-    if (code > 0xffff) i++;
-
-    // VS16 (emoji presentation selector): if the previous character was an
-    // "emoji-capable" character measured as width 1, promote it to width 2.
-    if (code === 0xfe0f && prevWidth === 1 && isEmojiCapable(prevCp)) {
-      width += 1; // add the extra cell
-      // prevCp/prevWidth don't change — the VS is consumed
-      continue;
-    }
-
-    const w = charWidth(code);
-    width += w;
-    prevCp = code;
-    prevWidth = w;
-  }
+  const width = segmentGraphemes(clean).reduce((total, grapheme) => total + graphemeWidth(grapheme), 0);
   VISUAL_WIDTH_CACHE.set(clean, width);
   return width;
 }
@@ -169,23 +177,69 @@ export function visualWidth(str: string): number {
  * Properly handles multi-byte characters and wide characters.
  */
 export function sliceByWidth(str: string, maxCols: number): [fit: string, rest: string] {
+  if (maxCols <= 0 || str.length === 0) return ['', str];
+
+  // Styled VNodes keep ANSI outside text content. Retain the legacy path for
+  // raw ANSI strings so escape sequences are preserved byte-for-byte.
+  if (str.includes('\x1b')) return sliceAnsiTextByWidth(str, maxCols);
+
   let cols = 0;
   let i = 0;
-  while (i < str.length) {
-    const code = str.codePointAt(i)!;
-    const charLen = code > 0xffff ? 2 : 1;
-    const w = charWidth(code);
+  for (const grapheme of segmentGraphemes(str)) {
+    const w = graphemeWidth(grapheme);
     if (cols + w > maxCols) break;
     cols += w;
-    i += charLen;
-    // If next char is VS16 and this was emoji-capable at width 1
-    if (i < str.length && str.codePointAt(i) === 0xfe0f && w === 1 && isEmojiCapable(code)) {
-      if (cols + 1 > maxCols) break; // the promoted emoji won't fit
-      cols += 1;
-      i += 1; // consume the VS16
-    }
+    i += grapheme.length;
   }
   return [str.slice(0, i), str.slice(i)];
+}
+
+function sliceAnsiTextByWidth(str: string, maxCols: number): [fit: string, rest: string] {
+  let cols = 0;
+  let index = 0;
+  let acceptedIndex = 0;
+  let acceptedVisibleText = false;
+
+  while (index < str.length) {
+    const ansi = readAnsiSequence(str, index);
+    if (ansi !== undefined) {
+      index += ansi.length;
+      if (acceptedVisibleText) acceptedIndex = index;
+      continue;
+    }
+
+    const nextEscape = str.indexOf('\x1b', index);
+    const end = nextEscape === -1 ? str.length : nextEscape;
+    const segment = str.slice(index, end);
+    for (const grapheme of segmentGraphemes(segment)) {
+      const width = graphemeWidth(grapheme);
+      if (cols + width > maxCols) {
+        return acceptedVisibleText ? [str.slice(0, acceptedIndex), str.slice(acceptedIndex)] : ['', str];
+      }
+      cols += width;
+      index += grapheme.length;
+      acceptedIndex = index;
+      acceptedVisibleText = true;
+    }
+  }
+
+  return [str, ''];
+}
+
+function readAnsiSequence(str: string, index: number): string | undefined {
+  const remaining = str.slice(index);
+  return remaining.match(/^\x1b\[[0-9;]*m/)?.[0] ?? remaining.match(/^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/)?.[0];
+}
+
+function appendWrappedToken(lines: string[], token: string, maxWidth: number): string {
+  let remaining = token;
+  while (visualWidth(remaining) > maxWidth) {
+    const [fit, rest] = sliceByWidth(remaining, maxWidth);
+    if (fit === '') break;
+    lines.push(fit);
+    remaining = rest;
+  }
+  return remaining;
 }
 
 /** Word-wrap a single line of text to fit within maxWidth columns */
@@ -204,21 +258,16 @@ export function wrapLine(line: string, maxWidth: number): string[] {
       currentLine = lineWithWord;
     } else if (currentLine === '' || currentLine.trim() === '') {
       // Word is wider than maxWidth — break mid-word using visual width
-      let remaining = word;
-      while (visualWidth(remaining) > maxWidth) {
-        const [fit, rest] = sliceByWidth(remaining, maxWidth);
-        if (fit === '') break; // safety: avoid infinite loop if a single char > maxWidth
-        lines.push(fit);
-        remaining = rest;
-      }
-      currentLine = remaining;
+      currentLine = appendWrappedToken(lines, word, maxWidth);
     } else {
       lines.push(currentLine);
       // If this token is whitespace, skip it at start of new line
       if (/^\s+$/.test(word)) {
         currentLine = '';
       } else {
-        currentLine = word;
+        // A long word still needs splitting after a populated line. Leaving it
+        // oversized here deferred clipping to the painter and dropped its tail.
+        currentLine = appendWrappedToken(lines, word, maxWidth);
       }
     }
   }
