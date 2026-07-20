@@ -23,6 +23,7 @@ describe('Horizon workbench PTY', () => {
       harness.write('i');
       await harness.waitForText('Inspector');
       harness.write('\u001b');
+      await harness.waitForText('Inspector dismissed with Escape.');
       harness.write('q');
       const exit = await harness.waitForExit();
       expect(exit.exitCode).toBe(0);

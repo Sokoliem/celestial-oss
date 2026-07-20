@@ -64,6 +64,7 @@ describe('Horizon workbench app', () => {
       }
       handle.pressKey('escape');
       expect(handle.model.inspectorOpen).toBe(false);
+      expect(handle.model.lastAction).toBe('Inspector dismissed with Escape.');
 
       handle.pressKey('p', { ctrl: true });
       expect(handle.model.palette.palette.open).toBe(true);
