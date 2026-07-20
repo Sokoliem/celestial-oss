@@ -1,3 +1,9 @@
+import type { ThemeInput } from '@celestial/corona';
+import { style } from '@celestial/corona';
+import type { Cmd, Msg, Sub, ThemeContext, VNode } from '@celestial/nebula';
+import { column, Cmd as NebulaCmd, Sub as NebulaSub, row, text } from '@celestial/nebula';
+import { createFocusStackState, type FocusStackState, focusStackUpdate, getActiveFocusId, routeKeyboard } from '@celestial/nexus';
+import { type LocaleLike, segmentGraphemes } from '@celestial/rosetta';
 import {
   type ComponentDescriptor,
   checkbox,
@@ -16,19 +22,11 @@ import {
   textInput,
   toggle,
 } from '@celestial/ui';
-import type { ThemeInput } from '@celestial/corona';
-import { style } from '@celestial/corona';
-import type { Cmd, Msg, Sub, VNode } from '@celestial/nebula';
-import { column, Cmd as NebulaCmd, Sub as NebulaSub, row, text } from '@celestial/nebula';
-import type { ThemeContext } from '@celestial/nebula';
-import { createFocusStackState, type FocusStackState, focusStackUpdate, getActiveFocusId, routeKeyboard } from '@celestial/nexus';
+import { type OrbitMessages, tr } from './i18n.js';
+import { emitLedgerEvent, type OrbitLedger } from './ledger.js';
 import { parseArgSchema } from './schema.js';
 import { jsonValuesEqual } from './schema-json.js';
 import { resolveParsedForm } from './schema-resolver.js';
-import { type LocaleLike, segmentGraphemes } from '@celestial/rosetta';
-import { emitEphemeris, type EphemerisStoreLike } from './ephemeris.js';
-import { type OrbitMessages, tr } from './i18n.js';
-import { feedbackColor, formColor } from './theme.js';
 import type {
   ArgField,
   ArgSchema,
@@ -40,6 +38,7 @@ import type {
   ResolvedOutput,
   ResolvedValidation,
 } from './schema-types.js';
+import { feedbackColor, formColor } from './theme.js';
 
 type SchemaValueMap = Record<string, JsonValue>;
 const SCHEMA_FORM_LAYER_ID = 'schema-form';
@@ -67,8 +66,8 @@ export interface SchemaFormProps<V extends SchemaValueMap = SchemaValueMap> {
   readonly recentValueStore?: RecentValueStore;
   readonly theme?: ThemeInput;
   readonly themeCtx?: ThemeContext;
-  readonly ephemerisStore?: EphemerisStoreLike;
-  readonly ephemerisFormId?: string;
+  readonly ledger?: OrbitLedger;
+  readonly ledgerFormId?: string;
   readonly messages?: OrbitMessages;
   readonly locale?: LocaleLike;
 }
@@ -784,12 +783,12 @@ export function schemaForm<V extends SchemaValueMap = SchemaValueMap>(props: Sch
   const schema = parseArgSchema(props.schema);
   const lockedFields = new Set(props.locked ?? []);
   const adapters: Record<string, SchemaFieldAdapter> = {};
-  const ephemerisFormId = props.ephemerisFormId ?? 'schema-form';
+  const ledgerFormId = props.ledgerFormId ?? 'schema-form';
   const emit = (kind: string, payload: Record<string, unknown>): void => {
-    if (!props.ephemerisStore) return;
-    void emitEphemeris(props.ephemerisStore, {
+    if (!props.ledger) return;
+    void emitLedgerEvent(props.ledger, {
       kind,
-      payload: { formId: ephemerisFormId, ...payload },
+      payload: { formId: ledgerFormId, ...payload },
     });
   };
 

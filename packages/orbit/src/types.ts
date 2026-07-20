@@ -1,11 +1,11 @@
-import type { ComponentDescriptor } from '@celestial/ui';
 import type { ThemeInput } from '@celestial/corona';
 import type { Cmd, Sub, ThemeContext, VNode } from '@celestial/nebula';
 import type { LocaleLike } from '@celestial/rosetta';
+import type { ComponentDescriptor } from '@celestial/ui';
 import type { FormMsg } from './engine.js';
-import type { EphemerisStoreLike } from './ephemeris.js';
 import type { FormFieldTypeRegistry } from './field-registry.js';
 import type { OrbitMessages } from './i18n.js';
+import type { OrbitLedger } from './ledger.js';
 
 // ─── Validation ─────────────────────────────────────────────────────────────
 
@@ -359,14 +359,13 @@ export interface FormConfig<Fields extends FieldMap, T = FormValues<Fields>> {
   theme?: ThemeInput;
   themeCtx?: ThemeContext;
   /**
-   * Optional `@celestial/ephemeris` (or duck-typed equivalent) store. When
-   * supplied, the form emits `form:field-changed`, `form:validation-failed`,
-   * `form:submitted`, and `form:autosaved` events with structured payloads
-   * so chronos can replay form runs deterministically.
+   * Optional structural event ledger. When supplied, the form emits
+   * `form:field-changed`, `form:validation-failed`, `form:submitted`, and
+   * `form:autosaved` events with structured payloads.
    */
-  ephemerisStore?: EphemerisStoreLike;
+  ledger?: OrbitLedger;
   /** Identifier appended to every emitted event payload. Defaults to `focusGroup`. */
-  ephemerisFormId?: string;
+  ledgerFormId?: string;
   /** Translation overrides for navigation hints + cheat-sheet text. */
   messages?: OrbitMessages;
   /** Locale hint forwarded to rosetta. */

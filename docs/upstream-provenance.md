@@ -17,7 +17,7 @@ The extraction was adapted in these deliberate ways:
 
 - Rosetta's grapheme and bidi helpers are used by editable controls, terminal-width measurement, clipping, wrapping, effects, charts, and Markdown so a resize cannot split a surrogate pair, combining sequence, or emoji cluster.
 - Constellation is published as `@celestial/ui` with a curated 44-builder barrel. Imported modal and contextual surfaces were updated to reflow on resize and retain visible close controls plus Escape dismissal.
-- Orbit depends on `@celestial/ui`; the private `@celestial/constellation` package name and local declaration shims are absent from the public graph.
+- Orbit depends on `@celestial/ui`; the private `@celestial/constellation` package name and local declaration shims are absent from the public graph. Optional lifecycle events use an Orbit-owned structural ledger contract, so emitted declarations do not name a private ledger package.
 - Spectrum, Mirage, Nova, and Stellar retain only allowlisted package dependencies. Motion paths gained deterministic reduced-motion behavior, and Stellar's HTML export uses a local escaping ANSI adapter instead of a browser-oriented private peer.
 - Pulsar has three explicit public entries: the renderer, overlays, and fence renderers. Its compatibility loader can resolve only Stellar; chart fences validate and clamp data, Mermaid falls back to readable source, images use inert placeholders, and no network fetch or unverified terminal-control emission occurs.
 

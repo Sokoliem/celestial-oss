@@ -8,9 +8,9 @@
  * match results align with what the reader sees on screen, not the
  * source markup.
  *
- * Mirrors `@celestial/parallax`'s `search.ts` API (`initSearch`,
- * `findMatches`, `nextMatch`, `prevMatch`, `clearSearch`) so consumers
- * can wire identical key handlers across the two packages.
+ * Uses the same small `initSearch` / `findMatches` / `nextMatch` /
+ * `prevMatch` / `clearSearch` contract as Celestial's other search surfaces
+ * without importing them.
  */
 
 import type { InlineToken, ListItem, MarkdownSearchMatch, MarkdownSearchState, Token } from './types.js';

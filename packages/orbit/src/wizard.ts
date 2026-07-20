@@ -3,8 +3,8 @@ import { style } from '@celestial/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/nebula';
 import { Cmd, column, Sub, text } from '@celestial/nebula';
 import type { LocaleLike } from '@celestial/rosetta';
-import { emitEphemeris, type EphemerisStoreLike } from './ephemeris.js';
 import { type OrbitMessages, tr } from './i18n.js';
+import { emitLedgerEvent, type OrbitLedger } from './ledger.js';
 import { formColor, orbitToneColor } from './theme.js';
 import type { ValidationResult } from './types.js';
 
@@ -85,9 +85,9 @@ export interface WizardConfig {
    * `wizard:step-advanced`, `wizard:step-completed`, and `wizard:finished`
    * events with structured payloads so chronos can replay runs.
    */
-  ephemerisStore?: EphemerisStoreLike;
+  ledger?: OrbitLedger;
   /** Identifier appended to every emitted event payload. Defaults to `focusGroup`. */
-  ephemerisWizardId?: string;
+  ledgerWizardId?: string;
   /** Translation overrides for progress + navigation strings. */
   messages?: OrbitMessages;
   /** Locale hint forwarded to rosetta. */
@@ -149,12 +149,12 @@ export function wizard(config: WizardConfig): WizardDescriptor {
   const totalSteps = config.steps.length;
   const allowBack = config.allowBack ?? true;
   const focusGroup = config.focusGroup ?? 'orbit-wizard';
-  const ephemerisWizardId = config.ephemerisWizardId ?? focusGroup;
+  const ledgerWizardId = config.ledgerWizardId ?? focusGroup;
   const emit = (kind: string, payload: Record<string, unknown>): void => {
-    if (!config.ephemerisStore) return;
-    void emitEphemeris(config.ephemerisStore, {
+    if (!config.ledger) return;
+    void emitLedgerEvent(config.ledger, {
       kind,
-      payload: { wizardId: ephemerisWizardId, ...payload },
+      payload: { wizardId: ledgerWizardId, ...payload },
     });
   };
 
@@ -359,9 +359,7 @@ export function wizard(config: WizardConfig): WizardDescriptor {
       // remaining static order to give consumers a sense of depth without
       // exposing branch internals.
       const visitedSet = new Set(model.visited);
-      const dots = config.steps
-        .map((_, i) => (visitedSet.has(i) || i <= model.currentStep ? '●' : '○'))
-        .join(' ');
+      const dots = config.steps.map((_, i) => (visitedSet.has(i) || i <= model.currentStep ? '●' : '○')).join(' ');
       const step = config.steps[model.currentStep];
       const title = step?.title ?? '';
       const progressStyle = style({ color: orbitToneColor(config, 'accent') });

@@ -1,10 +1,10 @@
-import { formField } from '@celestial/ui';
 import { style } from '@celestial/corona';
 import type { Msg, VNode } from '@celestial/nebula';
 import { Cmd, column, empty, focus, Sub, text } from '@celestial/nebula';
-import { emitEphemeris } from './ephemeris.js';
+import { formField } from '@celestial/ui';
 import { type FormFieldTypeRegistry, getDefaultFormFieldRegistry } from './field-registry.js';
 import { tr } from './i18n.js';
+import { emitLedgerEvent } from './ledger.js';
 import { feedbackColor, formColor } from './theme.js';
 import type {
   AutosaveConfig,
@@ -279,12 +279,12 @@ export function form<Fields extends FieldMap, T = FormValues<Fields>>(config: Fo
   const fieldOrder = Object.keys(config.fields) as (keyof Fields & string)[];
   const focusGroup = config.focusGroup ?? 'orbit-form';
   const fieldTypeRegistry: FormFieldTypeRegistry = config.fieldTypeRegistry ?? getDefaultFormFieldRegistry();
-  const ephemerisFormId = config.ephemerisFormId ?? focusGroup;
+  const ledgerFormId = config.ledgerFormId ?? focusGroup;
   const emit = (kind: string, payload: Record<string, unknown>): void => {
-    if (!config.ephemerisStore) return;
-    void emitEphemeris(config.ephemerisStore, {
+    if (!config.ledger) return;
+    void emitLedgerEvent(config.ledger, {
       kind,
-      payload: { formId: ephemerisFormId, ...payload },
+      payload: { formId: ledgerFormId, ...payload },
     });
   };
 
@@ -364,7 +364,7 @@ export function form<Fields extends FieldMap, T = FormValues<Fields>>(config: Fo
           const currentValues = extractValues(model) as Record<string, unknown>;
           if (!isFieldInteractive(fieldConfig, currentValues)) return [model, Cmd.none()];
 
-          const initialValue = model.initialValues[key] ?? (fieldConfig.defaultValue ?? '');
+          const initialValue = model.initialValues[key] ?? fieldConfig.defaultValue ?? '';
           let nextField: FieldState = {
             ...fieldState,
             value: msg.value,
@@ -614,7 +614,7 @@ export function form<Fields extends FieldMap, T = FormValues<Fields>>(config: Fo
           const fieldConfig = config.fields[key] as FieldConfig<any> | undefined;
           if (!fieldState || !fieldConfig) return [model, Cmd.none()];
 
-          const initialValue = model.initialValues[key] ?? (fieldConfig.defaultValue ?? '');
+          const initialValue = model.initialValues[key] ?? fieldConfig.defaultValue ?? '';
           const nextField: FieldState = {
             ...fieldState,
             value: msg.value,
@@ -775,7 +775,7 @@ export function form<Fields extends FieldMap, T = FormValues<Fields>>(config: Fo
       const fieldConfig = config.fields[field] as FieldConfig<any> | undefined;
       if (!fieldState || !fieldConfig) return model;
 
-      const initialValue = model.initialValues[field] ?? (fieldConfig.defaultValue ?? '');
+      const initialValue = model.initialValues[field] ?? fieldConfig.defaultValue ?? '';
       const nextField: FieldState = {
         ...fieldState,
         value,

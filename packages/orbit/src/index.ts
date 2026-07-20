@@ -98,14 +98,10 @@ export {
   uniqueValue,
 } from './async-validators.js';
 
-// ─── Ephemeris emission ─────────────────────────────────────────────────────
+// ─── Optional event ledger ──────────────────────────────────────────────────
 
-export type {
-  EphemerisAppendInput,
-  EphemerisAppendResult,
-  EphemerisStoreLike,
-} from './ephemeris.js';
-export { emitEphemeris } from './ephemeris.js';
+export type { OrbitLedger, OrbitLedgerAppendResult, OrbitLedgerEvent } from './ledger.js';
+export { emitLedgerEvent } from './ledger.js';
 
 // ─── Resolvers ──────────────────────────────────────────────────────────────
 

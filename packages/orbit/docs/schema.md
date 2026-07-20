@@ -17,6 +17,15 @@ Orbit's schema core currently supports these baseline field kinds:
 - `promptTemplate`
 - `json`
 - `custom`
+- `tags`
+- `rating`
+- `range`
+- `segmented`
+- `toggle`
+- `color`
+- `file`
+- `radio`
+- `multi-select`
 
 ## Validation helpers
 

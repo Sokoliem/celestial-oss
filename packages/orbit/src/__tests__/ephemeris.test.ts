@@ -1,38 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { emitEphemeris, type EphemerisAppendInput, type EphemerisStoreLike } from '../ephemeris.js';
 import { form } from '../engine.js';
-import { wizard } from '../wizard.js';
+import { emitLedgerEvent, type OrbitLedger, type OrbitLedgerEvent } from '../ledger.js';
 import { schemaForm } from '../schema-form.js';
+import { wizard } from '../wizard.js';
 
-function recordingStore(): EphemerisStoreLike & { readonly events: EphemerisAppendInput[] } {
-  const events: EphemerisAppendInput[] = [];
+function recordingStore(): OrbitLedger & { readonly events: OrbitLedgerEvent[] } {
+  const events: OrbitLedgerEvent[] = [];
   return {
     events,
-    append(input: EphemerisAppendInput) {
+    append(input: OrbitLedgerEvent) {
       events.push(input);
       return { id: `evt-${events.length}` };
     },
   };
 }
 
-describe('emitEphemeris', () => {
+describe('emitLedgerEvent', () => {
   it('returns immediately when no store is supplied', async () => {
-    await expect(emitEphemeris(undefined, { kind: 'noop' })).resolves.toBeUndefined();
+    await expect(emitLedgerEvent(undefined, { kind: 'noop' })).resolves.toBeUndefined();
   });
 
   it('forwards the input to the store', async () => {
     const store = recordingStore();
-    await emitEphemeris(store, { kind: 'test:event', payload: { hello: 'world' } });
+    await emitLedgerEvent(store, { kind: 'test:event', payload: { hello: 'world' } });
     expect(store.events).toEqual([{ kind: 'test:event', payload: { hello: 'world' } }]);
   });
 
   it('swallows store errors so form interaction is never broken', async () => {
-    const store: EphemerisStoreLike = {
+    const store: OrbitLedger = {
       append: () => {
         throw new Error('broken store');
       },
     };
-    await expect(emitEphemeris(store, { kind: 'will-fail' })).resolves.toBeUndefined();
+    await expect(emitLedgerEvent(store, { kind: 'will-fail' })).resolves.toBeUndefined();
   });
 });
 
@@ -41,8 +41,8 @@ describe('form() emits structured events', () => {
     const store = recordingStore();
     const sut = form({
       fields: { name: { label: 'Name', defaultValue: '' } },
-      ephemerisStore: store,
-      ephemerisFormId: 'profile',
+      ledger: store,
+      ledgerFormId: 'profile',
     });
     let [model] = sut.init();
     [model] = sut.update({ type: 'form:field-change', field: 'name', value: 'Alice' }, model);
@@ -60,7 +60,7 @@ describe('form() emits structured events', () => {
     const store = recordingStore();
     const sut = form({
       fields: { name: { label: 'Name', defaultValue: 'Alice' } },
-      ephemerisStore: store,
+      ledger: store,
     });
     const [model] = sut.init();
     sut.update({ type: 'form:submit' }, model);
@@ -77,7 +77,7 @@ describe('form() emits structured events', () => {
           validate: [(value) => ((value as string).length === 0 ? { valid: false, message: 'required' } : { valid: true })],
         },
       },
-      ephemerisStore: store,
+      ledger: store,
     });
     const [model] = sut.init();
     sut.update({ type: 'form:submit' }, model);
@@ -90,7 +90,7 @@ describe('form() emits structured events', () => {
     const store = recordingStore();
     const sut = form({
       fields: { name: { label: 'Name', defaultValue: '' } },
-      ephemerisStore: store,
+      ledger: store,
     });
     const [model] = sut.init();
     sut.update({ type: 'form:autosave-complete', reset: false }, model);
@@ -116,10 +116,10 @@ describe('wizard() emits step events', () => {
       validate: validate as never,
       component: {
         init(): [unknown, ReturnType<typeof import('@celestial/nebula').Cmd.none>] {
-          return [{}, ({ _tag: 'cmd', _kind: { kind: 'none' } } as never)];
+          return [{}, { _tag: 'cmd', _kind: { kind: 'none' } } as never];
         },
         update(_msg: never, m: unknown): [unknown, ReturnType<typeof import('@celestial/nebula').Cmd.none>] {
-          return [m, ({ _tag: 'cmd', _kind: { kind: 'none' } } as never)];
+          return [m, { _tag: 'cmd', _kind: { kind: 'none' } } as never];
         },
         view(_m: unknown) {
           return null as never;
@@ -132,8 +132,8 @@ describe('wizard() emits step events', () => {
     const store = recordingStore();
     const sut = wizard({
       steps: [counterStep('first'), counterStep('second')],
-      ephemerisStore: store,
-      ephemerisWizardId: 'onboarding',
+      ledger: store,
+      ledgerWizardId: 'onboarding',
     });
     let [model] = sut.init();
     [model] = sut.update({ type: 'wizard:next' }, model);
@@ -146,7 +146,7 @@ describe('wizard() emits step events', () => {
     const store = recordingStore();
     const sut = wizard({
       steps: [counterStep('only')],
-      ephemerisStore: store,
+      ledger: store,
     });
     let [model] = sut.init();
     [model] = sut.update({ type: 'wizard:next' }, model);
@@ -161,8 +161,8 @@ describe('schemaForm() emits structured events', () => {
       schema: { fields: [{ kind: 'text', name: 'title' }] },
       value: { title: '' },
       onChange: () => {},
-      ephemerisStore: store,
-      ephemerisFormId: 'schema-flow',
+      ledger: store,
+      ledgerFormId: 'schema-flow',
     });
     const [model] = sut.init();
     sut.update({ type: 'schema-form:set-field', field: 'title', value: 'Hello' }, model);
@@ -175,7 +175,7 @@ describe('schemaForm() emits structured events', () => {
       schema: { fields: [{ kind: 'text', name: 'title' }] },
       value: { title: 'ok' },
       onChange: () => {},
-      ephemerisStore: store,
+      ledger: store,
     });
     const [model] = sut.init();
     sut.update({ type: 'schema-form:submit' }, model);
