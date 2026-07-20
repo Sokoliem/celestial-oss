@@ -1,7 +1,7 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract } from '@celestial/core/corona';
 import { style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
-import { Cmd, event, row, setVNodeMeta, Sub, text } from '@celestial/core/nebula';
+import { Cmd, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { generateFocusGroupId } from './focus-group.js';
 import { useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
@@ -61,6 +61,8 @@ export type BreadcrumbMsg =
   | { type: 'noop' };
 
 export function breadcrumb(config: BreadcrumbConfig): ComponentDescriptor<BreadcrumbModel, BreadcrumbMsg> {
+  const items = config.items.slice(0, 10_000).map((item) => ({ ...item }));
+  const separator = config.separator ?? ' > ';
   const interactionId = config.id ?? generateFocusGroupId('breadcrumb');
   const itemPrefix = `${interactionId}:item:`;
   const selectTag = `${interactionId}:select`;
@@ -68,19 +70,27 @@ export function breadcrumb(config: BreadcrumbConfig): ComponentDescriptor<Breadc
   const leaveTag = `${interactionId}:leave`;
 
   const initialIndex = (): number => {
-    if (config.items.length === 0) return -1;
+    if (items.length === 0) return -1;
     if (config.selectedKey) {
-      const selected = config.items.findIndex((item) => item.key === config.selectedKey);
+      const selected = items.findIndex((item) => item.key === config.selectedKey);
       if (selected >= 0) return selected;
     }
-    return config.items.length - 1;
+    return items.length - 1;
+  };
+
+  const validIndex = (index: number): number | null => {
+    if (!Number.isFinite(index)) return null;
+    const normalized = Math.trunc(index);
+    return normalized >= 0 && normalized < items.length ? normalized : null;
   };
 
   const activate = (index: number, model: BreadcrumbModel): [BreadcrumbModel, Cmd<BreadcrumbMsg>] => {
-    const item = config.items[index];
+    const normalized = validIndex(index);
+    if (normalized === null) return [model, Cmd.none()];
+    const item = items[normalized];
     if (!item) return [model, Cmd.none()];
     config.onSelect?.(item.key);
-    return [{ ...model, selectedIndex: index, cursor: index, focused: true }, Cmd.none()];
+    return [{ ...model, selectedIndex: normalized, cursor: normalized, focused: true }, Cmd.none()];
   };
 
   return {
@@ -96,15 +106,15 @@ export function breadcrumb(config: BreadcrumbConfig): ComponentDescriptor<Breadc
         case 'activate-at':
           return activate(msg.index, model);
         case 'left':
-          return [{ ...model, cursor: Math.max(0, model.cursor - 1) }, Cmd.none()];
+          return [{ ...model, cursor: Math.max(0, (validIndex(model.cursor) ?? 0) - 1) }, Cmd.none()];
         case 'right':
-          return [{ ...model, cursor: Math.min(config.items.length - 1, model.cursor + 1) }, Cmd.none()];
-        case 'hover-at':
-          return config.items[msg.index]
-            ? [{ ...model, hoveredIndex: msg.index, cursor: msg.index }, Cmd.none()]
-            : [model, Cmd.none()];
+          return [{ ...model, cursor: items.length === 0 ? 0 : Math.min(items.length - 1, (validIndex(model.cursor) ?? 0) + 1) }, Cmd.none()];
+        case 'hover-at': {
+          const index = validIndex(msg.index);
+          return index === null ? [model, Cmd.none()] : [{ ...model, hoveredIndex: index, cursor: index }, Cmd.none()];
+        }
         case 'leave-at':
-          return [{ ...model, hoveredIndex: model.hoveredIndex === msg.index ? null : model.hoveredIndex }, Cmd.none()];
+          return [{ ...model, hoveredIndex: model.hoveredIndex === validIndex(msg.index) ? null : model.hoveredIndex }, Cmd.none()];
         case 'focus':
           return [{ ...model, focused: true }, Cmd.none()];
         case 'blur':
@@ -116,14 +126,16 @@ export function breadcrumb(config: BreadcrumbConfig): ComponentDescriptor<Breadc
 
     view(model: BreadcrumbModel): VNode {
       const tokens = useTokens(breadcrumbContract, config, 'Breadcrumb');
-      const sep = config.separator ?? ' > ';
-      if (config.items.length === 0) return text('');
+      if (items.length === 0) return text('');
+      const selectedIndex = validIndex(model.selectedIndex);
+      const cursor = validIndex(model.cursor);
+      const hoveredIndex = model.hoveredIndex === null ? null : validIndex(model.hoveredIndex);
 
       const nodes: VNode[] = [];
-      for (let index = 0; index < config.items.length; index++) {
-        const item = config.items[index]!;
-        const hovered = model.hoveredIndex === index;
-        const selected = model.selectedIndex === index;
+      for (let index = 0; index < items.length; index++) {
+        const item = items[index]!;
+        const hovered = hoveredIndex === index;
+        const selected = selectedIndex === index;
         const itemNode = event(
           `${itemPrefix}${index}`,
           text(
@@ -132,7 +144,7 @@ export function breadcrumb(config: BreadcrumbConfig): ComponentDescriptor<Breadc
               color: hovered ? tokens.hoverText : selected ? tokens.active : tokens.separator,
               background: hovered ? tokens.hoverBackground : undefined,
               bold: hovered || selected,
-              underline: model.focused && model.cursor === index && !hovered,
+              underline: model.focused && cursor === index && !hovered,
             }),
           ),
           { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
@@ -140,7 +152,7 @@ export function breadcrumb(config: BreadcrumbConfig): ComponentDescriptor<Breadc
         );
         setVNodeMeta(itemNode, { a11y: { role: 'button', label: item.label, selected } });
         nodes.push(itemNode);
-        if (index < config.items.length - 1) nodes.push(text(sep, style({ dim: true, color: tokens.divider })));
+        if (index < items.length - 1) nodes.push(text(separator, style({ dim: true, color: tokens.divider })));
       }
       return row(...nodes);
     },
@@ -156,12 +168,7 @@ export function breadcrumb(config: BreadcrumbConfig): ComponentDescriptor<Breadc
         return { type: 'noop' };
       });
       if (!model.focused) return mouse;
-      return Sub.batch<BreadcrumbMsg>(
-        mouse,
-        Sub.key('left', { type: 'left' }),
-        Sub.key('right', { type: 'right' }),
-        Sub.key('enter', { type: 'activate' }),
-      );
+      return Sub.batch<BreadcrumbMsg>(mouse, Sub.key('left', { type: 'left' }), Sub.key('right', { type: 'right' }), Sub.key('enter', { type: 'activate' }));
     },
   };
 }

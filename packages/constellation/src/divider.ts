@@ -2,7 +2,9 @@ import type { Color, SemanticTheme, TokenContract } from '@celestial/core/corona
 import { style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { text } from '@celestial/core/nebula';
-import { type ConstellationSize, type ConstellationThemedOptions, clampWidth, resolveTheme, useTokens } from './theme.js';
+import { measureTextWidth, segmentGraphemes, sliceTextByWidth } from '@celestial/rosetta';
+import { nonNegativeInteger } from './internal.js';
+import { type ConstellationSize, type ConstellationThemedOptions, clampWidth, normalizeSize, normalizeTone, resolveTheme, useTokens } from './theme.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
 
@@ -28,13 +30,14 @@ export interface DividerConfig extends ConstellationThemedOptions {
 export function divider(config: DividerConfig = {}): VNode {
   const tokens = useTokens(dividerContract, config, 'Divider');
   const theme = resolveTheme(config);
-  const size = config.size ?? 'md';
+  const size = normalizeSize(config.size);
   const width = clampWidth(config.width, 40);
-  const inset = Math.max(0, config.inset ?? defaultInset(size, theme.spacing[size]));
-  const char = (config.char ?? theme.glyphs.divider).slice(0, 1) || '-';
+  const inset = Math.min(nonNegativeInteger(config.inset, defaultInset(size, theme.spacing[size])), Math.max(0, Math.floor((width - 1) / 2)));
+  const candidate = segmentGraphemes(config.char ?? theme.glyphs.divider)[0] ?? '-';
+  const char = measureTextWidth(candidate) === 1 ? candidate : '-';
   const usableWidth = Math.max(1, width - inset * 2);
   const label = config.label?.trim();
-  const tone = config.tone ?? 'neutral';
+  const tone = normalizeTone(config.tone);
   const lineColor = tone === 'neutral' ? tokens.line : theme.colors.tones[tone];
   const dividerStyle = style({ color: lineColor });
 
@@ -43,11 +46,14 @@ export function divider(config: DividerConfig = {}): VNode {
   }
 
   const labelChunk = ` ${label} `;
-  if (labelChunk.length >= usableWidth) {
-    return text(' '.repeat(inset) + labelChunk.slice(0, usableWidth), dividerStyle);
+  const labelWidth = measureTextWidth(labelChunk);
+  if (labelWidth >= usableWidth) {
+    const clipped = sliceTextByWidth(labelChunk, usableWidth);
+    const padding = Math.max(0, usableWidth - measureTextWidth(clipped));
+    return text(' '.repeat(inset) + clipped + ' '.repeat(padding + inset), dividerStyle);
   }
 
-  const remaining = usableWidth - labelChunk.length;
+  const remaining = usableWidth - labelWidth;
   let left = 0;
   let right = 0;
 

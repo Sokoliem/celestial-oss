@@ -20,17 +20,23 @@ export function required(message?: string): Validator {
 
 /** Value must have at least n characters. */
 export function minLength(n: number, message?: string): Validator {
-  return (value: string) => (value.length >= n ? { valid: true } : { valid: false, message: message ?? `Must be at least ${n} characters` });
+  const length = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+  return (value: string) => (value.length >= length ? { valid: true } : { valid: false, message: message ?? `Must be at least ${length} characters` });
 }
 
 /** Value must have at most n characters. */
 export function maxLength(n: number, message?: string): Validator {
-  return (value: string) => (value.length <= n ? { valid: true } : { valid: false, message: message ?? `Must be at most ${n} characters` });
+  const length = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : Number.MAX_SAFE_INTEGER;
+  return (value: string) => (value.length <= length ? { valid: true } : { valid: false, message: message ?? `Must be at most ${length} characters` });
 }
 
 /** Value must match the given regex. */
 export function pattern(regex: RegExp, message?: string): Validator {
-  return (value: string) => (regex.test(value) ? { valid: true } : { valid: false, message: message ?? 'Invalid format' });
+  const stableRegex = new RegExp(regex.source, regex.flags);
+  return (value: string) => {
+    stableRegex.lastIndex = 0;
+    return stableRegex.test(value) ? { valid: true } : { valid: false, message: message ?? 'Invalid format' };
+  };
 }
 
 /** Custom validation function. */

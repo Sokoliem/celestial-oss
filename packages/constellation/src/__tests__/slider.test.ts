@@ -199,4 +199,18 @@ describe('slider', () => {
       }
     });
   });
+
+  it('normalizes reversed ranges, zero steps, and unsafe dimensions', () => {
+    const component = slider({ min: 100, max: 0, step: 0, width: Number.POSITIVE_INFINITY, value: Number.NaN });
+    const [model] = component.init();
+    expect(model.value).toBe(0);
+    expect(() => component.view(model)).not.toThrow();
+  });
+
+  it('renders the full finite number range without overflow', () => {
+    const component = slider({ min: -Number.MAX_VALUE, max: Number.MAX_VALUE, value: 0, width: 3 });
+    const [model] = component.init();
+    expect(Number.isFinite(model.value)).toBe(true);
+    expect(() => component.view(model)).not.toThrow();
+  });
 });

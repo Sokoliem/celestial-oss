@@ -319,6 +319,17 @@ describe('commandPalette', () => {
       }
     });
   });
+
+  it('snapshots command definitions and rejects malformed pointer indices', () => {
+    const mutable = [{ id: 'stable', label: 'Stable command', msg: 'stable' }];
+    const component = commandPalette({ commands: mutable });
+    mutable[0]!.label = 'Changed command';
+    const [model] = component.init();
+    const [opened] = component.update({ type: 'cp-open' }, model);
+    expect(collectTexts(component.view(opened) as any).some((value) => value.includes('Stable command'))).toBe(true);
+    expect(collectTexts(component.view(opened) as any).some((value) => value.includes('Changed command'))).toBe(false);
+    expect(component.update({ type: 'cp-select-at', index: Number.NaN }, opened)[0]).toBe(opened);
+  });
 });
 
 /** Recursively collect all text content from a VNode tree. */

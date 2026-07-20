@@ -1,9 +1,11 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
 import { border, resolveGlyph, style, tooltipVariantGlyphs } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
-import { box, Cmd, column, row, Sub, text } from '@celestial/core/nebula';
+import { box, Cmd, column, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { measureTextWidth, wrapCellText } from '@celestial/rosetta';
 import { caretFor } from './anchored-overlay.js';
+import { generateFocusGroupId } from './focus-group.js';
+import { nonNegativeInteger, positiveInteger } from './internal.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
 import type { ConstellationTone } from './theme.js';
 import { applyTypography, resolveAnimatedBorderColor, resolveTheme, useTokens } from './theme.js';
@@ -63,10 +65,12 @@ export interface TooltipModel {
   visible: boolean;
   triggered: boolean;
   borderTick?: number;
+  viewportCols?: number;
 }
 
-export type TooltipMsg = Msg<'show' | 'hide' | 'toggle' | 'tick' | 'panic'>;
+export type TooltipMsg = Msg<'show' | 'hide' | 'toggle' | 'tick' | 'panic' | 'hover-enter' | 'hover-leave' | 'delay-elapsed' | 'noop'> | MsgWithCols;
 type Msg<T extends string> = { type: T };
+type MsgWithCols = { type: 'resize'; cols: number };
 
 /**
  * Per-variant tooltip prefix glyph. Wide-level resolution is used to match
@@ -96,11 +100,11 @@ function wrapTooltipContent(content: string, maxWidth: number): string[] {
 }
 
 export function measureTooltipBubble(options: TooltipBubbleOptions): TooltipBubbleMeasurement {
-  const maxWidth = Math.max(12, options.maxWidth ?? 40);
-  const contentWidth = Math.max(8, maxWidth - 6);
-  const lines = wrapTooltipContent(options.content, contentWidth);
+  const maxWidth = positiveInteger(options.maxWidth, 40);
+  const contentWidth = Math.max(1, maxWidth - 6);
+  const lines = wrapTooltipContent(String(options.content), contentWidth);
   const longestLine = lines.reduce((max, line) => Math.max(max, measureTextWidth(line)), 0);
-  const width = Math.max(12, Math.min(maxWidth, longestLine + 6));
+  const width = Math.max(1, Math.min(maxWidth, longestLine + 6));
   // One cell of padding and one border cell on both vertical edges.
   const height = lines.length + 4;
 
@@ -112,10 +116,17 @@ export function measureTooltipBubble(options: TooltipBubbleOptions): TooltipBubb
 }
 
 export function tooltip(config: TooltipConfig): ComponentDescriptor<TooltipModel, TooltipMsg> {
-  const position = config.position ?? 'top';
-  const variant = config.variant ?? 'default';
-  const maxWidth = config.maxWidth ?? 40;
-  const surfaceId = `tooltip-${position}-${variant}`;
+  const position = config.position === 'bottom' || config.position === 'left' || config.position === 'right' ? config.position : 'top';
+  const variant = config.variant && config.variant in VARIANT_PREFIX ? config.variant : 'default';
+  const maxWidth = positiveInteger(config.maxWidth, 40);
+  const content = String(config.content);
+  const triggerNode = config.children ?? text('○');
+  const caret = Boolean(config.caret);
+  const delay = nonNegativeInteger(config.delay, 300, 2_147_483_647);
+  const surfaceId = generateFocusGroupId(`tooltip-${position}-${variant}`);
+  const triggerId = `${surfaceId}:trigger`;
+  const enterTag = `${surfaceId}:enter`;
+  const leaveTag = `${surfaceId}:leave`;
 
   return {
     init(): [TooltipModel, Cmd<TooltipMsg>] {
@@ -127,16 +138,26 @@ export function tooltip(config: TooltipConfig): ComponentDescriptor<TooltipModel
         case 'show':
           return [{ ...model, visible: true }, Cmd.none()];
         case 'hide':
-          return [{ ...model, visible: false }, Cmd.none()];
+          return [{ ...model, visible: false, triggered: false }, Cmd.none()];
         case 'toggle':
-          return [{ ...model, visible: !model.visible }, Cmd.none()];
+          return [{ ...model, visible: !model.visible, triggered: !model.visible }, Cmd.none()];
+        case 'hover-enter':
+          return [{ ...model, triggered: true, visible: delay === 0 ? true : model.visible }, Cmd.none()];
+        case 'hover-leave':
+          return [{ ...model, triggered: false, visible: false }, Cmd.none()];
+        case 'delay-elapsed':
+          return model.triggered ? [{ ...model, visible: true }, Cmd.none()] : [model, Cmd.none()];
+        case 'resize':
+          return [{ ...model, viewportCols: positiveInteger(msg.cols, 1) }, Cmd.none()];
         case 'tick':
-          return model.visible ? [{ ...model, borderTick: (model.borderTick ?? 0) + 1 }, Cmd.none()] : [model, Cmd.none()];
+          return model.visible ? [{ ...model, borderTick: (nonNegativeInteger(model.borderTick, 0, 23) + 1) % 24 }, Cmd.none()] : [model, Cmd.none()];
         case 'panic':
           if (!model.visible) return [model, Cmd.none()];
           // Fan out to other registered surfaces before closing self.
           broadcastSurfacePanic();
-          return [{ ...model, visible: false }, Cmd.none()];
+          return [{ ...model, visible: false, triggered: false }, Cmd.none()];
+        case 'noop':
+          return [model, Cmd.none()];
       }
       return [model, Cmd.none()];
     },
@@ -145,10 +166,11 @@ export function tooltip(config: TooltipConfig): ComponentDescriptor<TooltipModel
       const tokens = useTokens(tooltipContract, config, 'Tooltip');
       const theme = resolveTheme(config);
       const variantColor = theme.colors.tones[VARIANT_TONE[variant]];
-      const arrow = config.caret ? caretFor(position) : '';
+      const arrow = caret ? caretFor(position) : '';
       const prefix = VARIANT_PREFIX[variant];
-      const borderColor = resolveAnimatedBorderColor(theme, tokens.border, variantColor, model.borderTick ?? 0, 0.2);
-      const measurement = measureTooltipBubble({ content: config.content, maxWidth });
+      const borderColor = resolveAnimatedBorderColor(theme, tokens.border, variantColor, nonNegativeInteger(model.borderTick, 0, 23), 0.2);
+      const viewportWidth = model.viewportCols === undefined ? maxWidth : Math.max(1, positiveInteger(model.viewportCols, maxWidth) - 2);
+      const measurement = measureTooltipBubble({ content, maxWidth: Math.min(maxWidth, viewportWidth) });
 
       const contentStyle = applyTypography(tokens.captionStyle, { color: tokens.text, background: tokens.bg });
       const accentStyle = style({ color: variantColor, background: tokens.bg, bold: true });
@@ -167,32 +189,60 @@ export function tooltip(config: TooltipConfig): ComponentDescriptor<TooltipModel
           ...measurement.lines.slice(1).map((line) => text(`  ${line}`, contentStyle)),
         ),
         bubbleStyle,
-        { width: measurement.width },
+        { width: measurement.width, overflow: 'hidden' },
       );
 
-      const positionedTooltip = !config.caret
+      const bubble = !caret
         ? tooltipBox
-        : position === 'top'
-          ? column(tooltipBox, text(arrow, borderStyle))
+        : position === 'top' || position === 'left'
+          ? position === 'top'
+            ? column(tooltipBox, text(arrow, borderStyle))
+            : row(tooltipBox, text(arrow, borderStyle))
           : position === 'bottom'
             ? column(text(arrow, borderStyle), tooltipBox)
+            : row(text(arrow, borderStyle), tooltipBox);
+      const positioned = !model.visible
+        ? triggerNode
+        : position === 'top'
+          ? column(bubble, triggerNode)
+          : position === 'bottom'
+            ? column(triggerNode, bubble)
             : position === 'left'
-              ? row(tooltipBox, text(arrow, borderStyle))
-              : row(text(arrow, borderStyle), tooltipBox);
-
-      return model.visible ? positionedTooltip : (config.children ?? text('○'));
+              ? row(bubble, triggerNode)
+              : row(triggerNode, bubble);
+      const interactive = event(
+        triggerId,
+        positioned,
+        { onMouseEnter: enterTag, onMouseLeave: leaveTag },
+        { label: content, intent: 'inspect', affordances: ['hover'], cursor: 'help', keyboardHint: 'Escape' },
+      );
+      setVNodeMeta(interactive, { a11y: { role: 'status', label: content } });
+      return interactive;
     },
 
     subscriptions(model: TooltipModel): Sub<TooltipMsg> {
-      if (!model.visible) return Sub.none();
       const theme = resolveTheme(config);
       const subs: Sub<TooltipMsg>[] = [
-        // A2 — tooltip honors Escape AND the surface-panic contract while visible.
-        Sub.key<TooltipMsg>('escape', { type: 'hide' }),
-        surfaceContractSubs<TooltipMsg>({ id: surfaceId, onPanic: { type: 'panic' } }),
+        Sub.elementMouse<TooltipMsg>((mouseEvent) => {
+          if (mouseEvent.elementId !== triggerId) return { type: 'noop' };
+          if (mouseEvent.handlerTag === enterTag) return { type: 'hover-enter' };
+          if (mouseEvent.handlerTag === leaveTag) return { type: 'hover-leave' };
+          return { type: 'noop' };
+        }),
       ];
-      if (!theme.motion.reduceMotion) {
-        subs.push(Sub.timer(140, () => ({ type: 'tick' })));
+      if (model.triggered && !model.visible && delay > 0) {
+        subs.push(Sub.timer(delay, () => ({ type: 'delay-elapsed' })));
+      }
+      if (model.visible) {
+        subs.push(
+          // A2 — tooltip honors Escape AND the surface-panic contract while visible.
+          Sub.key<TooltipMsg>('escape', { type: 'hide' }),
+          Sub.resize((cols) => ({ type: 'resize', cols })),
+          surfaceContractSubs<TooltipMsg>({ id: surfaceId, onPanic: { type: 'panic' } }),
+        );
+        if (!theme.motion.reduceMotion) {
+          subs.push(Sub.timer(140, () => ({ type: 'tick' })));
+        }
       }
       return subs.length === 1 ? subs[0]! : Sub.batch<TooltipMsg>(...subs);
     },
@@ -200,11 +250,11 @@ export function tooltip(config: TooltipConfig): ComponentDescriptor<TooltipModel
 }
 
 export function renderTooltipBubble(options: TooltipBubbleOptions): VNode {
-  const variant = options.variant ?? 'default';
+  const variant = options.variant && options.variant in VARIANT_PREFIX ? options.variant : 'default';
   const theme = resolveTheme({ theme: options.theme });
   const tokens = useTokens(tooltipContract, { theme: options.theme }, 'Tooltip');
   const variantColor = theme.colors.tones[VARIANT_TONE[variant]];
-  const borderColor = resolveAnimatedBorderColor(theme, tokens.border, variantColor, options.tick ?? 0, 0.2);
+  const borderColor = resolveAnimatedBorderColor(theme, tokens.border, variantColor, nonNegativeInteger(options.tick, 0, 23), 0.2);
   const measurement = measureTooltipBubble(options);
 
   return box(

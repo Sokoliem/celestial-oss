@@ -69,6 +69,18 @@ describe('card', () => {
       expect(view.border?.topLeft).toBe('┌');
     }
   });
+
+  it('normalizes unsafe dimensions and snapshots content arrays', () => {
+    const content = [{ kind: 'text', content: 'Original' } as const];
+    const comp = card({ content, width: Number.POSITIVE_INFINITY, height: -1, padding: Number.NaN });
+    content[0] = { kind: 'text', content: 'Mutated' };
+    const view = comp.view(comp.init()[0]);
+    expect(extractNodeText(view)).toContain('Original');
+    if (view.kind === 'box') {
+      expect(view.width).toBe(1);
+      expect(view.height).toBe(1);
+    }
+  });
 });
 
 describe('cardGrid', () => {
@@ -87,5 +99,21 @@ describe('cardGrid', () => {
     const [model] = comp.init();
     const view = comp.view(model);
     expect(view).toBeDefined();
+  });
+
+  it('normalizes zero columns, applies gap, and snapshots cards', () => {
+    const cards = [{ title: 'Original' }, { title: 'Second' }];
+    const comp = cardGrid({ cards, columns: 0, gap: 2 });
+    cards[0]!.title = 'Mutated';
+    const view = comp.view(comp.init()[0]);
+    expect(extractNodeText(view)).toContain('Original');
+    if (view.kind === 'column') expect(view.gap).toBe(2);
+  });
+
+  it('routes card clicks through the grid descriptor', () => {
+    let clicked = false;
+    const comp = cardGrid({ cards: [{ title: 'Action', onClick: () => (clicked = true) }] });
+    comp.update({ type: 'click-card', index: 0 }, comp.init()[0]);
+    expect(clicked).toBe(true);
   });
 });

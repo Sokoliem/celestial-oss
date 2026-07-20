@@ -3,9 +3,11 @@ import { border, style } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, divider, event, focus, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { assignFocusGroup, generateFocusGroupId } from './focus-group.js';
+import { nonNegativeInteger, positiveInteger } from './internal.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
 import { applyState, applyTypography, resolveAnimatedBorderColor, resolveTheme, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
+import { transformVNode } from './vnode-transform.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
 
@@ -90,9 +92,9 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
         case 'leave-close':
           return [{ ...model, hoveredClose: false }, Cmd.none()];
         case 'tick':
-          return model.open ? [{ ...model, borderTick: (model.borderTick ?? 0) + 1 }, Cmd.none()] : [model, Cmd.none()];
+          return model.open ? [{ ...model, borderTick: nonNegativeInteger(model.borderTick, 0) + 1 }, Cmd.none()] : [model, Cmd.none()];
         case 'resize':
-          return [{ ...model, viewportCols: Math.max(1, Math.floor(msg.cols)), viewportRows: Math.max(1, Math.floor(msg.rows)) }, Cmd.none()];
+          return [{ ...model, viewportCols: positiveInteger(msg.cols, 1), viewportRows: positiveInteger(msg.rows, 1) }, Cmd.none()];
         case 'panic':
           if (!model.open) return [model, Cmd.none()];
           // Fan out to other registered surfaces before closing self.
@@ -111,10 +113,10 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
       if (!model.open) return text('');
       const tokens = useTokens(modalContract, config, 'Modal');
       const theme = resolveTheme(config);
-      const preferredWidth = Math.max(32, Math.floor(config.width ?? 52));
+      const preferredWidth = Math.max(32, positiveInteger(config.width, 52));
       const viewportWidth = model.viewportCols === undefined ? preferredWidth : Math.max(1, model.viewportCols - 2);
       const width = Math.max(1, Math.min(preferredWidth, viewportWidth));
-      const preferredHeight = config.height === undefined ? undefined : Math.max(1, Math.floor(config.height));
+      const preferredHeight = config.height === undefined ? undefined : positiveInteger(config.height, 1);
       const viewportHeight = model.viewportRows === undefined ? preferredHeight : Math.max(1, model.viewportRows - 2);
       const height = preferredHeight === undefined ? undefined : Math.max(1, Math.min(preferredHeight, viewportHeight ?? preferredHeight));
       const borderColor = resolveAnimatedBorderColor(theme, theme.colors.borderHover, tokens.border, model.borderTick ?? 0);
@@ -174,29 +176,5 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
 }
 
 function enableModalTextWrapping(node: VNode): VNode {
-  switch (node.kind) {
-    case 'text':
-      return node.wrap === undefined ? { ...node, wrap: true } : node;
-    case 'row':
-    case 'column':
-    case 'box':
-    case 'tabGroup':
-      return { ...node, children: node.children.map(enableModalTextWrapping) };
-    case 'focus':
-    case 'scroll':
-    case 'event':
-    case 'hover':
-    case 'overlay':
-    case 'flex':
-    case 'portal':
-      return { ...node, child: enableModalTextWrapping(node.child) };
-    case 'component':
-      return { ...node, render: (context) => enableModalTextWrapping(node.render(context)) };
-    case 'memo':
-      return { ...node, render: () => enableModalTextWrapping(node.render()) };
-    case 'suspense':
-      return { ...node, child: enableModalTextWrapping(node.child), fallback: enableModalTextWrapping(node.fallback) };
-    default:
-      return node;
-  }
+  return transformVNode(node, (current) => (current.kind === 'text' && current.wrap === undefined ? { ...current, wrap: true } : current));
 }

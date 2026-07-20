@@ -4,10 +4,12 @@ import type { Msg, ThemeContext, VNode } from '@celestial/nebula';
 import { box, Cmd, collectFocusNodes, column, event, row, Sub, setVNodeMeta, text } from '@celestial/nebula';
 import { caretFor } from './anchored-overlay.js';
 import { assignFocusGroup, generateFocusGroupId } from './focus-group.js';
+import { MAX_RENDER_CELLS, positiveInteger } from './internal.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
 import type { ConstellationTone } from './theme.js';
 import { applyTypography, resolveTheme, useTokens } from './theme.js';
 import { type ComponentDescriptor, normalizeContent } from './types.js';
+import { transformVNode } from './vnode-transform.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
 
@@ -55,6 +57,7 @@ export interface PopoverModel {
 
 export type PopoverMsg =
   | Msg<'show' | 'hide' | 'toggle' | 'panic' | 'hover-close' | 'leave-close' | 'noop'>
+  | Msg<'toggle-at', { index: number }>
   | Msg<'resize', { cols: number }>;
 
 /**
@@ -79,10 +82,14 @@ const VARIANT_TONE: Record<PopoverVariant, ConstellationTone> = {
 };
 
 export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel, PopoverMsg> {
-  const position = config.position ?? 'top';
-  const variant = config.variant ?? 'default';
+  const position =
+    config.position === 'bottom' || config.position === 'left' || config.position === 'right' || config.position === 'center' ? config.position : 'top';
+  const variant = config.variant && config.variant in VARIANT_TONE ? config.variant : 'default';
   const showArrow = config.showArrow ?? true;
   const persistent = config.persistent ?? false;
+  const title = config.title === undefined ? undefined : String(config.title);
+  const triggerNode = config.trigger;
+  const contentNodes = Array.isArray(config.content) ? [...config.content] : config.content;
   const groupId = generateFocusGroupId(`popover-${position}-${variant}`);
   const triggerId = `${groupId}:trigger`;
   const closeId = `${groupId}:close`;
@@ -90,7 +97,7 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
   const closeTag = `${groupId}:hide`;
   const hoverCloseTag = `${groupId}:hover-close`;
   const leaveCloseTag = `${groupId}:leave-close`;
-  const focusableCount = collectFocusNodes(Array.isArray(config.content) ? column(...config.content) : config.content).length;
+  const focusableCount = collectFocusNodes(Array.isArray(contentNodes) ? column(...contentNodes) : contentNodes).length;
   const trapFocus = !persistent && focusableCount > 0;
 
   return {
@@ -116,7 +123,7 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
           broadcastSurfacePanic();
           return [{ ...model, visible: false, focusTrapActive: false, hoveredClose: false }, model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none()];
         case 'resize':
-          return [{ ...model, viewportCols: Math.max(1, Math.floor(msg.cols)) }, Cmd.none()];
+          return [{ ...model, viewportCols: positiveInteger(msg.cols, 1) }, Cmd.none()];
         case 'hover-close':
           return [{ ...model, hoveredClose: true }, Cmd.none()];
         case 'leave-close':
@@ -131,14 +138,15 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
       const tokens = useTokens(popoverContract, config, 'Popover');
       const theme = resolveTheme(config);
       const variantColor = theme.colors.tones[VARIANT_TONE[variant]];
-      const preferredWidth = Math.max(12, Math.floor(config.width ?? 36));
-      const width = Math.max(8, Math.min(preferredWidth, model.viewportCols === undefined ? preferredWidth : model.viewportCols - 2));
+      const preferredWidth = Math.max(12, positiveInteger(config.width, 36));
+      const viewportCols = model.viewportCols === undefined ? preferredWidth : positiveInteger(model.viewportCols, preferredWidth);
+      const width = Math.max(1, Math.min(preferredWidth, Math.max(1, viewportCols - 2)));
 
-      const groupedContent = Array.isArray(config.content)
-        ? config.content.map((node) => (model.focusTrapActive ? assignFocusGroup(node, groupId) : node))
+      const groupedContent = Array.isArray(contentNodes)
+        ? contentNodes.map((node) => (model.focusTrapActive ? assignFocusGroup(node, groupId) : node))
         : model.focusTrapActive
-          ? assignFocusGroup(config.content, groupId)
-          : config.content;
+          ? assignFocusGroup(contentNodes, groupId)
+          : contentNodes;
       const content = normalizeContent(groupedContent).map(enablePopoverTextWrapping);
       const closeStyle = applyTypography(tokens.captionStyle, {
         color: model.hoveredClose ? tokens.text : tokens.textSoft,
@@ -146,7 +154,7 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
         bold: model.hoveredClose,
       });
       const panelChildren: VNode[] = [];
-      if (config.title) panelChildren.push(text(config.title, applyTypography(tokens.titleStyle, { color: variantColor }), { wrap: true }));
+      if (title) panelChildren.push(text(title, applyTypography(tokens.titleStyle, { color: variantColor }), { wrap: true }));
       panelChildren.push(...content);
       panelChildren.push(
         event(
@@ -156,18 +164,18 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
           { label: 'Close popover', intent: 'close', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Escape' },
         ),
       );
-      const popoverContent = box(
-        column(...panelChildren),
-        style({ border: border.rounded, borderColor: variantColor, background: tokens.bg, padding: 1 }),
-        { width, fit: 'content', overflow: 'hidden' },
-      );
-      setVNodeMeta(popoverContent, { testId: `${groupId}:panel`, a11y: { role: 'dialog', label: config.title ?? 'Popover' } });
+      const popoverContent = box(column(...panelChildren), style({ border: border.rounded, borderColor: variantColor, background: tokens.bg, padding: 1 }), {
+        width,
+        fit: 'content',
+        overflow: 'hidden',
+      });
+      setVNodeMeta(popoverContent, { testId: `${groupId}:panel`, a11y: { role: 'dialog', label: title ?? 'Popover' } });
       const arrow = showArrow ? text(` ${popoverArrow(position)} `, style({ color: variantColor })) : text('');
       const trigger = event(
         triggerId,
-        config.trigger,
+        triggerNode,
         { onClick: toggleTag },
-        { label: config.title ? `Open ${config.title}` : 'Toggle popover', intent: 'open', affordances: ['click'], cursor: 'pointer' },
+        { label: title ? `Open ${title}` : 'Toggle popover', intent: 'open', affordances: ['click'], cursor: 'pointer' },
       );
 
       const positionedPopover = (() => {
@@ -209,31 +217,7 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
 }
 
 function enablePopoverTextWrapping(node: VNode): VNode {
-  switch (node.kind) {
-    case 'text':
-      return node.wrap === undefined ? { ...node, wrap: true } : node;
-    case 'row':
-    case 'column':
-    case 'box':
-    case 'tabGroup':
-      return { ...node, children: node.children.map(enablePopoverTextWrapping) };
-    case 'focus':
-    case 'scroll':
-    case 'event':
-    case 'hover':
-    case 'overlay':
-    case 'flex':
-    case 'portal':
-      return { ...node, child: enablePopoverTextWrapping(node.child) };
-    case 'component':
-      return { ...node, render: (context) => enablePopoverTextWrapping(node.render(context)) };
-    case 'memo':
-      return { ...node, render: () => enablePopoverTextWrapping(node.render()) };
-    case 'suspense':
-      return { ...node, child: enablePopoverTextWrapping(node.child), fallback: enablePopoverTextWrapping(node.fallback) };
-    default:
-      return node;
-  }
+  return transformVNode(node, (current) => (current.kind === 'text' && current.wrap === undefined ? { ...current, wrap: true } : current));
 }
 
 export interface PopoverGroupConfig {
@@ -248,39 +232,89 @@ export interface PopoverGroupConfig {
 }
 
 export function popoverGroup(config: PopoverGroupConfig): ComponentDescriptor<{ activeIndex: number }, PopoverMsg> {
+  const popovers: Array<{ trigger: string; content: string; position: PopoverPosition; variant: PopoverVariant }> = config.popovers
+    .slice(0, MAX_RENDER_CELLS)
+    .map((item) => ({
+      trigger: String(item.trigger),
+      content: String(item.content),
+      position: item.position === 'bottom' || item.position === 'left' || item.position === 'right' || item.position === 'center' ? item.position : 'top',
+      variant: item.variant && item.variant in VARIANT_TONE ? item.variant : 'default',
+    }));
+  const groupId = generateFocusGroupId('popover-group');
+  const triggerTag = `${groupId}:toggle`;
+  const closeTag = `${groupId}:close`;
+  const validActiveIndex = (index: number): number => (Number.isInteger(index) && index >= 0 && index < popovers.length ? index : -1);
+
   return {
     init(): [{ activeIndex: number }, Cmd<PopoverMsg>] {
       return [{ activeIndex: -1 }, Cmd.none()];
     },
     update(msg: PopoverMsg, model: { activeIndex: number }): [{ activeIndex: number }, Cmd<PopoverMsg>] {
       if (msg.type === 'toggle') {
-        const newIndex = model.activeIndex === -1 ? 0 : -1;
+        const newIndex = validActiveIndex(model.activeIndex) === -1 && popovers.length > 0 ? 0 : -1;
         return [{ activeIndex: newIndex }, Cmd.none()];
       }
-      if (msg.type === 'hide') {
+      if (msg.type === 'toggle-at') {
+        if (!Number.isInteger(msg.index) || !popovers[msg.index]) return [model, Cmd.none()];
+        return [{ activeIndex: validActiveIndex(model.activeIndex) === msg.index ? -1 : msg.index }, Cmd.none()];
+      }
+      if (msg.type === 'hide' || msg.type === 'panic') {
+        if (msg.type === 'panic' && validActiveIndex(model.activeIndex) !== -1) broadcastSurfacePanic();
         return [{ activeIndex: -1 }, Cmd.none()];
       }
       return [model, Cmd.none()];
     },
     view(model: { activeIndex: number }): VNode {
+      const activeIndex = validActiveIndex(model.activeIndex);
+      const tokens = useTokens(popoverContract, config, 'PopoverGroup');
       const theme = resolveTheme(config);
-      const nodes = config.popovers.map((p, i) => {
-        const triggerColor = model.activeIndex === i ? theme.colors.highlight : theme.colors.text;
-        const triggerText = text(p.trigger, style({ color: triggerColor }));
-        return popover({
-          trigger: triggerText,
-          content: text(p.content),
-          variant: p.variant,
-          position: p.position,
-          themeCtx: config.themeCtx,
-          theme: config.theme,
-        }).view({ visible: model.activeIndex === i, focusTrapActive: false });
+      const nodes = popovers.map((popoverItem, index) => {
+        const isActive = activeIndex === index;
+        const trigger = event(
+          `${groupId}:trigger:${index}`,
+          text(popoverItem.trigger, style({ color: isActive ? theme.colors.highlight : theme.colors.text })),
+          { onClick: triggerTag },
+          { label: `Toggle ${popoverItem.trigger}`, intent: 'open', affordances: ['click'], cursor: 'pointer' },
+        );
+        if (!isActive) return trigger;
+
+        const variantColor = theme.colors.tones[VARIANT_TONE[popoverItem.variant]];
+        const close = event(
+          `${groupId}:close`,
+          text('[x] close', applyTypography(tokens.captionStyle, { color: tokens.textSoft })),
+          { onClick: closeTag },
+          { label: 'Close popover', intent: 'close', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Escape' },
+        );
+        const panel = box(
+          column(enablePopoverTextWrapping(text(popoverItem.content)), close),
+          style({ border: border.rounded, borderColor: variantColor, background: tokens.bg, padding: 1 }),
+          { width: 36, fit: 'content', overflow: 'hidden' },
+        );
+        setVNodeMeta(panel, { testId: `${groupId}:panel`, a11y: { role: 'dialog', label: popoverItem.trigger } });
+        const arrow = text(` ${popoverArrow(popoverItem.position)} `, style({ color: variantColor }));
+        switch (popoverItem.position) {
+          case 'top':
+            return column(panel, arrow, trigger);
+          case 'bottom':
+            return column(trigger, arrow, panel);
+          case 'left':
+            return row(panel, arrow, trigger);
+          case 'right':
+            return row(trigger, arrow, panel);
+          case 'center':
+            return column(trigger, panel);
+        }
       });
       return row(...nodes);
     },
     subscriptions(model: { activeIndex: number }): Sub<PopoverMsg> {
-      if (model.activeIndex === -1) return Sub.none();
-      return Sub.key('escape', { type: 'hide' });
+      const mouse = Sub.elementMouse<PopoverMsg>((mouseEvent) => {
+        if (mouseEvent.elementId === `${groupId}:close` && mouseEvent.handlerTag === closeTag) return { type: 'hide' };
+        if (mouseEvent.handlerTag !== triggerTag || !mouseEvent.elementId.startsWith(`${groupId}:trigger:`)) return { type: 'noop' };
+        return { type: 'toggle-at', index: Number(mouseEvent.elementId.slice(`${groupId}:trigger:`.length)) };
+      });
+      if (validActiveIndex(model.activeIndex) === -1) return mouse;
+      return Sub.batch(mouse, Sub.key('escape', { type: 'hide' }), surfaceContractSubs<PopoverMsg>({ id: groupId, onPanic: { type: 'panic' } }));
     },
   };
 }

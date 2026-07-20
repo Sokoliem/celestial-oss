@@ -187,4 +187,28 @@ describe('rating', () => {
     const subs = comp.subscriptions!(focused);
     expect(subs).toBeDefined();
   });
+
+  it('bounds malformed maximums and model state', () => {
+    const comp = rating({ value: Number.NaN, max: Number.POSITIVE_INFINITY, style: 'missing' as never });
+    const [model] = comp.init();
+    expect(model.max).toBe(5);
+    expect(model.value).toBe(0);
+    expect(() => comp.view({ ...model, max: Number.POSITIVE_INFINITY, value: Number.NaN, style: 'missing' as never })).not.toThrow();
+  });
+
+  it('renders interactive items as pointer targets', () => {
+    const comp = rating({ interactive: true, max: 3 });
+    const view = comp.view(comp.init()[0]);
+    if (view.kind === 'row') expect(view.children.every((child) => child.kind === 'event')).toBe(true);
+    expect(comp.subscriptions!(comp.init()[0])._kind.kind).toBe('elementMouse');
+  });
+
+  it('ignores invalid click and hover indices', () => {
+    const comp = rating({ interactive: true });
+    const [model] = comp.init();
+    const [hovered] = comp.update({ type: 'hover', index: Number.NaN }, model);
+    const [clicked] = comp.update({ type: 'click', index: Number.POSITIVE_INFINITY }, hovered);
+    expect(clicked.value).toBe(0);
+    expect(clicked.hoveredIndex).toBeNull();
+  });
 });

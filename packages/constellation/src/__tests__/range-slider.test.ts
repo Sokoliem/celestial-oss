@@ -1,3 +1,4 @@
+import { extractNodeText } from '@celestial/core/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import type { RangeSliderModel } from '../range-slider.js';
 import { rangeSlider, rangeSliderDragTest, rangeSliderHitTest } from '../range-slider.js';
@@ -325,9 +326,9 @@ describe('rangeSlider', () => {
       const [m] = c.init();
       const vnode = c.view(m);
       if (vnode.kind === 'row') {
-        const texts = vnode.children.filter((c) => c.kind === 'text').map((c) => (c.kind === 'text' ? c.content : ''));
-        expect(texts.some((t) => t.includes('░'))).toBe(true);
-        expect(texts.some((t) => t.includes('█'))).toBe(true);
+        const rendered = extractNodeText(vnode);
+        expect(rendered).toContain('░');
+        expect(rendered).toContain('█');
       }
     });
 
@@ -375,12 +376,12 @@ describe('rangeSlider', () => {
   // ── subscriptions ─────────────────────────────────────────────────────
 
   describe('subscriptions', () => {
-    it('returns none when not focused', () => {
+    it('keeps pointer subscriptions active when not focused', () => {
       const c = rangeSlider({});
       const sub = c.subscriptions!({ low: 0, high: 100, activeHandle: 'low', focused: false });
       expect(sub).toBeDefined();
       if (sub) {
-        expect(sub._kind.kind).toBe('none');
+        expect(sub._kind.kind).toBe('batch');
       }
     });
 
@@ -392,6 +393,24 @@ describe('rangeSlider', () => {
         expect(sub._kind.kind).toBe('batch');
       }
     });
+  });
+
+  it('normalizes reversed ranges and malformed numeric options', () => {
+    const c = rangeSlider({ min: 100, max: 0, step: 0, width: Number.POSITIVE_INFINITY, low: Number.NaN, high: Number.POSITIVE_INFINITY });
+    const [model] = c.init();
+    expect(model).toMatchObject({ low: 0, high: 100 });
+    expect(() => c.view(model)).not.toThrow();
+  });
+
+  it('supports pointer selection and drag lifecycle', () => {
+    const c = rangeSlider({ min: 0, max: 100, width: 10 });
+    const [initial] = c.init();
+    const [pressed] = c.update({ type: 'set-at', index: 8 }, initial);
+    expect(pressed.focused).toBe(true);
+    expect(pressed.dragging).toBe(true);
+    const [dragged] = c.update({ type: 'drag-at', index: 9 }, pressed);
+    const [released] = c.update({ type: 'drag-end' }, dragged);
+    expect(released.dragging).toBe(false);
   });
 });
 
@@ -406,6 +425,11 @@ describe('rangeSliderHitTest', () => {
 
   it('returns null when relX >= width', () => {
     expect(rangeSliderHitTest({ low: 30, high: 70 }, cfg, 20)).toBeNull();
+  });
+
+  it('rejects non-finite positions and normalizes invalid config', () => {
+    expect(rangeSliderHitTest({ low: 30, high: 70 }, { min: 0, max: 100, step: 0, width: -1 }, Number.NaN)).toBeNull();
+    expect(() => rangeSliderHitTest({ low: Number.NaN, high: Number.POSITIVE_INFINITY }, { min: 100, max: 0, step: -2, width: 20 }, 10)).not.toThrow();
   });
 
   it('returns set-low when click is closer to low handle', () => {

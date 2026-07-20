@@ -251,8 +251,8 @@ function openContextMenu(model: CelestialShowcaseModel, target: string, x: numbe
 function contextMenuRowAt(model: CelestialShowcaseModel, x: number, y: number): number | null {
   const layout = measureContextMenuLayout({ state: model.contextMenu, viewport: { cols: model.cols, rows: model.rows } });
   if (!layout || x <= layout.x || x >= layout.x + layout.width - 1 || y <= layout.y || y >= layout.y + layout.height - 1) return null;
-  const rowIndex = y - layout.y - 1;
-  return rowIndex >= 0 && rowIndex < model.contextMenu.items.length ? rowIndex : null;
+  const rowIndex = layout.firstItemIndex + y - layout.y - 1;
+  return rowIndex >= layout.firstItemIndex && rowIndex < layout.firstItemIndex + layout.rowCount ? rowIndex : null;
 }
 
 function recordDemoDrop(model: CelestialShowcaseModel): CelestialShowcaseModel {

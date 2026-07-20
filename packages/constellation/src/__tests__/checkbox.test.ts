@@ -146,4 +146,25 @@ describe('checkboxGroup', () => {
       }
     }
   });
+
+  it('supports direct pointer selection without keyboard focus', () => {
+    const comp = checkboxGroup({ options });
+    const [model] = comp.init();
+    expect(comp.subscriptions!(model)._kind.kind).toBe('elementMouse');
+    const [updated] = comp.update({ type: 'toggle-at', index: 2 }, model);
+    expect(updated.checked.has('blue')).toBe(true);
+    expect(updated.highlighted).toBe(2);
+    expect(updated.focused).toBe(true);
+  });
+
+  it('snapshots options and ignores invalid pointer indices', () => {
+    const mutable = [{ label: 'Original', value: 'original' }];
+    const comp = checkboxGroup({ options: mutable });
+    mutable[0]!.label = 'Changed';
+    mutable.push({ label: 'Injected', value: 'injected' });
+    const [model] = comp.init();
+    expect(extractNodeText(comp.view(model))).toContain('Original');
+    expect(extractNodeText(comp.view(model))).not.toContain('Changed');
+    expect(comp.update({ type: 'toggle-at', index: Number.NaN }, model)[0]).toBe(model);
+  });
 });

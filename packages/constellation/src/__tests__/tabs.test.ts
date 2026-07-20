@@ -105,7 +105,13 @@ describe('tabs', () => {
     const vnode = comp.view(model);
     if (vnode.kind === 'row') {
       const first = vnode.children[0];
-      expect(first ? collectTextNodes(first as TestNode).map((node) => node.content).join('') : '').toContain('(3)');
+      expect(
+        first
+          ? collectTextNodes(first as TestNode)
+              .map((node) => node.content)
+              .join('')
+          : '',
+      ).toContain('(3)');
     }
   });
 
@@ -170,7 +176,13 @@ describe('tabs', () => {
     const vnode = comp.view(model);
     if (vnode.kind === 'row') {
       const tab = vnode.children[0];
-      expect(tab ? collectTextNodes(tab as TestNode).map((node) => node.content).join('') : '').toContain('×');
+      expect(
+        tab
+          ? collectTextNodes(tab as TestNode)
+              .map((node) => node.content)
+              .join('')
+          : '',
+      ).toContain('×');
     }
   });
 
@@ -190,5 +202,15 @@ describe('tabs', () => {
     const [model] = comp.init();
     comp.update({ type: 'close', index: 0 } as any, model);
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('snapshots tab definitions and normalizes corrupt external indices', () => {
+    const mutable = [{ label: 'Original', key: 'original' }];
+    const comp = tabs({ tabs: mutable, active: Number.NaN });
+    mutable[0]!.label = 'Changed';
+    const [model] = comp.init();
+    expect(model.active).toBe(0);
+    expect(JSON.stringify(comp.view({ ...model, active: Number.POSITIVE_INFINITY }))).toContain('Original');
+    expect(JSON.stringify(comp.view(model))).not.toContain('Changed');
   });
 });

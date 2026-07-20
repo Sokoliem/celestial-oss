@@ -3,6 +3,8 @@ import { style } from '@celestial/core/corona';
 import type { KeyEvent, Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, event, focus, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { segmentGraphemes } from '@celestial/rosetta';
+import { generateFocusGroupId } from './focus-group.js';
+import { positiveInteger } from './internal.js';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 import type { Validator } from './validation.js';
@@ -120,11 +122,11 @@ function ensureCursorVisible(cursorRow: number, scrollOffset: number, visibleRow
 
 export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaModel, TextareaMsg> {
   const placeholder = config.placeholder ?? '';
-  const visibleRows = config.rows ?? 5;
-  const maxLines = config.maxLines ?? Infinity;
+  const visibleRows = positiveInteger(config.rows, 5);
+  const maxLines = positiveInteger(config.maxLines, 100_000);
   const showLineNumbers = config.showLineNumbers ?? false;
   const readOnly = config.readOnly ?? false;
-  const inputId = `textarea-${Math.random().toString(36).slice(2, 10)}`;
+  const inputId = generateFocusGroupId('textarea');
   const surfaceId = `${inputId}:surface`;
   const focusTag = `${inputId}:focus`;
   const hoverTag = `${inputId}:hover`;
@@ -147,7 +149,7 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
   descriptor = {
     init(): [TextareaModel, Cmd<TextareaMsg>] {
       const initVal = config.value ?? '';
-      const lines = initVal.length > 0 ? initVal.split('\n') : [''];
+      const lines = initVal.length > 0 ? initVal.split('\n').slice(0, maxLines) : [''];
       const cursorRow = lines.length - 1;
       const cursorCol = lineGraphemes(lines[cursorRow]!).length;
       return [{ lines, cursorRow, cursorCol, scrollOffset: 0, focused: false }, Cmd.none()];
@@ -166,7 +168,10 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
           const pastedLines = msg.value.replace(/\r\n?/g, '\n').split('\n');
           const availableLines = Math.max(1, maxLines - model.lines.length + 1);
           const accepted = pastedLines.slice(0, availableLines);
-          const replacement = accepted.length === 1 ? [`${before}${accepted[0]!}${after}`] : [`${before}${accepted[0]!}`, ...accepted.slice(1, -1), `${accepted.at(-1)!}${after}`];
+          const replacement =
+            accepted.length === 1
+              ? [`${before}${accepted[0]!}${after}`]
+              : [`${before}${accepted[0]!}`, ...accepted.slice(1, -1), `${accepted.at(-1)!}${after}`];
           const lines = [...model.lines];
           lines.splice(model.cursorRow, 1, ...replacement);
           const cursorRow = model.cursorRow + replacement.length - 1;

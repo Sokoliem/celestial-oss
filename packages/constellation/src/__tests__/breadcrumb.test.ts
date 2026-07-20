@@ -78,4 +78,14 @@ describe('breadcrumb', () => {
     expect(vnode.kind).toBe('text');
     if (vnode.kind === 'text') expect(vnode.content).toBe('');
   });
+
+  it('snapshots path items and rejects malformed pointer indices', () => {
+    const mutable = [{ label: 'Original', key: 'original' }];
+    const component = breadcrumb({ items: mutable });
+    mutable[0]!.label = 'Changed';
+    const [model] = component.init();
+    expect(JSON.stringify(component.view(model))).toContain('Original');
+    expect(JSON.stringify(component.view(model))).not.toContain('Changed');
+    expect(component.update({ type: 'activate-at', index: Number.NaN }, model)[0]).toBe(model);
+  });
 });

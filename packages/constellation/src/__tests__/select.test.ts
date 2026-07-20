@@ -302,4 +302,15 @@ describe('select', () => {
       expect(labels.some((l) => l.includes('Veg 0'))).toBe(true);
     }
   });
+
+  it('snapshots caller-owned options and normalizes malformed configuration', () => {
+    const mutable = [{ label: 'Original', value: 'original' }];
+    const component = select({ options: mutable, selected: Number.NaN, maxVisibleOptions: Number.POSITIVE_INFINITY });
+    mutable[0]!.label = 'Changed';
+    const [model] = component.init();
+    expect(model.selected).toBeNull();
+    const [opened] = component.update({ type: 'toggle' }, model);
+    expect(extractNodeText(component.view(opened))).toContain('Original');
+    expect(extractNodeText(component.view(opened))).not.toContain('Changed');
+  });
 });

@@ -1,6 +1,18 @@
-import { subKind } from '@celestial/nebula';
+import { extractNodeText, subKind, type VNode } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { numberInput } from '../number-input.js';
+
+function findText(node: VNode, content: string): Extract<VNode, { kind: 'text' }> | undefined {
+  if (node.kind === 'text') return node.content.includes(content) ? node : undefined;
+  if ('child' in node && node.child) return findText(node.child, content);
+  if ('children' in node && Array.isArray(node.children)) {
+    for (const child of node.children) {
+      const found = findText(child, content);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
 
 describe('numberInput', () => {
   // ─── Init ──────────────────────────────────────────────────────────────────
@@ -282,8 +294,7 @@ describe('numberInput', () => {
     // Should produce a row containing text nodes
     expect(vnode.kind).toBe('row');
     if (vnode.kind === 'row') {
-      const texts = vnode.children.filter((c: any) => c.kind === 'text').map((c: any) => c.content);
-      const fullText = texts.join('');
+      const fullText = extractNodeText(vnode);
       expect(fullText).toContain('$');
       expect(fullText).toContain('50');
       expect(fullText).toContain('%');
@@ -295,8 +306,7 @@ describe('numberInput', () => {
     const [model] = comp.init();
     const vnode = comp.view({ ...model, focused: true });
     if (vnode.kind === 'row') {
-      const texts = vnode.children.filter((c: any) => c.kind === 'text').map((c: any) => c.content);
-      const fullText = texts.join('');
+      const fullText = extractNodeText(vnode);
       expect(fullText).toMatch(/[▼\u25BC]/);
       expect(fullText).toMatch(/[▲\u25B2]/);
     }
@@ -308,7 +318,7 @@ describe('numberInput', () => {
     const vnode = comp.view(model);
     if (vnode.kind === 'row') {
       // Find the down arrow node and check it has dim styling
-      const downNode = vnode.children.find((c: any) => c.kind === 'text' && c.content?.includes('\u25BC'));
+      const downNode = findText(vnode, '\u25BC');
       expect(downNode).toBeDefined();
       if (downNode && downNode.kind === 'text') {
         expect(downNode.style?.dim).toBe(true);
@@ -321,7 +331,7 @@ describe('numberInput', () => {
     const model = { value: 100, editing: false, buffer: '', focused: true };
     const vnode = comp.view(model);
     if (vnode.kind === 'row') {
-      const upNode = vnode.children.find((c: any) => c.kind === 'text' && c.content?.includes('\u25B2'));
+      const upNode = findText(vnode, '\u25B2');
       expect(upNode).toBeDefined();
       if (upNode && upNode.kind === 'text') {
         expect(upNode.style?.dim).toBe(true);
@@ -353,14 +363,14 @@ describe('numberInput', () => {
 
   // ─── Subscriptions ────────────────────────────────────────────────────────
 
-  it('subscriptions: returns none when unfocused', () => {
+  it('subscriptions: keeps pointer controls active when unfocused', () => {
     const comp = numberInput({});
     const model = { value: 0, editing: false, buffer: '', focused: false };
     const sub = comp.subscriptions?.(model);
     expect(sub).toBeDefined();
     if (sub) {
       const kind = subKind(sub);
-      expect(kind.kind).toBe('none');
+      expect(kind.kind).toBe('elementMouse');
     }
   });
 
@@ -436,5 +446,19 @@ describe('numberInput', () => {
     const [updated] = comp.update({ type: 'commit' }, model);
     // 3.3 snapped to step 0.25 from min 0: nearest is 3.25
     expect(updated.value).toBe(3.25);
+  });
+
+  it('normalizes malformed ranges, steps, precision, and model values', () => {
+    const comp = numberInput({ min: 10, max: -10, step: 0, precision: Number.POSITIVE_INFINITY, value: Number.NaN });
+    const [model] = comp.init();
+    expect(model.value).toBe(0);
+    expect(() => comp.view({ ...model, value: Number.POSITIVE_INFINITY })).not.toThrow();
+  });
+
+  it('does not notify when an increment is already clamped', () => {
+    const onChange = vi.fn();
+    const comp = numberInput({ min: 0, max: 1, value: 1, onChange });
+    comp.update({ type: 'increment' }, comp.init()[0]);
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

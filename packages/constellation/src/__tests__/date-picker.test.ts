@@ -1,3 +1,4 @@
+import { extractNodeText } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { datePicker, daysInMonth, firstDayOfMonth, isSameDay, type SimpleDate } from '../date-picker.js';
 
@@ -245,13 +246,8 @@ describe('datePicker', () => {
       const component = datePicker({ selected: { year: 2024, month: 3, day: 1 } });
       const [model] = component.init();
       const vnode = component.view(model);
-      if (vnode.kind === 'column') {
-        const title = vnode.children[0];
-        if (title?.kind === 'text') {
-          expect(title.content).toContain('March');
-          expect(title.content).toContain('2024');
-        }
-      }
+      expect(extractNodeText(vnode)).toContain('March');
+      expect(extractNodeText(vnode)).toContain('2024');
     });
 
     it('includes day headers', () => {
@@ -275,29 +271,24 @@ describe('datePicker', () => {
       const [model] = component.init();
       const vnode = component.view(model);
 
-      if (vnode.kind === 'column') {
-        const title = vnode.children[0];
-        if (title?.kind === 'text') {
-          expect(title.content).toContain('٢٠٢٤');
-        }
+      expect(extractNodeText(vnode)).toContain('٢٠٢٤');
+      expect(extractNodeText(vnode)).toContain('٠١');
+    });
 
-        const firstWeek = vnode.children[2];
-        if (firstWeek?.kind === 'row') {
-          let rendered = '';
-          for (const child of firstWeek.children) {
-            if (child.kind === 'text') {
-              rendered += child.content;
-            }
-          }
-
-          expect(rendered).toContain('٠١');
-        }
-      }
+    it('normalizes malformed dates and snapshots the initial selection', () => {
+      const selected = { year: Number.POSITIVE_INFINITY, month: -5, day: 99 };
+      const component = datePicker({ selected });
+      selected.year = 2024;
+      const [model] = component.init();
+      expect(model.viewYear).toBeGreaterThanOrEqual(1);
+      expect(model.viewYear).toBeLessThanOrEqual(9999);
+      expect(model.viewMonth).toBe(1);
+      expect(model.cursorDay).toBe(31);
     });
   });
 
   describe('subscriptions', () => {
-    it('returns none when not focused', () => {
+    it('keeps pointer navigation active when not focused', () => {
       const component = datePicker({});
       const model = {
         viewYear: 2024,
@@ -309,7 +300,7 @@ describe('datePicker', () => {
       const sub = component.subscriptions?.(model);
       expect(sub).toBeDefined();
       if (sub) {
-        expect(sub._kind.kind).toBe('none');
+        expect(sub._kind.kind).toBe('elementMouse');
       }
     });
 
@@ -327,6 +318,23 @@ describe('datePicker', () => {
       if (sub) {
         expect(sub._kind.kind).toBe('batch');
       }
+    });
+
+    it('selects a clicked day directly and focuses the calendar', () => {
+      const onSelect = vi.fn();
+      const component = datePicker({ onSelect });
+      const model = {
+        viewYear: 2024,
+        viewMonth: 2,
+        cursorDay: 1,
+        selected: null,
+        focused: false,
+      };
+      const [updated] = component.update({ type: 'select-day', day: 29 }, model);
+      expect(updated.selected).toEqual({ year: 2024, month: 2, day: 29 });
+      expect(updated.focused).toBe(true);
+      expect(onSelect).toHaveBeenCalledWith({ year: 2024, month: 2, day: 29 });
+      expect(component.update({ type: 'select-day', day: Number.NaN }, model)[0]).toBe(model);
     });
   });
 });

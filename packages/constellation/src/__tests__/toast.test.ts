@@ -145,6 +145,26 @@ describe('createToastManager', () => {
       expect(kinds).toContain('keyWithModifiers');
     }
   });
+
+  it('bounds retained entries and uses the injected clock deterministically', () => {
+    let now = 100;
+    const manager = createToastManager({ maxToasts: 2, now: () => now });
+    let [model] = manager.init();
+    model = manager.push(model, { message: 'A', level: 'info', duration: 10 });
+    model = manager.push(model, { message: 'B', level: 'success', duration: 10 });
+    model = manager.push(model, { message: 'C', level: 'warning', duration: 10 });
+    expect(model.toasts.map((toast) => toast.message)).toEqual(['B', 'C']);
+    now = 111;
+    const [expired] = manager.update({ type: 'tick' }, model);
+    expect(expired.toasts).toEqual([]);
+  });
+
+  it('normalizes malformed external entries and levels', () => {
+    const manager = createToastManager({ now: () => Number.NaN });
+    const [model] = manager.init();
+    const pushed = manager.push(model, { message: 'Safe', level: 'invalid' as any, duration: Number.POSITIVE_INFINITY });
+    expect(pushed.toasts[0]).toMatchObject({ message: 'Safe', level: 'info', createdAt: 0, duration: 3000 });
+  });
 });
 
 function collectSubKinds(sub: any): string[] {

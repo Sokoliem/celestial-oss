@@ -1,8 +1,9 @@
 import type { Color, SemanticTheme, StateToken, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
 import { border, style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
-import { box, Cmd, column, event, row, Sub, text } from '@celestial/core/nebula';
+import { box, Cmd, column, columnWithGap, event, rowWithGap, Sub, text } from '@celestial/core/nebula';
 import { generateFocusGroupId } from './focus-group.js';
+import { nonNegativeInteger, positiveInteger } from './internal.js';
 import { applyTypography, useTokens } from './theme.js';
 import { type ComponentDescriptor, normalizeContent } from './types.js';
 
@@ -72,14 +73,21 @@ const SIZE_PADDING: Record<CardSize, number> = {
 };
 
 export function card(config: CardConfig): ComponentDescriptor<CardModel, CardMsg> {
-  const variant = config.variant ?? 'default';
-  const size = config.size ?? 'md';
-  const padding = config.padding ?? SIZE_PADDING[size];
-  const interactionId = generateFocusGroupId(`card-${config.title ?? 'untitled'}`);
+  const variant = config.variant && config.variant in VARIANT_BORDER ? config.variant : 'default';
+  const size = config.size === 'sm' || config.size === 'lg' ? config.size : 'md';
+  const padding = nonNegativeInteger(config.padding, SIZE_PADDING[size]);
+  const width = config.width === undefined ? undefined : positiveInteger(config.width, 1);
+  const height = config.height === undefined ? undefined : positiveInteger(config.height, 1);
+  const title = config.title;
+  const subtitle = config.subtitle;
+  const body = [...normalizeContent(config.content !== undefined ? config.content : config.children)];
+  const footer = [...normalizeContent(config.footer)];
+  const onClick = config.onClick;
+  const interactionId = generateFocusGroupId(`card-${title ?? 'untitled'}`);
   const clickTag = `${interactionId}:click`;
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
-  const isInteractive = config.onClick !== undefined;
+  const isInteractive = onClick !== undefined;
 
   return {
     init(): [CardModel, Cmd<CardMsg>] {
@@ -93,7 +101,7 @@ export function card(config: CardConfig): ComponentDescriptor<CardModel, CardMsg
         case 'leave':
           return [{ ...model, hovered: false }, Cmd.none()];
         case 'click':
-          config.onClick?.();
+          onClick?.();
           return [model, Cmd.none()];
         case 'noop':
           return [model, Cmd.none()];
@@ -106,25 +114,17 @@ export function card(config: CardConfig): ComponentDescriptor<CardModel, CardMsg
       const hoverState = model.hovered && isInteractive ? tokens.hoverState : undefined;
       const children: VNode[] = [];
 
-      if (config.title) {
+      if (title) {
         const titleStyle = applyTypography(tokens.titleStyle);
-        children.push(text(config.title, titleStyle));
+        children.push(text(title, titleStyle));
       }
 
-      if (config.subtitle) {
+      if (subtitle) {
         const subtitleStyle = applyTypography(tokens.subtitleStyle);
-        children.push(text(config.subtitle, subtitleStyle));
+        children.push(text(subtitle, subtitleStyle));
       }
 
-      if (config.content) {
-        children.push(...normalizeContent(config.content));
-      } else if (config.children) {
-        children.push(...normalizeContent(config.children));
-      }
-
-      if (config.footer) {
-        children.push(...normalizeContent(config.footer));
-      }
+      children.push(...body, ...footer);
 
       const frame = box(
         column(...children),
@@ -135,7 +135,7 @@ export function card(config: CardConfig): ComponentDescriptor<CardModel, CardMsg
           bold: hoverState?.bold,
           padding,
         }),
-        { width: config.width, height: config.height, fit: config.width || config.height ? 'fill' : 'content', overflow: 'hidden' },
+        { width, height, fit: width !== undefined || height !== undefined ? 'fill' : 'content', overflow: 'hidden' },
       );
 
       if (!isInteractive) return frame;
@@ -143,7 +143,7 @@ export function card(config: CardConfig): ComponentDescriptor<CardModel, CardMsg
         interactionId,
         frame,
         { onClick: clickTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
-        { label: config.title ?? 'Card', intent: 'open', affordances: ['hover', 'click'], cursor: 'pointer' },
+        { label: title ?? 'Card', intent: 'open', affordances: ['hover', 'click'], cursor: 'pointer' },
       );
     },
 
@@ -168,34 +168,69 @@ export interface CardGridConfig {
   theme?: ThemeInput;
 }
 
-export function cardGrid(config: CardGridConfig): ComponentDescriptor<{ hoveredIndex: number }, CardMsg> {
-  const columns = config.columns ?? 2;
+export interface CardGridModel {
+  hoveredIndex: number;
+}
+
+export type CardGridMsg = { type: 'hover-card'; index: number } | { type: 'leave-card' } | { type: 'click-card'; index: number } | { type: 'noop' };
+
+export function cardGrid(config: CardGridConfig): ComponentDescriptor<CardGridModel, CardGridMsg> {
+  const cards = config.cards.slice(0, 10_000).map((item) => ({ ...item }));
+  const columns = positiveInteger(config.columns, 2, Math.max(1, cards.length));
+  const gap = nonNegativeInteger(config.gap, 0);
+  const interactionId = generateFocusGroupId('card-grid');
+  const clickTag = `${interactionId}:click`;
+  const hoverTag = `${interactionId}:hover`;
+  const leaveTag = `${interactionId}:leave`;
+  const descriptors = cards.map((item) => card({ ...item, themeCtx: item.themeCtx ?? config.themeCtx, theme: item.theme ?? config.theme }));
 
   return {
-    init(): [{ hoveredIndex: number }, Cmd<CardMsg>] {
+    init(): [CardGridModel, Cmd<CardGridMsg>] {
       return [{ hoveredIndex: -1 }, Cmd.none()];
     },
-    update(msg: CardMsg, model: { hoveredIndex: number }): [{ hoveredIndex: number }, Cmd<CardMsg>] {
-      if (msg.type === 'hover') {
-        return [{ hoveredIndex: (msg as any).index }, Cmd.none()];
+    update(msg: CardGridMsg, model: CardGridModel): [CardGridModel, Cmd<CardGridMsg>] {
+      if (msg.type === 'hover-card') {
+        const index = Number.isFinite(msg.index) ? Math.trunc(msg.index) : -1;
+        return [{ hoveredIndex: index >= 0 && index < cards.length ? index : -1 }, Cmd.none()];
       }
-      if (msg.type === 'leave') {
+      if (msg.type === 'leave-card') {
         return [{ hoveredIndex: -1 }, Cmd.none()];
+      }
+      if (msg.type === 'click-card') {
+        const index = Number.isFinite(msg.index) ? Math.trunc(msg.index) : -1;
+        cards[index]?.onClick?.();
       }
       return [model, Cmd.none()];
     },
-    view(model: { hoveredIndex: number }): VNode {
+    view(model: CardGridModel): VNode {
       const rows: VNode[] = [];
-      for (let i = 0; i < config.cards.length; i += columns) {
-        const rowCards = config.cards.slice(i, i + columns);
-        const cardNodes = rowCards.map((c, j) => {
+      for (let i = 0; i < cards.length; i += columns) {
+        const rowCards = cards.slice(i, i + columns);
+        const cardNodes = rowCards.map((cardConfig, j) => {
           const actualIndex = i + j;
           const cardModel = { hovered: model.hoveredIndex === actualIndex };
-          return card({ ...c, themeCtx: c.themeCtx ?? config.themeCtx, theme: c.theme ?? config.theme }).view(cardModel);
+          const node = descriptors[actualIndex]!.view(cardModel);
+          if (!cardConfig.onClick) return node;
+          return event(
+            `${interactionId}:card:${actualIndex}`,
+            node,
+            { onClick: clickTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+            { label: cardConfig.title ?? 'Card', intent: 'open', affordances: ['hover', 'click'], cursor: 'pointer' },
+          );
         });
-        rows.push(row(...cardNodes));
+        rows.push(rowWithGap(gap, ...cardNodes));
       }
-      return column(...rows);
+      return columnWithGap(gap, ...rows);
+    },
+    subscriptions(): Sub<CardGridMsg> {
+      return Sub.elementMouse<CardGridMsg>((mouseEvent) => {
+        if (!mouseEvent.elementId.startsWith(`${interactionId}:card:`)) return { type: 'noop' };
+        const index = Number(mouseEvent.elementId.slice(`${interactionId}:card:`.length));
+        if (mouseEvent.handlerTag === clickTag) return { type: 'click-card', index };
+        if (mouseEvent.handlerTag === hoverTag) return { type: 'hover-card', index };
+        if (mouseEvent.handlerTag === leaveTag) return { type: 'leave-card' };
+        return { type: 'noop' };
+      });
     },
   };
 }

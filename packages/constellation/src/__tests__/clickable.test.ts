@@ -106,6 +106,11 @@ describe('button', () => {
     expect(btn.region.onClick).toBe('save');
   });
 
+  it('sizes the hit region in terminal cells for wide and joined glyphs', () => {
+    const btn = button({ label: '界👩‍🚀', onClick: 'wide', x: 0, y: 0 });
+    expect(btn.region.width).toBe(8);
+  });
+
   it('region carries explicit hover messages for Elm-style pointer state', () => {
     const btn = button({
       label: 'Save',

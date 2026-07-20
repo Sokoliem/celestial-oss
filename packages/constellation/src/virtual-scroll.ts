@@ -1,3 +1,5 @@
+import { boundedInteger, clampRange, finiteNumber, nonNegativeInteger, positiveInteger } from './internal.js';
+
 export interface VirtualScrollConfig<T> {
   items: readonly T[];
   viewportHeight: number;
@@ -27,32 +29,40 @@ export interface VisibleRange {
 }
 
 function getRowHeight<T>(config: VirtualScrollConfig<T>): number {
-  return config.rowHeight ?? 1;
+  return positiveInteger(config.rowHeight, 1);
 }
 
 function getOverscan<T>(config: VirtualScrollConfig<T>): number {
-  return config.overscan ?? 3;
+  return nonNegativeInteger(config.overscan, 3, config.items.length);
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+function getViewportHeight<T>(config: VirtualScrollConfig<T>): number {
+  return nonNegativeInteger(config.viewportHeight, 0);
+}
+
+function getTotalHeight<T>(config: VirtualScrollConfig<T>): number {
+  return Math.min(Number.MAX_SAFE_INTEGER, config.items.length * getRowHeight(config));
+}
+
+function clamp(value: number, min: number, max: number, fallback = min): number {
+  return clampRange(value, min, max, fallback);
 }
 
 function maxScrollOffset<T>(config: VirtualScrollConfig<T>, totalHeight: number): number {
-  return Math.max(0, totalHeight - config.viewportHeight);
+  return Math.max(0, totalHeight - getViewportHeight(config));
 }
 
 export function createVirtualScrollState<T>(config: VirtualScrollConfig<T>): VirtualScrollState {
-  const rh = getRowHeight(config);
   return {
     scrollOffset: 0,
-    totalHeight: config.items.length * rh,
+    totalHeight: getTotalHeight(config),
   };
 }
 
 export function getVisibleRange<T>(state: VirtualScrollState, config: VirtualScrollConfig<T>): VisibleRange {
   const rh = getRowHeight(config);
   const overscan = getOverscan(config);
+  const viewportHeight = getViewportHeight(config);
   const itemCount = config.items.length;
 
   if (itemCount === 0) {
@@ -60,15 +70,17 @@ export function getVisibleRange<T>(state: VirtualScrollState, config: VirtualScr
   }
 
   // First visible row index (without overscan)
-  const firstVisible = Math.floor(state.scrollOffset / rh);
+  const maxOffset = maxScrollOffset(config, getTotalHeight(config));
+  const scrollOffset = clamp(state.scrollOffset, 0, maxOffset);
+  const firstVisible = Math.floor(scrollOffset / rh);
   // Number of items that fit in viewport
-  const visibleCount = Math.ceil(config.viewportHeight / rh);
+  const visibleCount = Math.max(1, Math.ceil(viewportHeight / rh));
   // Last visible row index (without overscan)
   const lastVisible = firstVisible + visibleCount - 1;
 
   // Apply overscan and clamp to array bounds
-  const startIndex = clamp(firstVisible - overscan, 0, itemCount - 1);
-  const endIndex = clamp(lastVisible + overscan, 0, itemCount - 1);
+  const startIndex = boundedInteger(firstVisible - overscan, 0, 0, itemCount - 1);
+  const endIndex = boundedInteger(lastVisible + overscan, itemCount - 1, 0, itemCount - 1);
 
   // Spacer heights
   const offsetAbove = startIndex * rh;
@@ -79,20 +91,21 @@ export function getVisibleRange<T>(state: VirtualScrollState, config: VirtualScr
 
 export function virtualScrollUpdate<T>(msg: VirtualScrollMsg, state: VirtualScrollState, config: VirtualScrollConfig<T>): VirtualScrollState {
   const rh = getRowHeight(config);
-  const totalHeight = config.items.length * rh;
+  const totalHeight = getTotalHeight(config);
   const max = maxScrollOffset(config, totalHeight);
+  const currentOffset = clamp(state.scrollOffset, 0, max);
+  const amount = (value: number | undefined): number => Math.max(0, finiteNumber(value, 1));
 
   switch (msg.type) {
     case 'vscroll-down': {
-      const amount = msg.amount ?? 1;
-      return { totalHeight, scrollOffset: clamp(state.scrollOffset + amount, 0, max) };
+      return { totalHeight, scrollOffset: clamp(currentOffset + amount(msg.amount), 0, max, currentOffset) };
     }
     case 'vscroll-up': {
-      const amount = msg.amount ?? 1;
-      return { totalHeight, scrollOffset: clamp(state.scrollOffset - amount, 0, max) };
+      return { totalHeight, scrollOffset: clamp(currentOffset - amount(msg.amount), 0, max, currentOffset) };
     }
     case 'vscroll-to': {
-      const offset = msg.index * rh;
+      const index = boundedInteger(msg.index, 0, 0, Math.max(0, config.items.length - 1));
+      const offset = index * rh;
       return { totalHeight, scrollOffset: clamp(offset, 0, max) };
     }
     case 'vscroll-to-top': {
@@ -102,33 +115,37 @@ export function virtualScrollUpdate<T>(msg: VirtualScrollMsg, state: VirtualScro
       return { totalHeight, scrollOffset: max };
     }
     case 'vscroll-page-up': {
-      return { totalHeight, scrollOffset: clamp(state.scrollOffset - config.viewportHeight, 0, max) };
+      return { totalHeight, scrollOffset: clamp(currentOffset - getViewportHeight(config), 0, max, currentOffset) };
     }
     case 'vscroll-page-down': {
-      return { totalHeight, scrollOffset: clamp(state.scrollOffset + config.viewportHeight, 0, max) };
+      return { totalHeight, scrollOffset: clamp(currentOffset + getViewportHeight(config), 0, max, currentOffset) };
     }
   }
 }
 
 export function scrollToIndex<T>(config: VirtualScrollConfig<T>, state: VirtualScrollState, index: number): VirtualScrollState {
   const rh = getRowHeight(config);
-  const totalHeight = config.items.length * rh;
+  const viewportHeight = getViewportHeight(config);
+  const totalHeight = getTotalHeight(config);
   const max = maxScrollOffset(config, totalHeight);
+  const currentOffset = clamp(state.scrollOffset, 0, max);
+  if (config.items.length === 0) return { totalHeight, scrollOffset: 0 };
+  const safeIndex = boundedInteger(index, 0, 0, config.items.length - 1);
 
-  const itemTop = index * rh;
+  const itemTop = safeIndex * rh;
   const itemBottom = itemTop + rh;
 
   // If the item is already fully visible, don't change offset
-  if (itemTop >= state.scrollOffset && itemBottom <= state.scrollOffset + config.viewportHeight) {
-    return { ...state, totalHeight };
+  if (itemTop >= currentOffset && itemBottom <= currentOffset + viewportHeight) {
+    return { totalHeight, scrollOffset: currentOffset };
   }
 
   // If item is above viewport, scroll so item is at top
-  if (itemTop < state.scrollOffset) {
+  if (itemTop < currentOffset) {
     return { totalHeight, scrollOffset: clamp(itemTop, 0, max) };
   }
 
   // If item is below viewport, scroll so item is at bottom
-  const newOffset = itemBottom - config.viewportHeight;
+  const newOffset = itemBottom - viewportHeight;
   return { totalHeight, scrollOffset: clamp(newOffset, 0, max) };
 }

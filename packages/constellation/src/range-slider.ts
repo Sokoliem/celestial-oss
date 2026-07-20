@@ -9,7 +9,9 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
 import { style } from '@celestial/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/nebula';
-import { Cmd, row, Sub, text } from '@celestial/nebula';
+import { Cmd, event, row, Sub, text } from '@celestial/nebula';
+import { generateFocusGroupId } from './focus-group.js';
+import { boundedInteger, clampToStep, finiteNumber, interpolateRange, normalizeRange, positiveInteger, rangeRatio } from './internal.js';
 import { useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
@@ -34,14 +36,6 @@ export const rangeSliderContract: TokenContract<RangeSliderTokens> = {
   borderActive: (t: SemanticTheme) => t.colors.borderActive,
   labelStyle: (t: SemanticTheme) => t.typography.label,
 };
-
-/** Clamp a value between min and max, snapped to step increments. */
-function clampToStep(value: number, min: number, max: number, step: number): number {
-  if (value >= max) return max;
-  if (value <= min) return min;
-  const snapped = Math.round((value - min) / step) * step + min;
-  return Math.max(min, Math.min(max, snapped));
-}
 
 /** Configuration for creating a range slider component. */
 export interface RangeSliderConfig {
@@ -73,6 +67,8 @@ export interface RangeSliderModel {
   activeHandle: 'low' | 'high';
   /** Whether the range slider is focused. */
   focused: boolean;
+  /** Pointer is currently dragging the active handle. */
+  dragging?: boolean;
 }
 
 /** Messages the range slider can handle. */
@@ -85,9 +81,13 @@ export type RangeSliderMsg =
   | Msg<'set-max'>
   | Msg<'set-low', { value: number }>
   | Msg<'set-high', { value: number }>
+  | Msg<'set-at', { index: number }>
+  | Msg<'drag-at', { index: number }>
+  | Msg<'drag-end'>
   | Msg<'switch-handle'>
   | Msg<'focus'>
-  | Msg<'blur'>;
+  | Msg<'blur'>
+  | Msg<'noop'>;
 
 // ─── Mouse hit-testing ──────────────────────────────────────────────────────
 
@@ -98,65 +98,74 @@ interface RangeHitConfig {
   width: number;
 }
 
+function normalizeHitConfig(cfg: RangeHitConfig): RangeHitConfig {
+  const { min, max } = normalizeRange(cfg.min, cfg.max);
+  const configuredStep = finiteNumber(cfg.step, 1);
+  return {
+    min,
+    max,
+    step: configuredStep > 0 ? configuredStep : 1,
+    width: positiveInteger(cfg.width, 20),
+  };
+}
+
 /**
  * Map a click position on the track to a set-low or set-high message.
  * Selects the nearest handle to the click point.
- *
- * @param model - Current model with low/high values.
- * @param cfg - Range configuration (min, max, step, width).
- * @param relX - Click X relative to the track start (no padding offset — caller strips it).
- * @returns A set-low or set-high message, or null if outside the track.
  */
 export function rangeSliderHitTest(
   model: Pick<RangeSliderModel, 'low' | 'high'>,
   cfg: RangeHitConfig,
   relX: number,
 ): Msg<'set-low', { value: number }> | Msg<'set-high', { value: number }> | null {
-  if (relX < 0 || relX >= cfg.width) return null;
-  const ratio = relX / cfg.width;
-  const value = cfg.min + ratio * (cfg.max - cfg.min);
-  const distToLow = Math.abs(value - model.low);
-  const distToHigh = Math.abs(value - model.high);
+  const normalized = normalizeHitConfig(cfg);
+  if (!Number.isFinite(relX) || relX < 0 || relX >= normalized.width) return null;
+
+  const ratio = relX / normalized.width;
+  const value = interpolateRange(normalized.min, normalized.max, ratio);
+  const low = clampToStep(model.low, normalized.min, normalized.max, normalized.step);
+  const high = clampToStep(model.high, low, normalized.max, normalized.step, normalized.max);
+  const distToLow = Math.abs(ratio - rangeRatio(low, normalized.min, normalized.max));
+  const distToHigh = Math.abs(ratio - rangeRatio(high, normalized.min, normalized.max));
   if (distToLow <= distToHigh) {
-    return { type: 'set-low', value: clampToStep(value, cfg.min, model.high, cfg.step) };
+    return { type: 'set-low', value: clampToStep(value, normalized.min, high, normalized.step) };
   }
-  return { type: 'set-high', value: clampToStep(value, model.low, cfg.max, cfg.step) };
+  return { type: 'set-high', value: clampToStep(value, low, normalized.max, normalized.step) };
 }
 
-/**
- * Map a drag position to a message for the currently active handle.
- * Unlike hitTest, this does not switch handles — it moves whichever is active.
- *
- * @param model - Current model with low/high/activeHandle values.
- * @param cfg - Range configuration (min, max, step, width).
- * @param relX - Drag X relative to the track start (clamped internally).
- * @returns A set-low or set-high message for the active handle.
- */
+/** Map a drag position to a message for the currently active handle. */
 export function rangeSliderDragTest(
   model: Pick<RangeSliderModel, 'low' | 'high' | 'activeHandle'>,
   cfg: RangeHitConfig,
   relX: number,
 ): Msg<'set-low', { value: number }> | Msg<'set-high', { value: number }> {
-  const clamped = Math.max(0, Math.min(cfg.width - 1, relX));
-  const ratio = clamped / cfg.width;
-  const value = cfg.min + ratio * (cfg.max - cfg.min);
+  const normalized = normalizeHitConfig(cfg);
+  const clamped = boundedInteger(relX, 0, 0, normalized.width - 1);
+  const ratio = clamped / normalized.width;
+  const value = interpolateRange(normalized.min, normalized.max, ratio);
+  const low = clampToStep(model.low, normalized.min, normalized.max, normalized.step);
+  const high = clampToStep(model.high, low, normalized.max, normalized.step, normalized.max);
   if (model.activeHandle === 'low') {
-    return { type: 'set-low', value: clampToStep(value, cfg.min, model.high, cfg.step) };
+    return { type: 'set-low', value: clampToStep(value, normalized.min, high, normalized.step) };
   }
-  return { type: 'set-high', value: clampToStep(value, model.low, cfg.max, cfg.step) };
+  return { type: 'set-high', value: clampToStep(value, low, normalized.max, normalized.step) };
 }
 
-/**
- * Create a range slider component for dual-handle numeric range selection.
- *
- * @param config - Range slider configuration including min, max, step, and callbacks.
- * @returns A ComponentDescriptor for the range slider.
- */
+/** Create a range slider component for dual-handle numeric range selection. */
 export function rangeSlider(config: RangeSliderConfig): ComponentDescriptor<RangeSliderModel, RangeSliderMsg> {
-  const min = config.min ?? 0;
-  const max = config.max ?? 100;
-  const step = config.step ?? 1;
-  const width = config.width ?? 20;
+  const { min, max } = normalizeRange(config.min, config.max);
+  const configuredStep = finiteNumber(config.step, 1);
+  const step = configuredStep > 0 ? configuredStep : 1;
+  const width = positiveInteger(config.width, 20);
+  const interactionId = generateFocusGroupId('range-slider');
+  const setTag = `${interactionId}:set`;
+  const dragTag = `${interactionId}:drag`;
+  const hitConfig = { min, max, step, width };
+
+  function normalizedValues(model: Pick<RangeSliderModel, 'low' | 'high'>): { low: number; high: number } {
+    const low = clampToStep(model.low, min, max, step);
+    return { low, high: clampToStep(model.high, low, max, step, max) };
+  }
 
   return {
     init(): [RangeSliderModel, Cmd<RangeSliderMsg>] {
@@ -166,17 +175,22 @@ export function rangeSlider(config: RangeSliderConfig): ComponentDescriptor<Rang
     },
 
     update(msg: RangeSliderMsg, model: RangeSliderModel): [RangeSliderModel, Cmd<RangeSliderMsg>] {
-      const moveHandle = (delta: number): [RangeSliderModel, Cmd<RangeSliderMsg>] => {
-        if (model.activeHandle === 'low') {
-          const nv = clampToStep(model.low + delta, min, model.high, step);
-          if (nv !== model.low) config.onChange?.(nv, model.high);
-          return [{ ...model, low: nv }, Cmd.none()];
-        } else {
-          const nv = clampToStep(model.high + delta, model.low, max, step);
-          if (nv !== model.high) config.onChange?.(model.low, nv);
-          return [{ ...model, high: nv }, Cmd.none()];
-        }
+      const current = normalizedValues(model);
+      const activeHandle: RangeSliderModel['activeHandle'] = model.activeHandle === 'high' ? 'high' : 'low';
+      const normalizedModel: RangeSliderModel = { ...model, ...current, activeHandle };
+
+      const setLow = (value: number): [RangeSliderModel, Cmd<RangeSliderMsg>] => {
+        const next = clampToStep(value, min, current.high, step, current.low);
+        if (next !== current.low) config.onChange?.(next, current.high);
+        return [{ ...normalizedModel, low: next, activeHandle: 'low' }, Cmd.none()];
       };
+      const setHigh = (value: number): [RangeSliderModel, Cmd<RangeSliderMsg>] => {
+        const next = clampToStep(value, current.low, max, step, current.high);
+        if (next !== current.high) config.onChange?.(current.low, next);
+        return [{ ...normalizedModel, high: next, activeHandle: 'high' }, Cmd.none()];
+      };
+      const moveHandle = (delta: number): [RangeSliderModel, Cmd<RangeSliderMsg>] =>
+        activeHandle === 'low' ? setLow(current.low + delta) : setHigh(current.high + delta);
 
       switch (msg.type) {
         case 'increment':
@@ -186,85 +200,88 @@ export function rangeSlider(config: RangeSliderConfig): ComponentDescriptor<Rang
         case 'increment-large':
           return moveHandle(step * 10);
         case 'decrement-large':
-          return moveHandle(-step * 10);
-        case 'set-min': {
-          if (model.activeHandle === 'low') {
-            if (model.low !== min) config.onChange?.(min, model.high);
-            return [{ ...model, low: min }, Cmd.none()];
-          } else {
-            if (model.high !== model.low) config.onChange?.(model.low, model.low);
-            return [{ ...model, high: model.low }, Cmd.none()];
-          }
+          return moveHandle(step * -10);
+        case 'set-min':
+          return activeHandle === 'low' ? setLow(min) : setHigh(current.low);
+        case 'set-max':
+          return activeHandle === 'low' ? setLow(current.high) : setHigh(max);
+        case 'set-low':
+          return setLow(msg.value);
+        case 'set-high':
+          return setHigh(msg.value);
+        case 'set-at': {
+          const pointerMsg = rangeSliderHitTest(current, hitConfig, msg.index);
+          if (!pointerMsg) return [normalizedModel, Cmd.none()];
+          const [updated, cmd] = pointerMsg.type === 'set-low' ? setLow(pointerMsg.value) : setHigh(pointerMsg.value);
+          return [{ ...updated, focused: true, dragging: true }, cmd];
         }
-        case 'set-max': {
-          if (model.activeHandle === 'low') {
-            if (model.low !== model.high) config.onChange?.(model.high, model.high);
-            return [{ ...model, low: model.high }, Cmd.none()];
-          } else {
-            if (model.high !== max) config.onChange?.(model.low, max);
-            return [{ ...model, high: max }, Cmd.none()];
-          }
+        case 'drag-at': {
+          if (!model.dragging) return [normalizedModel, Cmd.none()];
+          const pointerMsg = rangeSliderDragTest({ ...current, activeHandle }, hitConfig, msg.index);
+          const [updated, cmd] = pointerMsg.type === 'set-low' ? setLow(pointerMsg.value) : setHigh(pointerMsg.value);
+          return [{ ...updated, focused: true, dragging: true }, cmd];
         }
-        case 'set-low': {
-          const v = clampToStep((msg as Msg<'set-low', { value: number }>).value, min, model.high, step);
-          if (v !== model.low) config.onChange?.(v, model.high);
-          return [{ ...model, low: v, activeHandle: 'low' }, Cmd.none()];
-        }
-        case 'set-high': {
-          const v = clampToStep((msg as Msg<'set-high', { value: number }>).value, model.low, max, step);
-          if (v !== model.high) config.onChange?.(model.low, v);
-          return [{ ...model, high: v, activeHandle: 'high' }, Cmd.none()];
-        }
+        case 'drag-end':
+          return [{ ...normalizedModel, dragging: false }, Cmd.none()];
         case 'switch-handle':
-          return [{ ...model, activeHandle: model.activeHandle === 'low' ? 'high' : 'low' }, Cmd.none()];
+          return [{ ...normalizedModel, activeHandle: activeHandle === 'low' ? 'high' : 'low' }, Cmd.none()];
         case 'focus':
-          return [{ ...model, focused: true }, Cmd.none()];
+          return [{ ...normalizedModel, focused: true }, Cmd.none()];
         case 'blur':
-          return [{ ...model, focused: false }, Cmd.none()];
+          return [{ ...normalizedModel, focused: false, dragging: false }, Cmd.none()];
+        case 'noop':
+          return [normalizedModel, Cmd.none()];
       }
     },
 
     view(model: RangeSliderModel): VNode {
       const tokens = useTokens(rangeSliderContract, config, 'RangeSlider');
-      const range = max - min;
-
-      // Calculate positions in track characters
-      const lowPos = range > 0 ? Math.round(((model.low - min) / range) * width) : 0;
-      const highPos = range > 0 ? Math.round(((model.high - min) / range) * width) : width;
-
-      const beforeCount = lowPos;
-      const filledCount = Math.max(0, highPos - lowPos);
-      const afterCount = width - highPos;
-
+      const current = normalizedValues(model);
+      const lowPos = Math.round(Math.max(0, Math.min(1, rangeRatio(current.low, min, max))) * width);
+      const highPos = Math.round(Math.max(0, Math.min(1, rangeRatio(current.high, min, max, 1))) * width);
       const emptyStyle = style({ color: tokens.trackEmpty, dim: true });
       const filledStyle = model.focused ? style({ color: tokens.borderActive, bold: true }) : style({ color: tokens.track });
-
       const parts: VNode[] = [];
 
-      // Track: empty ░░░ filled ████ empty ░░░
-      parts.push(text('░'.repeat(beforeCount), emptyStyle));
-      parts.push(text('█'.repeat(filledCount), filledStyle));
-      parts.push(text('░'.repeat(afterCount), emptyStyle));
+      for (let index = 0; index < width; index++) {
+        const filled = index >= lowPos && index < highPos;
+        parts.push(
+          event(
+            `${interactionId}:cell:${index}`,
+            text(filled ? '█' : '░', filled ? filledStyle : emptyStyle),
+            { onMouseDown: setTag, onMouseMove: dragTag },
+            { label: `Range ${index + 1} of ${width}`, intent: 'edit', affordances: ['click', 'drag'], cursor: 'ew-resize' },
+          ),
+        );
+      }
 
-      // Label: show range values with active handle indicator
-      const lowStr = Number.isInteger(model.low) ? String(model.low) : model.low.toFixed(1);
-      const highStr = Number.isInteger(model.high) ? String(model.high) : model.high.toFixed(1);
-
+      const lowStr = Number.isInteger(current.low) ? String(current.low) : current.low.toFixed(1);
+      const highStr = Number.isInteger(current.high) ? String(current.high) : current.high.toFixed(1);
       const labelStyle = model.focused ? style({ color: tokens.borderActive }) : style({ color: tokens.text });
-
       if (model.focused) {
-        const activeIndicator = model.activeHandle === 'low' ? '◄' : '►';
+        const activeIndicator = model.activeHandle === 'high' ? '►' : '◄';
         parts.push(text(` ${lowStr}-${highStr} ${activeIndicator}`, labelStyle));
       } else {
         parts.push(text(` ${lowStr}-${highStr}`, labelStyle));
       }
-
       return row(...parts);
     },
 
     subscriptions(model: RangeSliderModel): Sub<RangeSliderMsg> {
-      if (!model.focused) return Sub.none();
+      const pointer = Sub.elementMouse<RangeSliderMsg>((mouseEvent) => {
+        if (!mouseEvent.elementId.startsWith(`${interactionId}:cell:`)) return { type: 'noop' };
+        const index = Number(mouseEvent.elementId.slice(`${interactionId}:cell:`.length));
+        if (mouseEvent.handlerTag === setTag) return { type: 'set-at', index };
+        if (mouseEvent.handlerTag === dragTag) return { type: 'drag-at', index };
+        return { type: 'noop' };
+      });
+      const release = model.dragging
+        ? Sub.mouse<RangeSliderMsg>((mouseEvent) => (mouseEvent.type === 'release' ? { type: 'drag-end' } : { type: 'noop' }))
+        : Sub.none<RangeSliderMsg>();
+      if (!model.focused) return Sub.batch(pointer, release);
       return Sub.batch<RangeSliderMsg>(
+        pointer,
+        release,
         Sub.key('right', { type: 'increment' }),
         Sub.key('left', { type: 'decrement' }),
         Sub.key('up', { type: 'increment' }),

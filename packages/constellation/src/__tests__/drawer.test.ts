@@ -1,4 +1,4 @@
-import { app, Cmd, cmdKind, collectFocusNodes, collectHitRegions, column, focus, planLayout, stackedLayers, Sub, text } from '@celestial/core/nebula';
+import { app, Cmd, cmdKind, collectFocusNodes, collectHitRegions, column, focus, planLayout, Sub, stackedLayers, text } from '@celestial/core/nebula';
 import { renderToLines } from '@celestial/test';
 import { describe, expect, it } from 'vitest';
 import { drawer, drawerGroup } from '../drawer.js';

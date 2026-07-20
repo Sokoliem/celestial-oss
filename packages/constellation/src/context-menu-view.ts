@@ -21,7 +21,8 @@
 import { border, type Color, DEFAULT_GLYPH_TOKENS, type GlyphLevel, resolveGlyph, style, truncate, visualWidth } from '@celestial/corona';
 import { stack } from '@celestial/gravity';
 import { box, overlay, row, text, type VNode } from '@celestial/nebula';
-import type { ContextMenuState, MenuItem } from './context-menu.js';
+import { type ContextMenuState, MAX_CONTEXT_MENU_ITEMS, type MenuItem } from './context-menu.js';
+import { nonNegativeInteger, positiveInteger } from './internal.js';
 
 export interface ContextMenuViewTokens {
   background: Color;
@@ -101,6 +102,38 @@ export interface ContextMenuLayout {
   readonly innerHeight: number;
   /** Number of rows actually being rendered (= items.length). */
   readonly rowCount: number;
+  /** Index in `state.items` represented by the first visible row. */
+  readonly firstItemIndex: number;
+  /** Total rows in the active menu level, including rows clipped by the viewport. */
+  readonly totalRowCount: number;
+}
+
+interface ContextMenuWindow<M> {
+  readonly items: readonly MenuItem<M>[];
+  readonly firstItemIndex: number;
+  readonly totalRowCount: number;
+}
+
+function visibleMenuWindow<M>(state: ContextMenuState<M>, viewport?: { cols: number; rows: number }): ContextMenuWindow<M> {
+  const totalRowCount = Math.min(state.items.length, MAX_CONTEXT_MENU_ITEMS);
+  const capacity = viewport ? Math.max(1, positiveInteger(viewport.rows, 1) - 2) : totalRowCount;
+  const visibleCount = Math.min(totalRowCount, capacity);
+  const selectedIndex = Number.isInteger(state.selectedIndex) ? Math.max(0, Math.min(totalRowCount - 1, state.selectedIndex)) : 0;
+  const firstItemIndex = Math.max(0, Math.min(totalRowCount - visibleCount, selectedIndex - visibleCount + 1));
+  return {
+    items: state.items.slice(firstItemIndex, firstItemIndex + visibleCount),
+    firstItemIndex,
+    totalRowCount,
+  };
+}
+
+function normalizedViewport(viewport: { cols: number; rows: number } | undefined): { cols: number; rows: number } | undefined {
+  return viewport ? { cols: positiveInteger(viewport.cols, 1), rows: positiveInteger(viewport.rows, 1) } : undefined;
+}
+
+function resolveMenuWidth(items: readonly MenuItem<unknown>[], override: number | undefined, viewport?: { cols: number; rows: number }): number {
+  const measured = measureItemWidth(items);
+  return Math.min(positiveInteger(override, measured), viewport?.cols ?? 100_000);
 }
 
 /**
@@ -114,11 +147,13 @@ export interface ContextMenuLayout {
  *   - mapping in-bounds row hits via `y - layout.y - 1` (border offset).
  */
 export function measureContextMenuLayout<M>(options: ContextMenuLayoutOptions<M>): ContextMenuLayout | null {
-  const { state, viewport, width: widthOverride, clampBounds } = options;
+  const { state, width: widthOverride, clampBounds } = options;
   if (!state.open || state.items.length === 0) return null;
-  const width = widthOverride ?? measureItemWidth(state.items);
+  const viewport = normalizedViewport(options.viewport);
+  const window = visibleMenuWindow(state, viewport);
+  const width = resolveMenuWidth(state.items.slice(0, MAX_CONTEXT_MENU_ITEMS), widthOverride, viewport);
   const innerWidth = Math.max(1, width - 2);
-  const height = state.items.length + 2;
+  const height = window.items.length + 2;
   const innerHeight = Math.max(0, height - 2);
   const placement = applyClampBounds(clampPosition(state.x, state.y, width, height, viewport), width, height, viewport, clampBounds);
   return {
@@ -128,7 +163,9 @@ export function measureContextMenuLayout<M>(options: ContextMenuLayoutOptions<M>
     height,
     innerWidth,
     innerHeight,
-    rowCount: state.items.length,
+    rowCount: window.items.length,
+    firstItemIndex: window.firstItemIndex,
+    totalRowCount: window.totalRowCount,
   };
 }
 
@@ -150,12 +187,9 @@ export interface MeasureContextMenuItemWidthOptions {
  * pick but with custom min/max bounds (e.g. embedder-side menus that have a
  * narrower-than-default upper bound).
  */
-export function measureContextMenuItemWidth(
-  items: readonly MenuItem<unknown>[],
-  options: MeasureContextMenuItemWidthOptions = {},
-): number {
-  const min = options.min ?? 12;
-  const max = options.max ?? 80;
+export function measureContextMenuItemWidth(items: readonly MenuItem<unknown>[], options: MeasureContextMenuItemWidthOptions = {}): number {
+  const min = positiveInteger(options.min, 12);
+  const max = positiveInteger(options.max, 80);
   let width = min;
   for (const item of items) {
     if (item.separator) continue;
@@ -173,10 +207,12 @@ function measureItemWidth(items: readonly MenuItem<unknown>[]): number {
 }
 
 function clampPosition(x: number, y: number, width: number, height: number, viewport?: { cols: number; rows: number }): { x: number; y: number } {
-  if (!viewport) return { x: Math.max(0, x), y: Math.max(0, y) };
+  const safeX = nonNegativeInteger(x, 0);
+  const safeY = nonNegativeInteger(y, 0);
+  if (!viewport) return { x: safeX, y: safeY };
   return {
-    x: Math.max(0, Math.min(x, viewport.cols - width)),
-    y: Math.max(0, Math.min(y, viewport.rows - height)),
+    x: Math.max(0, Math.min(safeX, viewport.cols - width)),
+    y: Math.max(0, Math.min(safeY, viewport.rows - height)),
   };
 }
 
@@ -190,10 +226,12 @@ function applyClampBounds(
   if (!bounds) return position;
   const viewportMaxX = viewport ? viewport.cols - width : Number.POSITIVE_INFINITY;
   const viewportMaxY = viewport ? viewport.rows - height : Number.POSITIVE_INFINITY;
-  const minX = Math.max(0, bounds.minX ?? 0);
-  const minY = Math.max(0, bounds.minY ?? 0);
-  const maxX = Math.max(minX, Math.min(viewportMaxX, bounds.maxX ?? viewportMaxX));
-  const maxY = Math.max(minY, Math.min(viewportMaxY, bounds.maxY ?? viewportMaxY));
+  const minX = nonNegativeInteger(bounds.minX, 0);
+  const minY = nonNegativeInteger(bounds.minY, 0);
+  const requestedMaxX = Number.isFinite(bounds.maxX) ? nonNegativeInteger(bounds.maxX, minX) : viewportMaxX;
+  const requestedMaxY = Number.isFinite(bounds.maxY) ? nonNegativeInteger(bounds.maxY, minY) : viewportMaxY;
+  const maxX = Math.max(minX, Math.min(viewportMaxX, requestedMaxX));
+  const maxY = Math.max(minY, Math.min(viewportMaxY, requestedMaxY));
   return {
     x: Math.max(minX, Math.min(maxX, position.x)),
     y: Math.max(minY, Math.min(maxY, position.y)),
@@ -201,21 +239,24 @@ function applyClampBounds(
 }
 
 export function contextMenuView<M>(options: ContextMenuViewOptions<M>): VNode | null {
-  const { state, tokens, zIndex = 100, viewport, width: widthOverride, clampBounds, visibleHeight, glyphLevel = 'wide' } = options;
+  const { state, tokens, width: widthOverride, clampBounds, visibleHeight, glyphLevel = 'wide' } = options;
   if (!state.open || state.items.length === 0) return null;
   if (visibleHeight !== undefined && visibleHeight <= 0) return null;
 
-  const width = widthOverride ?? measureItemWidth(state.items);
+  const viewport = normalizedViewport(options.viewport);
+  const window = visibleMenuWindow(state, viewport);
+  const width = resolveMenuWidth(state.items.slice(0, MAX_CONTEXT_MENU_ITEMS), widthOverride, viewport);
   const innerWidth = Math.max(1, width - 2);
-  const height = state.items.length + 2;
+  const height = window.items.length + 2;
   const placement = applyClampBounds(clampPosition(state.x, state.y, width, height, viewport), width, height, viewport, clampBounds);
-  const renderedHeight = visibleHeight === undefined ? height : Math.max(0, Math.min(visibleHeight, height));
+  const renderedHeight = visibleHeight === undefined ? height : Math.min(nonNegativeInteger(visibleHeight, height), height);
+  const zIndex = nonNegativeInteger(options.zIndex, 100);
 
-  const rows: VNode[] = state.items.map((item, index) => {
+  const rows: VNode[] = window.items.map((item, visibleIndex) => {
     if (item.separator) {
       return text(resolveGlyph(DEFAULT_GLYPH_TOKENS.divider, glyphLevel).repeat(innerWidth), style({ color: tokens.separator, background: tokens.background }));
     }
-    const hasCursor = index === state.selectedIndex;
+    const hasCursor = window.firstItemIndex + visibleIndex === state.selectedIndex;
     const isSelected = hasCursor && !item.disabled;
     // Hovered disabled rows keep the selected background so the cursor remains
     // visible, but dim the text to communicate that activation is blocked.
