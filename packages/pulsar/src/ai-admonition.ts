@@ -12,6 +12,7 @@
  */
 
 import { color, style } from '@celestial/corona';
+import { markdownGlyph } from './markdown-glyphs.js';
 import type { AdmonitionKind, AdmonitionThemeOverride } from './types.js';
 
 const AI_COLORS: Record<Extract<AdmonitionKind, 'ai-thinking' | 'tool-call' | 'citation'>, () => ReturnType<typeof color.hex>> = {
@@ -21,9 +22,9 @@ const AI_COLORS: Record<Extract<AdmonitionKind, 'ai-thinking' | 'tool-call' | 'c
 };
 
 const AI_ICONS: Record<Extract<AdmonitionKind, 'ai-thinking' | 'tool-call' | 'citation'>, string> = {
-  'ai-thinking': '◈',
-  'tool-call': '⚙',
-  citation: '◆',
+  'ai-thinking': markdownGlyph('ai-thinking'),
+  'tool-call': markdownGlyph('tool-call'),
+  citation: markdownGlyph('citation'),
 };
 
 /**
@@ -48,7 +49,7 @@ export function aiAdmonitionTheme(
     admonitionBorder: (_kind: AdmonitionKind) => {
       const mergedBorder = merge?.admonitionBorder?.(kind);
       if (mergedBorder !== undefined) return mergedBorder;
-      return style({ color: c }).render('▌');
+      return style({ color: c }).render(markdownGlyph('admonition-rail'));
     },
   };
 }

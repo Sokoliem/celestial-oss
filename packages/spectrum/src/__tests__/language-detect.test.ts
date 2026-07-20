@@ -40,6 +40,8 @@ describe('detectLanguageFromShebang', () => {
     expect(detectLanguageFromShebang('#!/usr/bin/env node')).toBe('javascript');
     expect(detectLanguageFromShebang('#!/usr/bin/env python3')).toBe('python');
     expect(detectLanguageFromShebang('#!/usr/bin/env bash')).toBe('bash');
+    expect(detectLanguageFromShebang('#!/usr/bin/env -S NODE --no-warnings')).toBe('javascript');
+    expect(detectLanguageFromShebang('#!/usr/bin/env NODE_ENV=production node')).toBe('javascript');
   });
 
   it('detects supported interpreters from direct-path shebangs', () => {

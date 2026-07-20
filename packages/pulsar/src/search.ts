@@ -15,12 +15,17 @@
 
 import type { InlineToken, ListItem, MarkdownSearchMatch, MarkdownSearchState, Token } from './types.js';
 
+const DEFAULT_MAX_MATCHES = 10_000;
+const MAX_SEARCH_QUERY_LENGTH = 100_000;
+const MAX_FLATTEN_DEPTH = 256;
+
 // ── Public API ──────────────────────────────────────────────────────────
 
 /** Try to compile the user's query as a regex. */
-function tryRegex(query: string): RegExp | null {
+function tryRegex(query: string, flags = 'g'): RegExp | null {
+  if (query.length > MAX_SEARCH_QUERY_LENGTH) return null;
   try {
-    return new RegExp(query, 'g');
+    return new RegExp(query, flags);
   } catch {
     return null;
   }
@@ -38,35 +43,44 @@ function escapeRegex(str: string): string {
  * common use case).
  */
 export function flattenSearchableText(token: Token): string {
+  return flattenToken(token, 0, new WeakSet<object>());
+}
+
+function flattenToken(token: Token, depth: number, active: WeakSet<object>): string {
+  if (!token || typeof token !== 'object' || depth > MAX_FLATTEN_DEPTH || active.has(token)) return '';
+  active.add(token);
+  try {
   switch (token.type) {
     case 'heading':
     case 'paragraph':
-      return inlineText(token.content);
+      return inlineText(token.content, depth + 1, active);
     case 'code-block':
       return token.content;
     case 'blockquote':
-      return token.content.map(flattenSearchableText).join('\n');
+      return token.content.map((child) => flattenToken(child, depth + 1, active)).join('\n');
     case 'list':
-      return token.items.map(listItemText).join('\n');
+      return token.items.map((item) => listItemText(item, depth + 1, active)).join('\n');
     case 'hr':
       return '';
     case 'table': {
-      const headerRow = token.headers.map(inlineText).join(' | ');
-      const bodyRows = token.rows.map((row) => row.map(inlineText).join(' | ')).join('\n');
+      const headerRow = token.headers.map((cell) => inlineText(cell, depth + 1, active)).join(' | ');
+      const bodyRows = token.rows.map((row) => row.map((cell) => inlineText(cell, depth + 1, active)).join(' | ')).join('\n');
       return `${headerRow}\n${bodyRows}`;
     }
     case 'admonition':
-      return `${token.title}\n${token.content.map(flattenSearchableText).join('\n')}`;
+      return `${token.title}\n${token.content.map((child) => flattenToken(child, depth + 1, active)).join('\n')}`;
     case 'footnote-def':
-      return `${token.label}\n${token.content.map(flattenSearchableText).join('\n')}`;
+      return `${token.label}\n${token.content.map((child) => flattenToken(child, depth + 1, active)).join('\n')}`;
     case 'image':
       return token.alt;
     case 'definition-list':
-      return token.items.map((item) => `${inlineText(item.term)}\n${item.descriptions.map((d) => inlineText(d)).join('\n')}`).join('\n');
+      return token.items
+        .map((item) => `${inlineText(item.term, depth + 1, active)}\n${item.descriptions.map((description) => inlineText(description, depth + 1, active)).join('\n')}`)
+        .join('\n');
     case 'math-block':
       return token.content;
     case 'details':
-      return `${inlineText(token.summary)}\n${token.content.map(flattenSearchableText).join('\n')}`;
+      return `${inlineText(token.summary, depth + 1, active)}\n${token.content.map((child) => flattenToken(child, depth + 1, active)).join('\n')}`;
     case 'frontmatter':
       return '';
     case 'wiki-link-block':
@@ -74,11 +88,18 @@ export function flattenSearchableText(token: Token): string {
     case 'live-exec':
       return token.source;
   }
+  } finally {
+    active.delete(token);
+  }
 }
 
-function inlineText(tokens: readonly InlineToken[]): string {
+function inlineText(tokens: readonly InlineToken[], depth: number, active: WeakSet<object>): string {
+  if (!Array.isArray(tokens) || depth > MAX_FLATTEN_DEPTH || active.has(tokens)) return '';
+  active.add(tokens);
   let out = '';
+  try {
   for (const t of tokens) {
+    if (!t || typeof t !== 'object') continue;
     switch (t.type) {
       case 'text':
         out += t.content;
@@ -89,7 +110,7 @@ function inlineText(tokens: readonly InlineToken[]): string {
       case 'mark':
       case 'sup':
       case 'sub':
-        out += inlineText(t.content);
+        out += inlineText(t.content, depth + 1, active);
         break;
       case 'code':
         out += t.content;
@@ -119,12 +140,18 @@ function inlineText(tokens: readonly InlineToken[]): string {
         break;
     }
   }
+  } finally {
+    active.delete(tokens);
+  }
   return out;
 }
 
-function listItemText(item: ListItem): string {
-  const head = inlineText(item.content);
-  const children = item.children ? item.children.map(flattenSearchableText).join('\n') : '';
+function listItemText(item: ListItem, depth: number, active: WeakSet<object>): string {
+  if (!item || typeof item !== 'object' || depth > MAX_FLATTEN_DEPTH || active.has(item)) return '';
+  active.add(item);
+  const head = inlineText(item.content, depth + 1, active);
+  const children = item.children ? item.children.map((child) => flattenToken(child, depth + 1, active)).join('\n') : '';
+  active.delete(item);
   return children ? `${head}\n${children}` : head;
 }
 
@@ -138,6 +165,8 @@ export interface FindMatchesOptions {
    * invalid pattern falls back to literal matching.
    */
   readonly mode?: 'literal' | 'regex';
+  /** Maximum results retained across the document. Defaults to 10,000. */
+  readonly maxMatches?: number;
 }
 
 /**
@@ -151,10 +180,13 @@ export interface FindMatchesOptions {
  * matching.
  */
 export function findMatches(tokens: readonly Token[], query: string, opts?: FindMatchesOptions): readonly MarkdownSearchMatch[] {
-  if (!query) return [];
-  const flags = query === query.toLowerCase() ? 'gi' : 'g';
+  if (!query || query.length > MAX_SEARCH_QUERY_LENGTH) return [];
+  const flags = query === query.toLowerCase() ? 'giu' : 'gu';
   const mode = opts?.mode ?? 'literal';
-  const regex = mode === 'regex' ? (tryRegex(query) ? new RegExp(query, flags) : new RegExp(escapeRegex(query), flags)) : new RegExp(escapeRegex(query), flags);
+  const regex = mode === 'regex' ? (tryRegex(query, flags) ?? new RegExp(escapeRegex(query), flags)) : new RegExp(escapeRegex(query), flags);
+  const maxMatches =
+    opts?.maxMatches === undefined || !Number.isFinite(opts.maxMatches) ? DEFAULT_MAX_MATCHES : Math.max(0, Math.min(DEFAULT_MAX_MATCHES, Math.floor(opts.maxMatches)));
+  if (maxMatches === 0) return [];
 
   const matches: MarkdownSearchMatch[] = [];
 
@@ -170,7 +202,11 @@ export function findMatches(tokens: readonly Token[], query: string, opts?: Find
         length: m[0].length,
         snippet: extractSnippet(flat, m.index, m[0].length),
       });
-      if (m[0].length === 0) regex.lastIndex++;
+      if (matches.length >= maxMatches) return matches;
+      if (m[0].length === 0) {
+        const codePoint = flat.codePointAt(regex.lastIndex);
+        regex.lastIndex += codePoint !== undefined && codePoint > 0xffff ? 2 : 1;
+      }
     }
   }
 
@@ -201,12 +237,14 @@ export function initSearch(query: string, tokens: readonly Token[], opts?: FindM
 
 export function nextMatch(state: MarkdownSearchState): MarkdownSearchState {
   if (state.matches.length === 0) return state;
-  return { ...state, currentMatchIndex: (state.currentMatchIndex + 1) % state.matches.length };
+  const current = Number.isSafeInteger(state.currentMatchIndex) ? ((state.currentMatchIndex % state.matches.length) + state.matches.length) % state.matches.length : 0;
+  return { ...state, currentMatchIndex: (current + 1) % state.matches.length };
 }
 
 export function prevMatch(state: MarkdownSearchState): MarkdownSearchState {
   if (state.matches.length === 0) return state;
-  return { ...state, currentMatchIndex: (state.currentMatchIndex - 1 + state.matches.length) % state.matches.length };
+  const current = Number.isSafeInteger(state.currentMatchIndex) ? ((state.currentMatchIndex % state.matches.length) + state.matches.length) % state.matches.length : 0;
+  return { ...state, currentMatchIndex: (current - 1 + state.matches.length) % state.matches.length };
 }
 
 export function clearSearch(): null {

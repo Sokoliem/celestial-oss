@@ -92,6 +92,34 @@ describe('registerLanguage', () => {
     expect(getLanguageGrammar('testlang')).toBe(grammar);
     expect(getLanguageGrammar('tl')).toBe(grammar);
   });
+
+  it('normalizes custom names and aliases for lookup', () => {
+    const grammar: LanguageGrammar = {
+      name: 'MixedCaseLang',
+      aliases: [' MIXED '],
+      rules: [{ pattern: /hello/, token: 'keyword' }],
+    };
+    registerLanguage(grammar);
+
+    expect(getLanguageGrammar('mixedcaselang')).toBe(grammar);
+    expect(getLanguageGrammar(' mixed ')).toBe(grammar);
+    expect(listLanguages()).toContain('mixedcaselang');
+  });
+
+  it('rejects malformed runtime grammar shapes', () => {
+    expect(() => registerLanguage({ name: '', rules: [] })).toThrow(/name/);
+    expect(() => registerLanguage({ name: 'bad-pattern', rules: [{ pattern: 'nope', token: 'text' }] } as unknown as LanguageGrammar)).toThrow(/RegExp/);
+    expect(() =>
+      registerLanguage({
+        name: 'duplicate-states',
+        rules: [],
+        states: [
+          { name: 'same', begin: /a/, end: /b/, token: 'text' },
+          { name: 'same', begin: /c/, end: /d/, token: 'text' },
+        ],
+      }),
+    ).toThrow(/unique/);
+  });
 });
 
 // ── Language-specific Tests ────────────────────────────────────────────

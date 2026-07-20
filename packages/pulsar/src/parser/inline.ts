@@ -7,6 +7,7 @@
  */
 
 import type { InlineToken } from '../types.js';
+import { sanitizeTerminalText } from '../internal/sanitize.js';
 import { DEFAULT_EMOJI_MAP } from './emoji-data.js';
 import type { LinkRef } from './refs.js';
 
@@ -17,7 +18,7 @@ import type { LinkRef } from './refs.js';
  * consults this map first, then falls back to {@link DEFAULT_EMOJI_MAP} for
  * the comprehensive default set. Re-registering a name overrides the default.
  */
-const EMOJI_MAP: Record<string, string> = {};
+const EMOJI_MAP = new Map<string, string>();
 
 /**
  * Register a custom emoji shortcode. Names should match `[A-Za-z0-9_+-]+`
@@ -25,7 +26,13 @@ const EMOJI_MAP: Record<string, string> = {};
  * Re-registering a name overwrites the previous mapping.
  */
 export function registerEmoji(name: string, unicode: string): void {
-  EMOJI_MAP[name] = unicode;
+  if (typeof name !== 'string' || !/^[A-Za-z0-9_+-]{1,128}$/.test(name)) {
+    throw new TypeError('Emoji shortcode names must match [A-Za-z0-9_+-]{1,128}');
+  }
+  if (typeof unicode !== 'string' || unicode.length === 0 || unicode.length > 256) {
+    throw new TypeError('Emoji shortcode values must contain 1 to 256 characters');
+  }
+  EMOJI_MAP.set(name, sanitizeTerminalText(unicode));
 }
 
 /**
@@ -34,10 +41,13 @@ export function registerEmoji(name: string, unicode: string): void {
  * precedence over the default GitHub-flavored set.
  */
 export function getEmoji(name: string): string | undefined {
-  return EMOJI_MAP[name] ?? DEFAULT_EMOJI_MAP[name];
+  if (typeof name !== 'string') return undefined;
+  return EMOJI_MAP.get(name) ?? DEFAULT_EMOJI_MAP[name];
 }
 
 // ── Inline Parser ───────────────────────────────────────────────────────
+
+const MAX_INLINE_NESTING = 64;
 
 /**
  * Parse inline markdown tokens from a string.
@@ -47,6 +57,13 @@ export function getEmoji(name: string): string | undefined {
  * unaffected.
  */
 export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineToken[] {
+  return parseInlineInternal(sanitizeTerminalText(input), refs, 0);
+}
+
+function parseInlineInternal(input: string, refs: Map<string, LinkRef> | undefined, depth: number): InlineToken[] {
+  if (input.length === 0) return [];
+  if (depth >= MAX_INLINE_NESTING) return [{ type: 'text', content: input }];
+
   const tokens: InlineToken[] = [];
   let remaining = input;
   // Char immediately preceding `remaining` in the original input, used to
@@ -58,6 +75,16 @@ export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineT
     if (n <= 0) return;
     prevChar = remaining[n - 1];
     remaining = remaining.slice(n);
+  };
+
+  const pushText = (content: string): void => {
+    if (content.length === 0) return;
+    const previous = tokens[tokens.length - 1];
+    if (previous?.type === 'text') {
+      previous.content += content;
+    } else {
+      tokens.push({ type: 'text', content });
+    }
   };
 
   while (remaining.length > 0) {
@@ -78,13 +105,13 @@ export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineT
     // chemistry) so we lift them into typed tokens. Closing tag must match.
     const supMatch = remaining.match(/^<sup>([\s\S]+?)<\/sup>/);
     if (supMatch) {
-      tokens.push({ type: 'sup', content: parseInline(supMatch[1]!, refs) });
+      tokens.push({ type: 'sup', content: parseInlineInternal(supMatch[1]!, refs, depth + 1) });
       advance(supMatch[0].length);
       continue;
     }
     const subMatch = remaining.match(/^<sub>([\s\S]+?)<\/sub>/);
     if (subMatch) {
-      tokens.push({ type: 'sub', content: parseInline(subMatch[1]!, refs) });
+      tokens.push({ type: 'sub', content: parseInlineInternal(subMatch[1]!, refs, depth + 1) });
       advance(subMatch[0].length);
       continue;
     }
@@ -115,7 +142,7 @@ export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineT
     // Highlight / mark: ==text==
     const markMatch = remaining.match(/^==(.+?)==/);
     if (markMatch) {
-      tokens.push({ type: 'mark', content: parseInline(markMatch[1]!, refs) });
+      tokens.push({ type: 'mark', content: parseInlineInternal(markMatch[1]!, refs, depth + 1) });
       advance(markMatch[0].length);
       continue;
     }
@@ -147,7 +174,7 @@ export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineT
     const emojiMatch = remaining.match(/^:([a-zA-Z0-9_+-]+):/);
     if (emojiMatch) {
       const name = emojiMatch[1]!;
-      const unicode = EMOJI_MAP[name] ?? DEFAULT_EMOJI_MAP[name];
+      const unicode = getEmoji(name);
       if (unicode) {
         tokens.push({
           type: 'emoji',
@@ -193,7 +220,7 @@ export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineT
     if (tripleMatch) {
       tokens.push({
         type: 'bold',
-        content: [{ type: 'italic', content: parseInline(tripleMatch[2]!, refs) }],
+        content: [{ type: 'italic', content: parseInlineInternal(tripleMatch[2]!, refs, depth + 1) }],
       });
       advance(tripleMatch[0].length);
       continue;
@@ -204,7 +231,7 @@ export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineT
     if (boldMatch) {
       tokens.push({
         type: 'bold',
-        content: parseInline(boldMatch[2]!, refs),
+        content: parseInlineInternal(boldMatch[2]!, refs, depth + 1),
       });
       advance(boldMatch[0].length);
       continue;
@@ -215,7 +242,7 @@ export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineT
     if (strikeMatch) {
       tokens.push({
         type: 'strikethrough',
-        content: parseInline(strikeMatch[1]!, refs),
+        content: parseInlineInternal(strikeMatch[1]!, refs, depth + 1),
       });
       advance(strikeMatch[0].length);
       continue;
@@ -225,7 +252,7 @@ export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineT
     if (remaining.startsWith('*')) {
       const asteriskMatch = remaining.match(/^\*(.+?)\*/);
       if (asteriskMatch) {
-        tokens.push({ type: 'italic', content: parseInline(asteriskMatch[1]!, refs) });
+        tokens.push({ type: 'italic', content: parseInlineInternal(asteriskMatch[1]!, refs, depth + 1) });
         advance(asteriskMatch[0].length);
         continue;
       }
@@ -240,7 +267,7 @@ export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineT
       if (!prevIsWord) {
         const underscoreMatch = remaining.match(/^_([^_\n]+?)_(?!\w)/);
         if (underscoreMatch) {
-          tokens.push({ type: 'italic', content: parseInline(underscoreMatch[1]!, refs) });
+          tokens.push({ type: 'italic', content: parseInlineInternal(underscoreMatch[1]!, refs, depth + 1) });
           advance(underscoreMatch[0].length);
           continue;
         }
@@ -306,13 +333,13 @@ export function parseInline(input: string, refs?: Map<string, LinkRef>): InlineT
     // included for inline math.
     const nextSpecial = remaining.slice(1).search(/[*_`~[!:<=$]/);
     if (nextSpecial === -1) {
-      tokens.push({ type: 'text', content: remaining });
+      pushText(remaining);
       prevChar = remaining[remaining.length - 1];
       remaining = '';
       break;
     } else {
       const segment = remaining.slice(0, nextSpecial + 1);
-      tokens.push({ type: 'text', content: segment });
+      pushText(segment);
       advance(nextSpecial + 1);
     }
   }

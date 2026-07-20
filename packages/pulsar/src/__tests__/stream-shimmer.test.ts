@@ -60,4 +60,12 @@ describe('markdownStreamShimmer', () => {
     expect(pendingNode).toBeDefined();
     expect(pendingNode?.style?.dim).toBe(true);
   });
+
+  it('normalizes non-finite and negative widths', () => {
+    const stream = createMarkdownStream();
+    stream.append('Pending line');
+    const snapshot = stream.snapshot();
+    expect(() => markdownStreamShimmer(snapshot, defaultTheme(), { width: Number.POSITIVE_INFINITY })).not.toThrow();
+    expect(() => markdownStreamShimmer(snapshot, defaultTheme(), { width: -10 })).not.toThrow();
+  });
 });

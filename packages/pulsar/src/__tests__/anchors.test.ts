@@ -106,4 +106,11 @@ describe('startAnchorScroll / tickAnchorScroll', () => {
     const anim2 = startAnchorScroll(0, 200);
     expect(tickAnchorScroll(anim1, 100).value).toBe(tickAnchorScroll(anim2, 100).value);
   });
+
+  it('normalizes non-finite coordinates and elapsed time', () => {
+    const anim = startAnchorScroll(Number.NaN, Number.POSITIVE_INFINITY);
+    expect(anim).toMatchObject({ from: 0, to: 0, active: false });
+    expect(() => tickAnchorScroll(startAnchorScroll(0, 100), Number.POSITIVE_INFINITY)).not.toThrow();
+    expect(tickAnchorScroll(startAnchorScroll(0, 100), Number.POSITIVE_INFINITY).done).toBe(true);
+  });
 });

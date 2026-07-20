@@ -52,6 +52,11 @@ describe('pickHighestSeverity', () => {
     expect(pickHighestSeverity([mark(0, 0, 1, 'info'), mark(0, 2, 1, 'warn')])?.severity).toBe('warn');
     expect(pickHighestSeverity([mark(0, 0, 1, 'info'), mark(0, 2, 1, 'info')])?.severity).toBe('info');
   });
+
+  it('ignores malformed runtime severity values', () => {
+    const malformed = { ...mark(0, 0, 1, 'info'), severity: 'fatal' } as unknown as DiagnosticMarker;
+    expect(pickHighestSeverity([malformed, mark(0, 1, 1, 'warn')])?.severity).toBe('warn');
+  });
 });
 
 describe('applyOverlaysToLine', () => {
@@ -106,6 +111,12 @@ describe('applyOverlaysToLine', () => {
     const out = applyOverlaysToLine('hello', 'hello', [mark(0, 0, 100, 'warn', 'big')], []);
     // The slice used must be at most the line length.
     expect(out).toContain('warn: big');
+  });
+
+  it('ignores malformed numeric overlays instead of throwing', () => {
+    const malformed = mark(0, Number.NaN, Number.POSITIVE_INFINITY, 'error');
+    expect(() => applyOverlaysToLine('hello', 'hello', [malformed], [chip(0, Number.NaN, 'bad')])).not.toThrow();
+    expect(applyOverlaysToLine('hello', 'hello', [malformed], [chip(0, Number.NaN, 'bad')])).toBe('hello');
   });
 });
 

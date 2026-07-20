@@ -15,7 +15,7 @@
  *   report.findings // array of findings
  */
 
-import type { SemanticTheme } from '@celestial/corona';
+import { type SemanticTheme, validateThemeContrast } from '@celestial/corona';
 import { parseMarkdown } from './parser/index.js';
 import type { MarkdownTheme, Token } from './types.js';
 
@@ -117,7 +117,7 @@ const KNOWN_FENCE_LANGUAGES = new Set([
   'live',
 ]);
 
-export function auditMarkdown(input: string, _theme?: MarkdownTheme | SemanticTheme): AuditReport {
+export function auditMarkdown(input: string, theme?: MarkdownTheme | SemanticTheme): AuditReport {
   const tokens = parseMarkdown(input);
   const findings: AuditFinding[] = [];
   const headings = tokens.filter((t): t is Extract<Token, { type: 'heading' }> => t.type === 'heading');
@@ -210,9 +210,27 @@ export function auditMarkdown(input: string, _theme?: MarkdownTheme | SemanticTh
     }
   }
 
+  if (isSemanticTheme(theme)) {
+    try {
+      const contrast = validateThemeContrast(theme);
+      for (const violation of contrast.violations.slice(0, 10_000)) {
+        findings.push({
+          level: 'warn',
+          message: `Theme contrast ${violation.pair}: ${violation.ratio.toFixed(2)} is below ${violation.required.toFixed(2)}`,
+        });
+      }
+    } catch {
+      findings.push({ level: 'warn', message: 'Theme contrast could not be validated' });
+    }
+  }
+
   const errors = findings.filter((f) => f.level === 'error');
 
   return { findings, passed: errors.length === 0 };
+}
+
+function isSemanticTheme(theme: MarkdownTheme | SemanticTheme | undefined): theme is SemanticTheme {
+  return typeof theme === 'object' && theme !== null && 'colors' in theme && 'typography' in theme && 'glyphs' in theme;
 }
 
 function collectLinkTargets(tokens: readonly Token[]): string[] {

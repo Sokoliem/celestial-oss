@@ -19,5 +19,18 @@ describe('registerFenceRenderers', () => {
   it('returns an empty object when no plugins are passed', () => {
     const renderers = registerFenceRenderers();
     expect(Object.keys(renderers).length).toBe(0);
+    expect(Object.getPrototypeOf(renderers)).toBeNull();
+  });
+
+  it('normalizes tags and safely supports prototype-like names', () => {
+    const renderers = registerFenceRenderers({ tag: ' JSON ', render: () => 'json' }, { tag: '__proto__', render: () => 'safe' });
+    expect(renderers.json!({} as never, {} as never)).toBe('json');
+    expect(renderers.__proto__!({} as never, {} as never)).toBe('safe');
+    expect(Object.getPrototypeOf(renderers)).toBeNull();
+  });
+
+  it('rejects malformed plugin shapes', () => {
+    expect(() => registerFenceRenderers({ tag: '', render: () => '' })).toThrow(/tags/);
+    expect(() => registerFenceRenderers({ tag: 'json', render: 'nope' } as never)).toThrow(/function/);
   });
 });

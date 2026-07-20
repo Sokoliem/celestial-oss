@@ -43,6 +43,22 @@ describe('retokenizeDocument', () => {
     expect(next.lines[3]).toBe(previous!.lines[3]);
     expect(next.lines[2]!.stateBefore.stack).toEqual([]);
   });
+
+  it('normalizes non-finite edit coordinates', () => {
+    const previous = tokenizeDocument('const a = 1;\nconst b = 2;', 'typescript')!;
+    const next = retokenizeDocument(previous, {
+      startLine: Number.NaN,
+      deleteCount: Number.POSITIVE_INFINITY,
+      insertLines: ['const first = 3;'],
+    });
+
+    expect(next.source).toBe('const first = 3;\nconst a = 1;\nconst b = 2;');
+  });
+
+  it('rejects inserted values that are not individual lines', () => {
+    const previous = tokenizeDocument('const a = 1;', 'typescript')!;
+    expect(() => retokenizeDocument(previous, { startLine: 0, deleteCount: 0, insertLines: ['one\ntwo'] })).toThrow(/newline-free/);
+  });
 });
 
 describe('findMatchingBracket', () => {

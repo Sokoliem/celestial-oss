@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseMarkdown } from '../parser/index.js';
 import { renderMarkdown } from '../renderer.js';
+import { visualWidth } from '../renderer/width.js';
 import type { Token } from '../types.js';
 
 function stripAnsi(str: string): string {
@@ -52,5 +53,20 @@ describe('renderMarkdown table layout', () => {
     for (const line of out.split('\n')) {
       expect(line.length).toBeLessThanOrEqual(30);
     }
+  });
+
+  it('switches many columns to a narrow label/value layout', () => {
+    const md = '| A | B | C | D |\n|---|---|---|---|\n| 1 | 2 | 3 | 4 |';
+    const out = stripAnsi(renderMarkdown(md, { width: 8 }));
+    expect(out).toContain('A: 1');
+    expect(out).toContain('D: 4');
+    expect(out.split('\n').every((line) => visualWidth(line) <= 8)).toBe(true);
+  });
+
+  it('does not split wide graphemes while truncating cells', () => {
+    const md = '| Label |\n|---|\n| 👨‍👩‍👧‍👦界界界 |';
+    const out = stripAnsi(renderMarkdown(md, { width: 6 }));
+    expect(out).toContain('👨‍👩‍👧‍👦');
+    expect(out.split('\n').every((line) => visualWidth(line) <= 6)).toBe(true);
   });
 });

@@ -12,6 +12,7 @@
  *   old | new with aligned hunks.
  */
 
+import { padCellText } from '@celestial/rosetta';
 import type { FenceRenderContext } from '../types.js';
 
 interface DiffLine {
@@ -102,21 +103,25 @@ export function diffSplitFenceRenderer(token: Extract<import('../types.js').Toke
   for (const pair of pairs) {
     if (pair.old?.kind === 'hunk') {
       const hunkText = pair.old.text;
-      out.push(theme.code(hunkText.padEnd(ctx.width, ' ')));
+      out.push(theme.diffHeader?.(padCellText(hunkText, ctx.width)) ?? theme.code(padCellText(hunkText, ctx.width)));
       continue;
     }
 
     const oldText = pair.old?.text ?? '';
     const newText = pair.new?.text ?? '';
 
-    let oldStyled = oldText.slice(0, oldWidth).padEnd(oldWidth, ' ');
-    let newStyled = newText.slice(0, newWidth).padEnd(newWidth, ' ');
+    let oldStyled = padCellText(oldText, oldWidth);
+    let newStyled = padCellText(newText, newWidth);
 
     if (pair.old?.kind === 'del') {
-      oldStyled = '\x1b[31m' + oldStyled + '\x1b[0m';
+      oldStyled = theme.diffRemoved?.(oldStyled) ?? theme.code(oldStyled);
+    } else {
+      oldStyled = theme.diffContext?.(oldStyled) ?? oldStyled;
     }
     if (pair.new?.kind === 'add') {
-      newStyled = '\x1b[32m' + newStyled + '\x1b[0m';
+      newStyled = theme.diffAdded?.(newStyled) ?? theme.code(newStyled);
+    } else {
+      newStyled = theme.diffContext?.(newStyled) ?? newStyled;
     }
 
     out.push(`  ${oldStyled} │ ${newStyled}`);

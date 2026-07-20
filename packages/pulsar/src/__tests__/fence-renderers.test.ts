@@ -41,6 +41,14 @@ describe('fenceRenderers', () => {
     expect(result).toBe(baseline);
   });
 
+  it('contains host-renderer failures and falls through', () => {
+    const renderer: FenceRenderer = () => {
+      throw new Error('plugin failed');
+    };
+    expect(() => renderMarkdown(SAMPLE, { fenceRenderers: { ts: renderer } })).not.toThrow();
+    expect(renderMarkdown(SAMPLE, { fenceRenderers: { ts: renderer } })).toBe(renderMarkdown(SAMPLE));
+  });
+
   it('preserves the host indent prefix on each line of the custom output', () => {
     const renderer: FenceRenderer = () => 'line one\nline two\nline three';
     const result = renderMarkdown('```diff\n+a\n```\n', { fenceRenderers: { diff: renderer }, indent: 4 });

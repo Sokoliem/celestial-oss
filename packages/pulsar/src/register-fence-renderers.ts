@@ -18,7 +18,7 @@ export interface FencePlugin {
   readonly tag: string;
   /** The renderer function. */
   readonly render: FenceRenderer;
-  /** Optional capability requirements. If unmet, the plugin is skipped with a warning. */
+  /** Optional capability metadata for hosts that filter plugins before registration. */
   readonly requires?: readonly string[];
 }
 
@@ -29,9 +29,13 @@ export interface FencePlugin {
  * `RenderOptions.fenceRenderers`.
  */
 export function registerFenceRenderers(...plugins: FencePlugin[]): Record<string, FenceRenderer> {
-  const out: Record<string, FenceRenderer> = {};
+  if (plugins.length > 10_000) throw new RangeError('Fence renderer plugin count exceeds 10000');
+  const out = Object.create(null) as Record<string, FenceRenderer>;
   for (const plugin of plugins) {
-    out[plugin.tag] = plugin.render;
+    const tag = typeof plugin?.tag === 'string' ? plugin.tag.trim().toLowerCase() : '';
+    if (!/^[a-z0-9_+#.:-]{1,128}$/.test(tag)) throw new TypeError('Fence renderer tags must be 1 to 128 language-tag characters');
+    if (typeof plugin.render !== 'function') throw new TypeError(`Fence renderer for ${tag} must be a function`);
+    out[tag] = plugin.render;
   }
   return out;
 }

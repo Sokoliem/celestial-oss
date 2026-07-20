@@ -132,11 +132,10 @@ describe('createMarkdownStream', () => {
     const stream = createMarkdownStream();
 
     let snapshot = stream.append('[^1]: First line\n');
-    // Single footnote line ending with \n matches block-complete regex,
-    // but there's no unclosed footnote yet (last line is empty after split)
-    // So this gets committed as a block-complete line.
-    // Let's check continuation behavior:
+    // A single newline is not enough to prove that an indented continuation
+    // will not follow, so the definition remains pending.
     const afterFirstLine = snapshot;
+    expect(afterFirstLine.committedSource).toBe('');
 
     snapshot = stream.append('  continuation\n');
     // Now last line after split is '  continuation' -> indented continuation
@@ -164,12 +163,22 @@ describe('createMarkdownStream', () => {
     expect(snapshot.pendingSource).toBe('');
   });
 
-  it('treats footnote definition as block-complete and commits it', () => {
+  it('commits a footnote definition after a blank-line terminator', () => {
     const stream = createMarkdownStream();
 
-    const snapshot = stream.append('[^1]: Definition text\n');
-    expect(snapshot.committedSource).toBe('[^1]: Definition text\n');
+    let snapshot = stream.append('[^1]: Definition text\n');
+    expect(snapshot.committedSource).toBe('');
+    snapshot = stream.append('\n');
+    expect(snapshot.committedSource).toBe('[^1]: Definition text\n\n');
     expect(snapshot.pendingSource).toBe('');
+  });
+
+  it('keeps namespaced admonitions pending until their block closes', () => {
+    const stream = createMarkdownStream();
+    const pending = stream.append('> [!ROLE:permission]\n> Approval required\n');
+    expect(pending.committedSource).toBe('');
+    const closed = stream.append('\n# Next\n');
+    expect(closed.committedSource).toContain('Approval required');
   });
 
   it('streams mixed content committing each block at the right boundary', () => {
@@ -249,6 +258,33 @@ describe('createMarkdownStream', () => {
     expect(stripAnsi(snapshot.rendered)).toContain('Heading');
     expect(stripAnsi(snapshot.rendered)).toContain('Helpful tip');
   });
+
+  it('finalize commits an unclosed code fence as the final block', () => {
+    const stream = createMarkdownStream();
+    stream.append('```ts\nconst finalValue = 1;');
+    const snapshot = stream.snapshot({ finalize: true });
+    expect(snapshot.pendingSource).toBe('');
+    expect(snapshot.tokens[0]?.type).toBe('code-block');
+    expect(stripAnsi(snapshot.rendered)).toContain('finalValue');
+  });
+
+  it('tracks fence markers split across append chunks', () => {
+    const stream = createMarkdownStream({ streaming: { partialHighlight: true } });
+    stream.append('``');
+    const open = stream.append('`ts\nconst value = 1;\n');
+    expect(open.committedSource).toBe('');
+    expect(open.pendingSource).toContain('```ts');
+
+    stream.append('`');
+    const closed = stream.append('``\n');
+    expect(closed.pendingSource).toBe('');
+    expect(closed.tokens[0]?.type).toBe('code-block');
+  });
+
+  it('rejects non-string runtime chunks', () => {
+    const stream = createMarkdownStream();
+    expect(() => stream.append(42 as never)).toThrow(/must be strings/);
+  });
 });
 
 // ── Partial Highlight During Stream ───────────────────────────────────────
@@ -289,5 +325,12 @@ describe('createMarkdownStream partialHighlight', () => {
     const rendered = stripAnsi(snapshot.rendered);
     expect(rendered).toContain('const a = 1;');
     expect(rendered).toContain('const b = 2;');
+  });
+
+  it('parses punctuation-bearing fence languages and metadata while open', () => {
+    const stream = createMarkdownStream({ streaming: { partialHighlight: true } });
+    const snapshot = stream.append('```c++ wrap\nstd::vector<int> values;\n');
+    expect(stripAnsi(snapshot.rendered)).toContain('std::vector');
+    expect(stripAnsi(snapshot.rendered)).toContain('c++');
   });
 });

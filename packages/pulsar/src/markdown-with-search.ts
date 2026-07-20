@@ -2,7 +2,7 @@
  * Markdown with Search Highlights (B4)
  *
  * Parses markdown, runs a search query, and returns a VNode tree with
- * matched ranges highlighted. The current match gets a distinct border.
+ * matching blocks highlighted. The current match gets a distinct marker.
  *
  * Usage:
  *   const { vnode, state } = markdownWithSearch(source, 'query', opts);
@@ -19,7 +19,7 @@ interface MarkdownWithSearchResult {
 }
 
 /**
- * Render markdown as a VNode tree with search highlights overlaid.
+ * Render markdown as a VNode tree with matching blocks highlighted.
  *
  * Finds all matches of `query` in the document, injects
  * `searchHighlights` into the render options, and returns both the VNode

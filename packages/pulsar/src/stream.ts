@@ -1,4 +1,5 @@
 import { highlightPartial, initialState } from './highlight.js';
+import { parseCodeBlockInfoString } from './parser/codeblock-meta.js';
 import { parseMarkdown } from './parser.js';
 import { renderMarkdown } from './renderer.js';
 import { defaultTheme } from './theme.js';
@@ -18,7 +19,7 @@ function hasUnclosedAdmonition(source: string): boolean {
   let inAdmonition = false;
   for (const line of lines) {
     const trimmed = line.trimStart();
-    if (trimmed.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i)) {
+    if (/^>\s*\[![^\]\r\n]+\][+-]?/u.test(trimmed)) {
       inAdmonition = true;
     } else if (inAdmonition && !trimmed.startsWith('>') && trimmed !== '') {
       inAdmonition = false;
@@ -38,9 +39,6 @@ function hasUnclosedAdmonition(source: string): boolean {
  */
 function hasUnclosedFootnote(source: string): boolean {
   const lines = source.split('\n');
-  const lastLine = lines.at(-1) ?? '';
-  if (!/^ {2}\S/.test(lastLine)) return false;
-
   let lastDefIdx = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
     if (/^\[\^[^\]]+\]:/.test(lines[i]!)) {
@@ -50,9 +48,13 @@ function hasUnclosedFootnote(source: string): boolean {
   }
   if (lastDefIdx === -1) return false;
 
-  for (let i = lastDefIdx + 1; i < lines.length - 1; i++) {
+  if (lastDefIdx === lines.length - 1) return true;
+  for (let i = lastDefIdx + 1; i < lines.length; i++) {
     const ln = lines[i]!;
-    if (ln.trim() === '') return false;
+    if (ln.trim() === '') {
+      const isSingleTrailingNewline = i === lines.length - 1 && source.endsWith('\n') && !source.endsWith('\n\n');
+      return isSingleTrailingNewline;
+    }
     if (!/^ {2}/.test(ln)) return false;
   }
   return true;
@@ -60,6 +62,7 @@ function hasUnclosedFootnote(source: string): boolean {
 
 function findCommitBoundary(source: string, finalize = false, knownFenceOdd?: boolean): number {
   if (source.length === 0) return 0;
+  if (finalize) return source.length;
 
   const fenceOdd = knownFenceOdd ?? countFences(source) % 2 === 1;
   if (fenceOdd) {
@@ -69,10 +72,6 @@ function findCommitBoundary(source: string, finalize = false, knownFenceOdd?: bo
   // Don't commit while inside an unclosed admonition or footnote
   if (!finalize && (hasUnclosedAdmonition(source) || hasUnclosedFootnote(source))) {
     return 0;
-  }
-
-  if (finalize) {
-    return source.length;
   }
 
   const paragraphBreak = source.lastIndexOf('\n\n');
@@ -98,9 +97,10 @@ function findCommitBoundary(source: string, finalize = false, knownFenceOdd?: bo
 }
 
 function extractOpenFenceInfo(pendingSource: string): { language: string; content: string } | null {
-  const match = pendingSource.match(/^(\s*)```(\w*)\n([\s\S]*)$/);
+  const match = pendingSource.match(/^\s*```([^\r\n]*)\r?\n([\s\S]*)$/u);
   if (!match) return null;
-  return { language: match[2] ?? 'text', content: match[3] ?? '' };
+  const parsed = parseCodeBlockInfoString(match[1] ?? '');
+  return { language: parsed.language || 'text', content: match[2] ?? '' };
 }
 
 function renderPartialFence(pendingSource: string, options?: RenderOptions): string {
@@ -147,11 +147,23 @@ export function createMarkdownStream(options?: RenderOptions): MarkdownStream {
   // Incrementally track open code fences so countFences does not re-scan the
   // entire accumulated source on every append()/snapshot() call. This avoids
   // O(n^2) regex scanning for large streaming inputs.
-  let fenceCount = 0;
+  let completedFenceCount = 0;
+  let pendingFenceLine = '';
+
+  const fenceCount = (): number => completedFenceCount + (/^\s*```/.test(pendingFenceLine) ? 1 : 0);
+
+  const scanFenceChunk = (chunk: string): void => {
+    const combined = pendingFenceLine + chunk;
+    const lines = combined.split('\n');
+    pendingFenceLine = lines.pop() ?? '';
+    for (const line of lines) {
+      if (/^\s*```/.test(line)) completedFenceCount++;
+    }
+  };
 
   const snapshot = (snapshotOptions?: { finalize?: boolean }): MarkdownStreamSnapshot => {
     const finalize = snapshotOptions?.finalize === true;
-    const fenceOdd = fenceCount % 2 === 1;
+    const fenceOdd = fenceCount() % 2 === 1;
     const boundary = findCommitBoundary(source, finalize, fenceOdd);
     const effectiveCommitted = boundary > 0 ? source.slice(0, boundary) : committedSource;
     return buildSnapshot(source, effectiveCommitted, options);
@@ -159,11 +171,12 @@ export function createMarkdownStream(options?: RenderOptions): MarkdownStream {
 
   return {
     append(chunk: string): MarkdownStreamSnapshot {
-      // Count fence markers in the new chunk only, not the full source.
-      const newFences = chunk.match(/^\s*```/gm);
-      fenceCount += newFences ? newFences.length : 0;
+      if (typeof chunk !== 'string') throw new TypeError('Markdown stream chunks must be strings');
+      // Retain the unfinished source line so a fence split across chunks is
+      // counted exactly once without rescanning the accumulated document.
+      scanFenceChunk(chunk);
       source += chunk;
-      const fenceOdd = fenceCount % 2 === 1;
+      const fenceOdd = fenceCount() % 2 === 1;
       if (fenceOdd) {
         return buildSnapshot(source, committedSource, options);
       }
@@ -174,7 +187,8 @@ export function createMarkdownStream(options?: RenderOptions): MarkdownStream {
     reset(): MarkdownStreamSnapshot {
       source = '';
       committedSource = '';
-      fenceCount = 0;
+      completedFenceCount = 0;
+      pendingFenceLine = '';
       return snapshot();
     },
     snapshot,

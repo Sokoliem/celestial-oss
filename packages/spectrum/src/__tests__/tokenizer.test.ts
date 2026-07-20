@@ -123,6 +123,57 @@ describe('tokenizeLine', () => {
     expect(tokens[0]!.category).toBe('variable');
     expect(tokens[0]!.text).toBe('iffy');
   });
+
+  it('does not mutate caller-owned sticky regular expressions', () => {
+    const pattern = /[a-z]+/y;
+    pattern.lastIndex = 7;
+    const custom: LanguageGrammar = { name: 'owned-regex', rules: [{ pattern, token: 'variable' }] };
+
+    tokenizeLine('hello', custom, initialState());
+
+    expect(pattern.lastIndex).toBe(7);
+  });
+
+  it('returns cache snapshots that callers cannot poison', () => {
+    const [firstTokens, firstState] = tokenizeLine('return', grammar, initialState());
+    (firstTokens as Array<{ category: string; text: string }>)[0]!.text = 'changed';
+    (firstState.stack as string[]).push('changed');
+
+    const [nextTokens, nextState] = tokenizeLine('return', grammar, initialState());
+    expect(nextTokens).toEqual([{ category: 'keyword', text: 'return' }]);
+    expect(nextState.stack).toEqual([]);
+  });
+
+  it('ignores zero-width rules without emitting empty tokens or stalling', () => {
+    const custom: LanguageGrammar = {
+      name: 'zero-width',
+      rules: [
+        { pattern: /(?=.)/, token: 'keyword', push: 'inner' },
+        { pattern: /./, token: 'variable' },
+      ],
+      states: [{ name: 'inner', begin: /(?=.)/, end: /(?=.)/, token: 'string', contentRules: [{ pattern: /(?=.)/, token: 'escape' }] }],
+    };
+
+    const [tokens, nextState] = tokenizeLine('abc', custom, initialState());
+    expect(tokens.map((token) => token.text).join('')).toBe('abc');
+    expect(tokens.every((token) => token.text.length > 0)).toBe(true);
+    expect(nextState.stack).toEqual([]);
+  });
+
+  it('preserves unmatched text around a selected capture group', () => {
+    const custom: LanguageGrammar = {
+      name: 'capture',
+      rules: [{ pattern: /pre\((foo)\)post/, token: 'function', group: 1 }],
+    };
+
+    const [tokens] = tokenizeLine('pre(foo)post', custom, initialState());
+    expect(tokens).toEqual([
+      { category: 'text', text: 'pre(' },
+      { category: 'function', text: 'foo' },
+      { category: 'text', text: ')post' },
+    ]);
+    expect(tokens.map((token) => token.text).join('')).toBe('pre(foo)post');
+  });
 });
 
 describe('tokenizeLine with state rules', () => {
@@ -173,6 +224,13 @@ describe('tokenizeLine with state rules', () => {
     const numberToken = tokens.find((t) => t.category === 'number');
     expect(numberToken).toBeDefined();
     expect(numberToken!.text).toBe('42');
+  });
+
+  it('drops unknown and over-deep external state entries', () => {
+    const state: TokenizerState = { stack: [...Array.from({ length: 300 }, () => 'blockComment'), 'unknown'] };
+    const [, nextState] = tokenizeLine('closed */', grammar, state);
+    expect(nextState.stack).not.toContain('unknown');
+    expect(nextState.stack.length).toBeLessThanOrEqual(256);
   });
 });
 

@@ -65,6 +65,13 @@ const SNAP_SPRING = {
 } as const;
 
 const FIXED_DT_MS = 16;
+const MAX_SCROLL_VALUE = 1_000_000_000;
+const MAX_ELAPSED_MS = 60_000;
+
+function finiteInteger(value: number, fallback = 0): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(-MAX_SCROLL_VALUE, Math.min(MAX_SCROLL_VALUE, Math.floor(value)));
+}
 
 function startSnapAnimation(from: number, to: number): BlockSnapAnimation {
   return {
@@ -77,7 +84,8 @@ function startSnapAnimation(from: number, to: number): BlockSnapAnimation {
 
 function tickSnapAnimation(anim: BlockSnapAnimation, elapsed: number): { value: number; done: boolean } {
   if (!anim.active || anim.from === anim.to) return { value: anim.to, done: true };
-  if (elapsed <= 0) return { value: anim.from, done: false };
+  const safeElapsed = Number.isFinite(elapsed) ? Math.max(0, Math.min(MAX_ELAPSED_MS, elapsed)) : elapsed === Number.POSITIVE_INFINITY ? MAX_ELAPSED_MS : 0;
+  if (safeElapsed <= 0) return { value: anim.from, done: false };
 
   const s = createSpring(anim.to, {
     from: anim.from,
@@ -87,7 +95,7 @@ function tickSnapAnimation(anim: BlockSnapAnimation, elapsed: number): { value: 
   });
 
   s.tick(0);
-  for (let t = FIXED_DT_MS; t <= elapsed; t += FIXED_DT_MS) {
+  for (let t = FIXED_DT_MS; t <= safeElapsed; t += FIXED_DT_MS) {
     s.tick(t);
     if (s.done()) break;
   }
@@ -95,8 +103,10 @@ function tickSnapAnimation(anim: BlockSnapAnimation, elapsed: number): { value: 
 }
 
 function clampLine(line: number, lineCount: number, viewportHeight: number): number {
-  const maxTop = Math.max(0, lineCount - viewportHeight);
-  return Math.max(0, Math.min(line, maxTop));
+  const safeLineCount = Math.max(0, finiteInteger(lineCount));
+  const safeViewportHeight = Math.max(1, finiteInteger(viewportHeight, 1));
+  const maxTop = Math.max(0, safeLineCount - safeViewportHeight);
+  return Math.max(0, Math.min(finiteInteger(line), maxTop));
 }
 
 function resolveTargetLine(block: BlockBoundary, lineCount: number, viewportHeight: number, presentation: boolean): number {
@@ -114,18 +124,25 @@ function resolveTargetLine(block: BlockBoundary, lineCount: number, viewportHeig
 export function createBlockSnapScroll(overlay: BlockSnapOverlay, blocks: readonly BlockBoundary[], options?: BlockSnapScrollOptions): BlockSnapController {
   const presentation = options?.presentation ?? false;
   const reduceMotion = options?.reduceMotion ?? false;
+  const safeBlocks = blocks
+    .filter((block) => Number.isFinite(block.startLine) && Number.isFinite(block.endLine))
+    .map((block) => {
+      const startLine = Math.max(0, finiteInteger(block.startLine));
+      return { startLine, endLine: Math.max(startLine, finiteInteger(block.endLine)) };
+    })
+    .sort((left, right) => left.startLine - right.startLine);
   let anim: BlockSnapAnimation | null = null;
 
   function currentBlockIndex(): number {
-    const top = overlay.getTopLine();
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      if (top >= blocks[i]!.startLine) return i;
+    const top = Math.max(0, finiteInteger(overlay.getTopLine()));
+    for (let i = safeBlocks.length - 1; i >= 0; i--) {
+      if (top >= safeBlocks[i]!.startLine) return i;
     }
     return 0;
   }
 
   function startSnapTo(targetLine: number): void {
-    const from = overlay.getTopLine();
+    const from = Math.max(0, finiteInteger(overlay.getTopLine()));
     const to = clampLine(targetLine, overlay.lineCount, overlay.viewportHeight);
     if (reduceMotion) {
       overlay.scrollTo(to);
@@ -139,20 +156,20 @@ export function createBlockSnapScroll(overlay: BlockSnapOverlay, blocks: readonl
     snapUp(): void {
       const idx = currentBlockIndex();
       const targetIdx = Math.max(0, idx - 1);
-      const targetLine = resolveTargetLine(blocks[targetIdx] ?? { startLine: 0, endLine: 0 }, overlay.lineCount, overlay.viewportHeight, presentation);
+      const targetLine = resolveTargetLine(safeBlocks[targetIdx] ?? { startLine: 0, endLine: 0 }, overlay.lineCount, overlay.viewportHeight, presentation);
       startSnapTo(targetLine);
     },
 
     snapDown(): void {
       const idx = currentBlockIndex();
-      const targetIdx = Math.min(blocks.length - 1, idx + 1);
-      const targetLine = resolveTargetLine(blocks[targetIdx] ?? { startLine: 0, endLine: 0 }, overlay.lineCount, overlay.viewportHeight, presentation);
+      const targetIdx = Math.min(safeBlocks.length - 1, idx + 1);
+      const targetLine = resolveTargetLine(safeBlocks[targetIdx] ?? { startLine: 0, endLine: 0 }, overlay.lineCount, overlay.viewportHeight, presentation);
       startSnapTo(targetLine);
     },
 
     snapToBlock(index: number): void {
-      const targetIdx = Math.max(0, Math.min(blocks.length - 1, index));
-      const targetLine = resolveTargetLine(blocks[targetIdx] ?? { startLine: 0, endLine: 0 }, overlay.lineCount, overlay.viewportHeight, presentation);
+      const targetIdx = Math.max(0, Math.min(safeBlocks.length - 1, finiteInteger(index)));
+      const targetLine = resolveTargetLine(safeBlocks[targetIdx] ?? { startLine: 0, endLine: 0 }, overlay.lineCount, overlay.viewportHeight, presentation);
       startSnapTo(targetLine);
     },
 
@@ -166,7 +183,7 @@ export function createBlockSnapScroll(overlay: BlockSnapOverlay, blocks: readonl
 
     tick(elapsed: number): { line: number; done: boolean } {
       if (!anim) {
-        return { line: overlay.getTopLine(), done: true };
+        return { line: Math.max(0, finiteInteger(overlay.getTopLine())), done: true };
       }
       const result = tickSnapAnimation(anim, elapsed);
       if (result.done) {

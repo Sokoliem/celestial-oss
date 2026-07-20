@@ -124,6 +124,24 @@ describe('findMatches', () => {
     expect(matches[0]?.snippet.startsWith('…')).toBe(true);
     expect(matches[0]?.snippet.endsWith('…')).toBe(true);
   });
+
+  it('caps retained matches at the requested boundary', () => {
+    const tokens = parseMarkdown('a '.repeat(100));
+    expect(findMatches(tokens, 'a', { maxMatches: 7 })).toHaveLength(7);
+    expect(findMatches(tokens, 'a', { maxMatches: 0 })).toEqual([]);
+  });
+
+  it('advances zero-width Unicode regex matches by whole code points', () => {
+    const tokens = parseMarkdown('😀x');
+    const matches = findMatches(tokens, '(?=.)', { mode: 'regex' });
+    expect(matches.map((match) => match.column)).toEqual([0, 2]);
+  });
+
+  it('terminates cyclic runtime token graphs', () => {
+    const cyclic = { type: 'blockquote', content: [] } as unknown as Parameters<typeof flattenSearchableText>[0];
+    (cyclic as Extract<typeof cyclic, { type: 'blockquote' }> & { content: unknown[] }).content.push(cyclic);
+    expect(flattenSearchableText(cyclic)).toBe('');
+  });
 });
 
 describe('initSearch / nextMatch / prevMatch / clearSearch', () => {
@@ -160,6 +178,12 @@ describe('initSearch / nextMatch / prevMatch / clearSearch', () => {
     expect(state.matches.length).toBe(0);
     expect(nextMatch(state).currentMatchIndex).toBe(0);
     expect(prevMatch(state).currentMatchIndex).toBe(0);
+  });
+
+  it('normalizes corrupted navigation indices', () => {
+    const state = { ...initSearch('a', parseMarkdown('a a a')), currentMatchIndex: Number.NaN };
+    expect(nextMatch(state).currentMatchIndex).toBe(1);
+    expect(prevMatch(state).currentMatchIndex).toBe(2);
   });
 
   it('clearSearch returns null', () => {

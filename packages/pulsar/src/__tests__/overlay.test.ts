@@ -140,4 +140,35 @@ describe('overlayRenderer', () => {
     expect(rendered).toContain('Overlay');
     expect(renderer.lineCount()).toBeGreaterThan(0);
   });
+
+  it('normalizes hostile dimensions and scroll anchors', () => {
+    const renderer = overlayRenderer({
+      content: 'one\ntwo\nthree',
+      maxWidth: Number.NaN,
+      maxHeight: -10,
+      prefetch: Number.POSITIVE_INFINITY,
+    });
+
+    expect(() => renderer.scrollTo(Number.NaN)).not.toThrow();
+    expect(() => renderer.restoreAnchor({ topLine: Number.POSITIVE_INFINITY })).not.toThrow();
+    const viewport = renderer.vnode() as { height: number; offset: number };
+    expect(viewport.height).toBe(1);
+    expect(viewport.offset).toBe(0);
+  });
+
+  it('contains line-highlight callback failures', () => {
+    const renderer = overlayRenderer({
+      content: 'one\ntwo',
+      maxWidth: 20,
+      maxHeight: 2,
+      style: {
+        density: 'compact',
+        lineHighlight: () => {
+          throw new Error('host callback failed');
+        },
+      },
+    });
+
+    expect(() => renderer.vnode()).not.toThrow();
+  });
 });

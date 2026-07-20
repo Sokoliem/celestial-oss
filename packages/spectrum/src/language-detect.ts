@@ -166,7 +166,7 @@ export function detectLanguageFromShebang(firstLine: string): string | undefined
 
   if (command === 'env' && parts.length > 1) {
     let index = 1;
-    while (index < parts.length && parts[index]!.startsWith('-')) {
+    while (index < parts.length && (parts[index]!.startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/u.test(parts[index]!))) {
       index++;
     }
     interpreter = parts[index] ?? '';
@@ -174,7 +174,7 @@ export function detectLanguageFromShebang(firstLine: string): string | undefined
 
   if (!interpreter) return undefined;
 
-  const direct = resolveSupportedLanguage(SHEBANG_MAP.get(interpreter));
+  const direct = resolveSupportedLanguage(SHEBANG_MAP.get(interpreter) ?? SHEBANG_MAP.get(interpreter.toLowerCase()));
   if (direct) return direct;
 
   const stripped = interpreter.replace(/\d+$/, '');
