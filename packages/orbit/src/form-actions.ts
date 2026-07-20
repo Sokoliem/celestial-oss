@@ -141,9 +141,7 @@ export function submitBar<Fields extends FieldMap>(model: FormModel<Fields>, con
     return column();
   }
 
-  const indicatorStyle = dirty
-    ? style({ color: feedbackColor(config, 'warning') })
-    : style({ color: formColor(config, 'muted'), dim: true });
+  const indicatorStyle = dirty ? style({ color: feedbackColor(config, 'warning') }) : style({ color: formColor(config, 'muted'), dim: true });
   const indicatorLabel = dirty
     ? (config.dirtyLabel ?? tr(config.messages, 'submit.dirty_label', undefined, config.locale))
     : (config.pristineLabel ?? tr(config.messages, 'submit.pristine_label', undefined, config.locale));

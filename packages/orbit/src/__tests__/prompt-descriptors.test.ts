@@ -64,10 +64,7 @@ describe('inputPrompt', () => {
   it('accepts Unicode key events and bracketed paste', () => {
     const p = inputPrompt({ message: 'Name?' });
     let [model] = p.init();
-    [model] = p.update(
-      { type: 'prompt:key', event: { key: '界', char: '界', ctrl: false, alt: false, shift: false } },
-      model,
-    );
+    [model] = p.update({ type: 'prompt:key', event: { key: '界', char: '界', ctrl: false, alt: false, shift: false } }, model);
     [model] = p.update({ type: 'prompt:paste', value: '👩‍🚀\nready' }, model);
     expect(model.value).toBe(`界👩‍🚀 ready`);
     expect(model.cursor).toBe(8);
@@ -129,10 +126,11 @@ describe('inputPrompt', () => {
     // The view should contain a row node with the cursor character rendered in reverse
     expect(vnode.kind).toBe('column');
     if (vnode.kind === 'column') {
-      // Second child should be the input row with cursor
-      const inputRow = vnode.children[1];
-      expect(inputRow).toBeDefined();
-      expect(inputRow!.kind).toBe('row');
+      // The interactive wrapper keeps the cursor row mouse-focusable.
+      const inputTarget = vnode.children[1];
+      expect(inputTarget).toBeDefined();
+      expect(inputTarget!.kind).toBe('event');
+      if (inputTarget?.kind === 'event') expect(inputTarget.child.kind).toBe('row');
     }
   });
 
@@ -142,9 +140,10 @@ describe('inputPrompt', () => {
     // When focused and empty, should show a row with cursor
     expect(vnode.kind).toBe('column');
     if (vnode.kind === 'column') {
-      const inputRow = vnode.children[1];
-      expect(inputRow).toBeDefined();
-      expect(inputRow!.kind).toBe('row');
+      const inputTarget = vnode.children[1];
+      expect(inputTarget).toBeDefined();
+      expect(inputTarget!.kind).toBe('event');
+      if (inputTarget?.kind === 'event') expect(inputTarget.child.kind).toBe('row');
     }
   });
 
@@ -154,10 +153,10 @@ describe('inputPrompt', () => {
     const vnode = prompt.view(model);
     expect(vnode.kind).toBe('column');
     if (vnode.kind === 'column') {
-      // When unfocused, should be a text node not a row
-      const inputNode = vnode.children[1];
-      expect(inputNode).toBeDefined();
-      expect(inputNode!.kind).toBe('text');
+      const inputTarget = vnode.children[1];
+      expect(inputTarget).toBeDefined();
+      expect(inputTarget!.kind).toBe('event');
+      if (inputTarget?.kind === 'event') expect(inputTarget.child.kind).toBe('text');
     }
   });
 
@@ -166,7 +165,31 @@ describe('inputPrompt', () => {
     const sub = prompt.subscriptions?.(model);
     expect(sub).toBeDefined();
     expect(sub?._kind.kind).toBe('batch');
-    if (sub?._kind.kind === 'batch') expect(sub._kind.subs.map((entry) => entry._kind.kind)).toEqual(['keyEvent', 'paste']);
+    if (sub?._kind.kind === 'batch') expect(sub._kind.subs.map((entry) => entry._kind.kind)).toEqual(['elementMouse', 'keyEvent', 'paste']);
+  });
+
+  it('normalizes externally corrupted cursors before editing', () => {
+    const p = inputPrompt({ message: 'Name?', defaultValue: 'ab' });
+    const [model] = p.init();
+    const [updated] = p.update({ type: 'prompt:char', char: 'c' }, { ...model, cursor: Number.NaN });
+    expect(updated.value).toBe('cab');
+    expect(updated.cursor).toBe(1);
+  });
+
+  it('snapshots validators instead of retaining the caller array', () => {
+    const validators = [required('Required')];
+    const p = inputPrompt({ message: 'Name?', validate: validators });
+    validators.length = 0;
+    let [model] = p.init();
+    [model] = p.update({ type: 'prompt:submit' }, model);
+    expect(model.done).toBe(false);
+    expect(model.error).toBe('Required');
+  });
+
+  it('keeps pointer focus available while blurred', () => {
+    const [model] = prompt.init();
+    const [blurred] = prompt.update({ type: 'prompt:blur' }, model);
+    expect(prompt.subscriptions!(blurred)._kind.kind).toBe('elementMouse');
   });
 
   it('subscriptions returns none when done', () => {
@@ -252,6 +275,14 @@ describe('confirmPrompt', () => {
     const [model] = prompt.init();
     const vnode = prompt.view(model);
     expect(vnode).toBeDefined();
+  });
+
+  it('renders direct pointer choices and keeps them active while blurred', () => {
+    let [model] = prompt.init();
+    [model] = prompt.update({ type: 'confirm:blur' }, model);
+    expect(collectText(prompt.view(model)).join(' ')).toContain('Yes');
+    expect(collectText(prompt.view(model)).join(' ')).toContain('No');
+    expect(prompt.subscriptions!(model)._kind.kind).toBe('elementMouse');
   });
 
   it('renders label and description above confirm prompts', () => {
@@ -363,6 +394,39 @@ describe('selectPrompt', () => {
     const [model] = prompt.init();
     const vnode = prompt.view(model);
     expect(vnode).toBeDefined();
+  });
+
+  it('snapshots object options and supports direct pointer selection', () => {
+    const mutable = [{ label: 'Original', value: 'original' }];
+    const p = selectPrompt({ message: 'Pick', options: mutable });
+    mutable[0]!.label = 'Changed';
+    mutable.push({ label: 'Injected', value: 'injected' });
+    let [model] = p.init();
+    expect(collectText(p.view(model)).join(' ')).toContain('Original');
+    expect(collectText(p.view(model)).join(' ')).not.toContain('Changed');
+    [model] = p.update({ type: 'select:choose-at', index: 0 }, model);
+    expect(p.getValue(model)).toBe('original');
+    expect(model.done).toBe(true);
+  });
+
+  it('keeps empty option lists stable and incomplete', () => {
+    const p = selectPrompt({ message: 'Pick', options: [] });
+    let [model] = p.init();
+    [model] = p.update({ type: 'select:down' }, model);
+    expect(model.highlighted).toBe(0);
+    [model] = p.update({ type: 'select:submit' }, model);
+    expect(model.done).toBe(false);
+    expect(collectText(p.view(model)).join(' ')).toContain('No options');
+  });
+
+  it('windows large option lists around the active item', () => {
+    const p = selectPrompt({ message: 'Pick', options: Array.from({ length: 20 }, (_, index) => `Option ${index}`), maxVisible: 3 });
+    let [model] = p.init();
+    model = { ...model, highlighted: 10 };
+    const rendered = collectText(p.view(model)).join('\n');
+    expect(rendered).toContain('Option 10');
+    expect(rendered).not.toContain('Option 0\n');
+    expect(p.subscriptions!(model)._kind.kind).toBe('batch');
   });
 
   it('formats completed selections using locale list rules', () => {
@@ -521,5 +585,30 @@ describe('multiSelectPrompt', () => {
     const [model] = prompt.init();
     const vnode = prompt.view(model);
     expect(vnode).toBeDefined();
+  });
+
+  it('ignores invalid direct indices and corrupted selected entries', () => {
+    const [model] = prompt.init();
+    expect(prompt.update({ type: 'multi:toggle-at', index: Number.NaN }, model)[0]).toBe(model);
+    const corrupted = { ...model, selected: new Set([0, -1, Number.NaN, 99]) };
+    expect(prompt.getValue(corrupted)).toEqual(['Red']);
+  });
+
+  it('rejects impossible selection constraints', () => {
+    expect(() => multiSelectPrompt({ message: 'Pick', options: ['A'], minSelect: 2 })).toThrow(RangeError);
+    expect(() => multiSelectPrompt({ message: 'Pick', options: ['A'], minSelect: 1, maxSelect: 0 })).toThrow(RangeError);
+    expect(() => multiSelectPrompt({ message: 'Pick', options: ['A'], maxSelect: Number.NaN })).toThrow(RangeError);
+  });
+
+  it('supports pointer toggles while blurred and bounds the visible list', () => {
+    const p = multiSelectPrompt({ message: 'Pick', options: Array.from({ length: 20 }, (_, index) => `Option ${index}`), maxVisible: 4 });
+    let [model] = p.init();
+    [model] = p.update({ type: 'multi:blur' }, model);
+    expect(p.subscriptions!(model)._kind.kind).toBe('elementMouse');
+    [model] = p.update({ type: 'multi:toggle-at', index: 12 }, model);
+    expect(p.getValue(model)).toEqual(['Option 12']);
+    const rendered = collectText(p.view(model)).join('\n');
+    expect(rendered).toContain('Option 12');
+    expect(rendered).not.toContain('Option 0\n');
   });
 });

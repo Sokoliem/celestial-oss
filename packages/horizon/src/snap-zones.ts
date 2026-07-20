@@ -1,4 +1,5 @@
 import type { FloatingWindowFrame } from './floating-window-drag.js';
+import { finiteCell, finiteNumber, MAX_LAYOUT_ITEMS, positiveInteger } from './internal.js';
 import type { Rect } from './primitives/geometry.js';
 
 export type SnapZoneKind = 'edge-half' | 'edge-third' | 'quadrant' | 'center' | 'grid' | 'custom';
@@ -26,22 +27,50 @@ export interface SnapZoneOptions {
 }
 
 function rectContains(rect: Rect, x: number, y: number): boolean {
+  if (![rect.x, rect.y, rect.width, rect.height, x, y].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return false;
   return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
 }
 
 function frame(x: number, y: number, width: number, height: number): FloatingWindowFrame {
   return {
-    x: Math.max(0, Math.floor(x)),
-    y: Math.max(0, Math.floor(y)),
-    width: Math.max(1, Math.floor(width)),
-    height: Math.max(1, Math.floor(height)),
+    x: Math.max(0, finiteCell(x)),
+    y: Math.max(0, finiteCell(y)),
+    width: positiveInteger(width, 1),
+    height: positiveInteger(height, 1),
+  };
+}
+
+function normalizeCustomZone(zone: SnapZone, cols: number, rows: number): SnapZone | null {
+  if (
+    !zone ||
+    typeof zone.id !== 'string' ||
+    zone.id.length === 0 ||
+    !['edge-half', 'edge-third', 'quadrant', 'center', 'grid', 'custom'].includes(zone.kind)
+  ) {
+    return null;
+  }
+  const triggerWidth = positiveInteger(zone.trigger?.width, 1, cols);
+  const triggerHeight = positiveInteger(zone.trigger?.height, 1, rows);
+  const triggerX = Math.max(0, Math.min(cols - triggerWidth, finiteCell(zone.trigger?.x)));
+  const triggerY = Math.max(0, Math.min(rows - triggerHeight, finiteCell(zone.trigger?.y)));
+  const width = positiveInteger(zone.targetFrame?.width, 1, cols);
+  const height = positiveInteger(zone.targetFrame?.height, 1, rows);
+  const x = Math.max(0, Math.min(cols - width, finiteCell(zone.targetFrame?.x)));
+  const y = Math.max(0, Math.min(rows - height, finiteCell(zone.targetFrame?.y)));
+  return {
+    id: zone.id,
+    kind: zone.kind,
+    trigger: { x: triggerX, y: triggerY, width: triggerWidth, height: triggerHeight },
+    targetFrame: { x, y, width, height },
+    label: typeof zone.label === 'string' ? zone.label : undefined,
+    priority: finiteNumber(zone.priority, 0),
   };
 }
 
 export function computeSnapZones(bounds: { cols: number; rows: number }, options: SnapZoneOptions = {}): SnapZone[] {
-  const threshold = Math.max(1, Math.floor(options.threshold ?? 3));
-  const cols = Math.max(1, bounds.cols);
-  const rows = Math.max(1, bounds.rows);
+  const cols = positiveInteger(bounds.cols, 1);
+  const rows = positiveInteger(bounds.rows, 1);
+  const threshold = positiveInteger(options.threshold, Math.min(3, cols, rows), Math.max(1, Math.min(cols, rows)));
   const halfWidth = Math.max(1, Math.floor(cols / 2));
   const halfHeight = Math.max(1, Math.floor(rows / 2));
   const thirdWidth = Math.max(1, Math.floor(cols / 3));
@@ -177,19 +206,30 @@ export function computeSnapZones(bounds: { cols: number; rows: number }, options
     });
   }
 
-  return [...zones, ...(options.customZones ?? [])].sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0));
+  const builtIn = zones.map((zone) => normalizeCustomZone(zone, cols, rows)).filter((zone): zone is SnapZone => zone !== null);
+  const custom = (options.customZones ?? [])
+    .slice(0, MAX_LAYOUT_ITEMS)
+    .map((zone) => normalizeCustomZone(zone, cols, rows))
+    .filter((zone): zone is SnapZone => zone !== null);
+  return [...builtIn, ...custom].sort((left, right) => finiteNumber(right.priority, 0) - finiteNumber(left.priority, 0));
 }
 
 export function previewSnapZone(pointer: { x: number; y: number }, _frame: FloatingWindowFrame, zones: readonly SnapZone[]): SnapPreview | null {
-  const zone = zones.find((candidate) => rectContains(candidate.trigger, pointer.x, pointer.y));
+  if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) return null;
+  const zone = zones.slice(0, MAX_LAYOUT_ITEMS).find((candidate) => candidate?.trigger && rectContains(candidate.trigger, pointer.x, pointer.y));
   if (!zone) return null;
+  const stableZone: SnapZone = {
+    ...zone,
+    trigger: { ...zone.trigger },
+    targetFrame: frame(zone.targetFrame.x, zone.targetFrame.y, zone.targetFrame.width, zone.targetFrame.height),
+  };
   return {
-    zone,
-    frame: zone.targetFrame,
+    zone: stableZone,
+    frame: { ...stableZone.targetFrame },
     visible: true,
   };
 }
 
 export function applySnapZone(_frame: FloatingWindowFrame, zone: SnapZone): FloatingWindowFrame {
-  return { ...zone.targetFrame };
+  return frame(zone.targetFrame?.x, zone.targetFrame?.y, zone.targetFrame?.width, zone.targetFrame?.height);
 }

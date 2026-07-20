@@ -7,6 +7,7 @@
 
 import { type Style, style } from '@celestial/core/corona';
 import { box, type ColumnNode, type FlexNode, type RowNode, text, type VNode } from '@celestial/core/nebula';
+import { clampFinite, nonNegativeInteger } from './internal.js';
 
 export interface SplitConfig {
   /** Direction of the split */
@@ -33,12 +34,13 @@ const DEFAULT_MIN_SIZE = 3;
 
 /** Clamp a value between min and max (inclusive) */
 function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+  return clampFinite(value, min, max, 0.5);
 }
 
 /** Create a split pane layout */
 export function splitPane(config: SplitConfig): VNode {
-  const { direction, ratio, first, second, minSize = DEFAULT_MIN_SIZE } = config;
+  const { direction, ratio, first, second } = config;
+  const minSize = nonNegativeInteger(config.minSize, DEFAULT_MIN_SIZE);
 
   // Clamp ratio to valid range
   const clampedRatio = clamp(ratio, 0, 1);

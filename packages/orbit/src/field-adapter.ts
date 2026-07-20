@@ -1,5 +1,6 @@
 import type { Cmd, Sub, VNode } from '@celestial/nebula';
 import { type FormFieldTypeDescriptor, type FormFieldTypeRegistry, getDefaultFormFieldRegistry } from './field-registry.js';
+import { normalizePromptOptions } from './internal.js';
 import type { BuiltInFieldType, FieldConfig } from './types.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -48,10 +49,7 @@ export interface FieldAdapterInstance<M = unknown, Msg = unknown, T = unknown> {
 /** Normalize FieldConfig options to { label, value } objects. */
 export function normalizeOptions(options?: readonly { label: string; value: string }[] | readonly string[]): NormalizedOption[] {
   if (!options || options.length === 0) return [];
-  if (typeof options[0] === 'string') {
-    return (options as readonly string[]).map((s) => ({ label: s, value: s }));
-  }
-  return [...(options as readonly { label: string; value: string }[])];
+  return normalizePromptOptions(options);
 }
 
 /**

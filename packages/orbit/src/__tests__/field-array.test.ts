@@ -34,6 +34,12 @@ describe('fieldArray', () => {
       expect(model.keys[1]).toBe(1);
       expect(model.nextKey).toBe(2);
     });
+
+    it('rejects malformed and contradictory collection limits', () => {
+      expect(() => fieldArray({ createItem: createTestItem, minItems: Number.NaN })).toThrow(RangeError);
+      expect(() => fieldArray({ createItem: createTestItem, maxItems: -1 })).toThrow(RangeError);
+      expect(() => fieldArray({ createItem: createTestItem, minItems: 2, maxItems: 1 })).toThrow(RangeError);
+    });
   });
 
   // ─── append ─────────────────────────────────────────────────────────────
@@ -213,6 +219,14 @@ describe('fieldArray', () => {
       const [m2] = fa.update({ type: 'field-array:update-item', index: 5, msg: { value: 'nope' } }, m1);
       expect(m2.items[0]!.value).toBe(''); // Unchanged
     });
+
+    it('ignores non-integer indices', () => {
+      const fa = fieldArray({ createItem: createTestItem });
+      const [model] = fa.init();
+      const [withItem] = fa.update({ type: 'field-array:append' }, model);
+      expect(fa.update({ type: 'field-array:update-item', index: Number.NaN, msg: { value: 'nope' } }, withItem)[0]).toBe(withItem);
+      expect(fa.update({ type: 'field-array:remove', index: 0.5 }, withItem)[0]).toBe(withItem);
+    });
   });
 
   // ─── clear ──────────────────────────────────────────────────────────────
@@ -245,6 +259,7 @@ describe('fieldArray', () => {
       const [model] = fa.init();
       const [m1] = fa.update({ type: 'field-array:append' }, model);
       expect(fa.getItems(m1)).toEqual(m1.items);
+      expect(fa.getItems(m1)).not.toBe(m1.items);
     });
 
     it('getKeys returns the keys array', () => {
@@ -252,6 +267,7 @@ describe('fieldArray', () => {
       const [model] = fa.init();
       const [m1] = fa.update({ type: 'field-array:append' }, model);
       expect(fa.getKeys(m1)).toEqual(m1.keys);
+      expect(fa.getKeys(m1)).not.toBe(m1.keys);
     });
 
     it('length returns current item count', () => {
@@ -316,6 +332,22 @@ describe('fieldArray', () => {
 
       expect(getFieldArrayValue({ sections: [] }, 'sections[3].items[0].label')).toBeUndefined();
       expect(getFieldArrayValue({ sections: [] }, 'sections[].items')).toBeUndefined();
+      expect(getFieldArrayValue({ sections: [] }, 'sections..items')).toBeUndefined();
+      expect(getFieldArrayValue({ sections: [] }, '.sections')).toBeUndefined();
+      expect(getFieldArrayValue({ sections: [] }, 'sections[100000].items')).toBeUndefined();
+    });
+
+    it('rejects prototype-polluting paths without mutating global objects', () => {
+      const setFieldArrayValue = (fieldArrayModule as any).setFieldArrayValue;
+      const target = {};
+      expect(setFieldArrayValue(target, '__proto__.polluted', true)).toBe(target);
+      expect(setFieldArrayValue(target, 'safe.constructor.prototype.polluted', true)).toBe(target);
+      expect(({} as any).polluted).toBeUndefined();
+    });
+
+    it('replaces non-array path values safely when appending', () => {
+      const appendValueAtPath = (fieldArrayModule as any).appendValueAtPath;
+      expect(appendValueAtPath({ items: 'not-an-array' }, 'items', 'first')).toEqual({ items: ['first'] });
     });
   });
 });

@@ -1,16 +1,16 @@
 import {
   border,
+  type Color,
   color,
   createTheme,
   resolveComponentTokens,
-  style,
-  type Color,
   type SemanticTheme,
+  style,
   type ThemeInput,
   type TokenContract,
 } from '@celestial/core/corona';
-import { box, column, event, flex, row, text, type ThemeContext, type VNode } from '@celestial/core/nebula';
-import { hitTestFloatingWindowTitleBar, type FloatingWindowHitTestOptions } from './floating-window-drag.js';
+import { box, column, event, flex, row, type ThemeContext, text, type VNode } from '@celestial/core/nebula';
+import { type FloatingWindowHitTestOptions, hitTestFloatingWindowTitleBar } from './floating-window-drag.js';
 import type { DesktopWindowState, WindowChromeControl, WindowChromeHoverTarget, WindowCommand } from './window-lifecycle.js';
 
 export interface WindowChromeTokens {
@@ -54,7 +54,8 @@ export const windowChromeContract: TokenContract<WindowChromeTokens> = {
   controlHoverBackground: (theme) => theme.states.hover.bg ?? theme.colors.surface,
   border: (theme) => theme.elevation.floating.border ?? theme.colors.border,
   borderActive: (theme) => theme.colors.borderActive,
-  borderHover: (theme) => distinctSurface(color.lerpOklch(theme.colors.borderActive, theme.colors.text, 0.2), theme.colors.borderActive, theme.colors.borderHover, 0.2),
+  borderHover: (theme) =>
+    distinctSurface(color.lerpOklch(theme.colors.borderActive, theme.colors.text, 0.2), theme.colors.borderActive, theme.colors.borderHover, 0.2),
 };
 
 export interface RenderWindowChromeOptions {
@@ -125,9 +126,7 @@ function commandButton(
     `${id}:${command.type}`,
     text(
       label,
-      hovered
-        ? style({ color: tokens.controlHoverText, background: tokens.controlHoverBackground, bold: true })
-        : style({ color: tokens.control, bold: true }),
+      hovered ? style({ color: tokens.controlHoverText, background: tokens.controlHoverBackground, bold: true }) : style({ color: tokens.control, bold: true }),
     ),
     {
       onClick: commandHandlerId(command),

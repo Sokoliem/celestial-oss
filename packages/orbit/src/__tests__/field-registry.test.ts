@@ -1,5 +1,6 @@
-import { Cmd, type Sub, type VNode, text } from '@celestial/nebula';
+import { Cmd, type Sub, text, type VNode } from '@celestial/nebula';
 import { describe, expect, it } from 'vitest';
+import { form } from '../engine.js';
 import { createFieldAdapter } from '../field-adapter.js';
 import {
   BUILT_IN_FORM_FIELD_DESCRIPTORS,
@@ -8,7 +9,6 @@ import {
   defineFormField,
   getDefaultFormFieldRegistry,
 } from '../field-registry.js';
-import { form } from '../engine.js';
 
 interface ColorPickerModel {
   readonly hex: string;
@@ -46,7 +46,17 @@ describe('FormFieldTypeRegistry', () => {
     const a = defaultFormFieldRegistry();
     const b = defaultFormFieldRegistry();
     expect(a).not.toBe(b);
-    expect(a.list().map((d) => d.type).sort()).toEqual(b.list().map((d) => d.type).sort());
+    expect(
+      a
+        .list()
+        .map((d) => d.type)
+        .sort(),
+    ).toEqual(
+      b
+        .list()
+        .map((d) => d.type)
+        .sort(),
+    );
   });
 
   it('registers all built-in descriptors in the default registry', () => {
@@ -101,9 +111,7 @@ describe('built-in Phase-2 adapters round-trip values', () => {
     ['color', '#abcdef', undefined],
     ['file', '/tmp/example.txt', undefined],
   ] as const)('round-trips %s', (type, value, options) => {
-    const adapter = createFieldAdapter(
-      { label: type, type, defaultValue: value as never, options: options as never },
-    );
+    const adapter = createFieldAdapter({ label: type, type, defaultValue: value as never, options: options as never });
     const [model] = adapter.init();
     const updated = adapter.setValue(model, value as never);
     const read = adapter.getValue(updated);

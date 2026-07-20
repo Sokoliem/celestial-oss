@@ -1,61 +1,90 @@
-import type { AsyncValidationRule, ValidationResult, ValidationRule } from './types.js';
 import { segmentGraphemes } from '@celestial/rosetta';
+import type { AsyncValidationRule, ValidationResult, ValidationRule } from './types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const valid: ValidationResult = { valid: true };
+const REQUIRED_RULE = Symbol.for('@celestial/orbit/required-rule');
 
 function invalid(message: string): ValidationResult {
   return { valid: false, message };
+}
+
+function finiteConstraint(value: number, label: string, options: { integer?: boolean; nonNegative?: boolean } = {}): number {
+  if (!Number.isFinite(value) || (options.integer && !Number.isInteger(value)) || (options.nonNegative && value < 0)) {
+    throw new RangeError(
+      `orbit/validation: ${label} must be ${options.nonNegative ? 'a non-negative ' : 'a '}${options.integer ? 'integer' : 'finite number'}`,
+    );
+  }
+  return value;
+}
+
+function isFiniteNumber(value: number): boolean {
+  return typeof value === 'number' && Number.isFinite(value);
 }
 
 // ─── Built-in Rules ─────────────────────────────────────────────────────────
 
 /** Value must be non-empty (not null, undefined, or whitespace-only string). */
 export function required(message?: string): ValidationRule<unknown> {
-  return (value: unknown): ValidationResult => {
+  const rule = (value: unknown): ValidationResult => {
     if (value === undefined || value === null) return invalid(message ?? 'This field is required');
     if (typeof value === 'string' && value.trim().length === 0) return invalid(message ?? 'This field is required');
     return valid;
   };
+  Object.defineProperty(rule, REQUIRED_RULE, { value: true });
+  return rule;
+}
+
+/** Identify the built-in required rule without executing user validation during rendering. */
+export function isRequiredRule(rule: ValidationRule<unknown>): boolean {
+  return Boolean((rule as ValidationRule<unknown> & { [REQUIRED_RULE]?: boolean })[REQUIRED_RULE]);
 }
 
 /** String length must be >= min. */
 export function minLength(min: number, message?: string): ValidationRule<string> {
+  const threshold = finiteConstraint(min, 'minLength', { integer: true, nonNegative: true });
   return (value: string): ValidationResult => {
-    if (segmentGraphemes(value).length < min) return invalid(message ?? `Must be at least ${min} characters`);
+    if (segmentGraphemes(value).length < threshold) return invalid(message ?? `Must be at least ${threshold} characters`);
     return valid;
   };
 }
 
 /** String length must be <= max. */
 export function maxLength(max: number, message?: string): ValidationRule<string> {
+  const threshold = finiteConstraint(max, 'maxLength', { integer: true, nonNegative: true });
   return (value: string): ValidationResult => {
-    if (segmentGraphemes(value).length > max) return invalid(message ?? `Must be at most ${max} characters`);
+    if (segmentGraphemes(value).length > threshold) return invalid(message ?? `Must be at most ${threshold} characters`);
     return valid;
   };
 }
 
 /** Value must match the provided regex pattern. */
 export function pattern(regex: RegExp, message?: string): ValidationRule<string> {
+  const stableRegex = new RegExp(regex.source, regex.flags);
   return (value: string): ValidationResult => {
-    if (!regex.test(value)) return invalid(message ?? `Must match pattern ${regex.source}`);
+    stableRegex.lastIndex = 0;
+    const matches = stableRegex.test(value);
+    stableRegex.lastIndex = 0;
+    if (!matches) return invalid(message ?? `Must match pattern ${stableRegex.source}`);
     return valid;
   };
 }
 
 /** Number must be >= n. */
 export function min(n: number, message?: string): ValidationRule<number> {
+  const threshold = finiteConstraint(n, 'min');
   return (value: number): ValidationResult => {
-    if (value < n) return invalid(message ?? `Must be at least ${n}`);
+    if (!isFiniteNumber(value) || value < threshold) return invalid(message ?? `Must be at least ${threshold}`);
     return valid;
   };
 }
 
 /** Number must be <= n. */
 export function max(n: number, message?: string): ValidationRule<number> {
+  const threshold = finiteConstraint(n, 'max');
   return (value: number): ValidationResult => {
-    if (value > n) return invalid(message ?? `Must be at most ${n}`);
+    if (!isFiniteNumber(value) || value > threshold) return invalid(message ?? `Must be at most ${threshold}`);
     return valid;
   };
 }
@@ -114,8 +143,9 @@ export function equals<T>(expected: T, message?: string): ValidationRule<T> {
 
 /** Value must be one of the allowed values. */
 export function oneOf<T>(allowed: readonly T[], message?: string): ValidationRule<T> {
+  const stableAllowed = [...allowed];
   return (value: T): ValidationResult => {
-    if (!allowed.includes(value)) return invalid(message ?? `Must be one of: ${allowed.join(', ')}`);
+    if (!stableAllowed.includes(value)) return invalid(message ?? `Must be one of: ${stableAllowed.join(', ')}`);
     return valid;
   };
 }
@@ -131,7 +161,7 @@ export function integer(message?: string): ValidationRule<number> {
 /** Number must be positive (> 0). */
 export function positive(message?: string): ValidationRule<number> {
   return (value: number): ValidationResult => {
-    if (value <= 0) return invalid(message ?? 'Must be a positive number');
+    if (!isFiniteNumber(value) || value <= 0) return invalid(message ?? 'Must be a positive number');
     return valid;
   };
 }
@@ -139,15 +169,18 @@ export function positive(message?: string): ValidationRule<number> {
 /** Number must be negative (< 0). */
 export function negative(message?: string): ValidationRule<number> {
   return (value: number): ValidationResult => {
-    if (value >= 0) return invalid(message ?? 'Must be a negative number');
+    if (!isFiniteNumber(value) || value >= 0) return invalid(message ?? 'Must be a negative number');
     return valid;
   };
 }
 
 /** Number must be between min and max (inclusive). */
 export function between(minVal: number, maxVal: number, message?: string): ValidationRule<number> {
+  const lower = finiteConstraint(minVal, 'between minimum');
+  const upper = finiteConstraint(maxVal, 'between maximum');
+  if (lower > upper) throw new RangeError('orbit/validation: between minimum must not exceed maximum');
   return (value: number): ValidationResult => {
-    if (value < minVal || value > maxVal) return invalid(message ?? `Must be between ${minVal} and ${maxVal}`);
+    if (!isFiniteNumber(value) || value < lower || value > upper) return invalid(message ?? `Must be between ${lower} and ${upper}`);
     return valid;
   };
 }
@@ -195,11 +228,10 @@ export function composeAsync<T = unknown>(...rules: (ValidationRule<T> | AsyncVa
     const effectiveSignal = signal ?? NEVER_ABORTS;
     for (const rule of rules) {
       if (effectiveSignal.aborted) return valid;
-      // Async rules take (value, signal); sync rules accept (value) only.
-      // `rule.length` distinguishes the two without throwing TypeErrors.
-      const result = await ((rule as AsyncValidationRule<T>).length >= 2
-        ? (rule as AsyncValidationRule<T>)(value, effectiveSignal)
-        : (rule as ValidationRule<T>)(value));
+      // JavaScript ignores extra arguments, so always pass the signal. This
+      // also supports async validators that declare a defaulted signal (and
+      // therefore report `function.length === 1`).
+      const result = await (rule as AsyncValidationRule<T>)(value, effectiveSignal);
       if (!result.valid) return result;
     }
     return valid;
@@ -253,9 +285,7 @@ export async function runRulesAsync<T>(rules: (ValidationRule<T> | AsyncValidati
   const effectiveSignal = signal ?? NEVER_ABORTS;
   for (const rule of rules) {
     if (effectiveSignal.aborted) break;
-    const result = await ((rule as AsyncValidationRule<T>).length >= 2
-      ? (rule as AsyncValidationRule<T>)(value, effectiveSignal)
-      : (rule as ValidationRule<T>)(value));
+    const result = await (rule as AsyncValidationRule<T>)(value, effectiveSignal);
     if (!result.valid) errors.push(result.message);
   }
   return errors;

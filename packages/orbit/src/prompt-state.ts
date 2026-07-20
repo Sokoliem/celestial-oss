@@ -5,6 +5,7 @@
 // prompt.ts for Elm Architecture integration.
 
 import { segmentGraphemes } from '@celestial/rosetta';
+import { normalizeHighlightedIndex, normalizeOptionIndex, normalizePromptOptions } from './internal.js';
 
 // ─── Input State ────────────────────────────────────────────────────────────
 
@@ -73,23 +74,26 @@ export interface SelectState {
 }
 
 export function createSelectState(options: readonly string[] | readonly { label: string; value: string }[]): SelectState {
-  const normalized = options.map((o) => (typeof o === 'string' ? { label: o, value: o } : o));
+  const normalized = normalizePromptOptions(options);
   return { options: normalized, highlighted: 0, selected: null, done: false };
 }
 
 export function updateSelectState(state: SelectState, key: string): SelectState {
   if (state.done) return state;
   if (key === 'up') {
-    const highlighted = Math.max(0, state.highlighted - 1);
+    const current = normalizeHighlightedIndex(state.highlighted, state.options.length);
+    const highlighted = Math.max(0, current - 1);
     return { ...state, highlighted };
   }
   if (key === 'down') {
-    const highlighted = Math.min(state.options.length - 1, state.highlighted + 1);
+    const current = normalizeHighlightedIndex(state.highlighted, state.options.length);
+    const highlighted = state.options.length === 0 ? 0 : Math.min(state.options.length - 1, current + 1);
     return { ...state, highlighted };
   }
   if (key === 'return' || key === 'enter') {
-    const opt = state.options[state.highlighted];
-    return { ...state, selected: opt?.value ?? null, done: true };
+    const index = normalizeOptionIndex(state.highlighted, state.options.length);
+    if (index === null) return state;
+    return { ...state, highlighted: index, selected: state.options[index]!.value, done: true };
   }
   return state;
 }
@@ -104,28 +108,32 @@ export interface MultiSelectState {
 }
 
 export function createMultiSelectState(options: readonly string[] | readonly { label: string; value: string }[]): MultiSelectState {
-  const normalized = options.map((o) => (typeof o === 'string' ? { label: o, value: o } : o));
+  const normalized = normalizePromptOptions(options);
   return { options: normalized, highlighted: 0, selected: new Set(), done: false };
 }
 
 export function updateMultiSelectState(state: MultiSelectState, key: string): MultiSelectState {
   if (state.done) return state;
   if (key === 'up') {
-    const highlighted = Math.max(0, state.highlighted - 1);
+    const current = normalizeHighlightedIndex(state.highlighted, state.options.length);
+    const highlighted = Math.max(0, current - 1);
     return { ...state, highlighted };
   }
   if (key === 'down') {
-    const highlighted = Math.min(state.options.length - 1, state.highlighted + 1);
+    const current = normalizeHighlightedIndex(state.highlighted, state.options.length);
+    const highlighted = state.options.length === 0 ? 0 : Math.min(state.options.length - 1, current + 1);
     return { ...state, highlighted };
   }
   if (key === 'space' || key === ' ') {
+    const highlighted = normalizeOptionIndex(state.highlighted, state.options.length);
+    if (highlighted === null) return state;
     const newSelected = new Set(state.selected);
-    if (newSelected.has(state.highlighted)) {
-      newSelected.delete(state.highlighted);
+    if (newSelected.has(highlighted)) {
+      newSelected.delete(highlighted);
     } else {
-      newSelected.add(state.highlighted);
+      newSelected.add(highlighted);
     }
-    return { ...state, selected: newSelected };
+    return { ...state, highlighted, selected: newSelected };
   }
   if (key === 'return' || key === 'enter') {
     return { ...state, done: true };
@@ -135,6 +143,7 @@ export function updateMultiSelectState(state: MultiSelectState, key: string): Mu
 
 export function multiSelectResults(state: MultiSelectState): string[] {
   return Array.from(state.selected)
+    .filter((index) => normalizeOptionIndex(index, state.options.length) !== null)
     .sort((a, b) => a - b)
     .map((i) => state.options[i]!.value);
 }

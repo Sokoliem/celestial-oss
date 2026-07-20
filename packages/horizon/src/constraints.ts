@@ -7,6 +7,7 @@
  */
 
 import type { PaneId } from './focus.js';
+import { clampFinite, finiteNumber, isSafeRecordKey, MAX_CELL_SIZE, MAX_SPLIT_PANES, nonNegativeInteger } from './internal.js';
 import type { SplitConfig } from './split.js';
 import type { TileLayout } from './tile.js';
 
@@ -73,6 +74,50 @@ export const DEFAULT_CONSTRAINT: PaneConstraint = {
 
 const DEFAULT_SNAP_THRESHOLD = 2;
 
+function assertPaneId(id: PaneId): void {
+  if (!isSafeRecordKey(id)) {
+    throw new TypeError(`Invalid pane id: ${id || '<empty>'}`);
+  }
+}
+
+function optionalSize(value: number | undefined): number | undefined {
+  return value === undefined ? undefined : nonNegativeInteger(value);
+}
+
+function normalizeConstraint(partial: Partial<PaneConstraint>, base: PaneConstraint = DEFAULT_CONSTRAINT): PaneConstraint {
+  const minWidth = optionalSize(partial.minWidth ?? base.minWidth);
+  const maxWidth = optionalSize(partial.maxWidth ?? base.maxWidth);
+  const minHeight = optionalSize(partial.minHeight ?? base.minHeight);
+  const maxHeight = optionalSize(partial.maxHeight ?? base.maxHeight);
+  if (minWidth !== undefined && maxWidth !== undefined && minWidth > maxWidth) {
+    throw new RangeError('minWidth cannot exceed maxWidth');
+  }
+  if (minHeight !== undefined && maxHeight !== undefined && minHeight > maxHeight) {
+    throw new RangeError('minHeight cannot exceed maxHeight');
+  }
+
+  const locked = partial.locked === undefined ? base.locked : partial.locked === true;
+  const collapsible = partial.collapsible === undefined ? base.collapsible : partial.collapsible === true;
+  const collapsed = partial.collapsed === undefined ? base.collapsed : partial.collapsed === true;
+  return {
+    ...(minWidth === undefined ? {} : { minWidth }),
+    ...(maxWidth === undefined ? {} : { maxWidth }),
+    ...(minHeight === undefined ? {} : { minHeight }),
+    ...(maxHeight === undefined ? {} : { maxHeight }),
+    locked,
+    collapsible,
+    collapsed: collapsible && collapsed,
+    ...(partial.preferredRatio === undefined && base.preferredRatio === undefined
+      ? {}
+      : { preferredRatio: clampFinite(partial.preferredRatio ?? base.preferredRatio!, 0, 1, 0.5) }),
+    priority: clampFinite(partial.priority ?? base.priority, -MAX_CELL_SIZE, MAX_CELL_SIZE, 0),
+  };
+}
+
+function ownConstraint(model: ConstraintModel, paneId: PaneId): PaneConstraint | undefined {
+  return isSafeRecordKey(paneId) && Object.hasOwn(model.constraints, paneId) ? model.constraints[paneId] : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -81,14 +126,19 @@ const DEFAULT_SNAP_THRESHOLD = 2;
 export function createConstraintModel(opts?: { constraints?: Record<PaneId, Partial<PaneConstraint>>; snapThreshold?: number }): ConstraintModel {
   const raw = opts?.constraints ?? {};
   const constraints: Record<PaneId, PaneConstraint> = {};
+  const entries = Object.entries(raw);
+  if (entries.length > MAX_SPLIT_PANES) {
+    throw new RangeError(`Constraint models support at most ${MAX_SPLIT_PANES} panes`);
+  }
 
-  for (const [id, partial] of Object.entries(raw)) {
-    constraints[id] = { ...DEFAULT_CONSTRAINT, ...partial };
+  for (const [id, partial] of entries) {
+    assertPaneId(id);
+    constraints[id] = normalizeConstraint(partial);
   }
 
   return {
     constraints,
-    snapThreshold: opts?.snapThreshold ?? DEFAULT_SNAP_THRESHOLD,
+    snapThreshold: clampFinite(opts?.snapThreshold ?? DEFAULT_SNAP_THRESHOLD, 0, MAX_CELL_SIZE, DEFAULT_SNAP_THRESHOLD),
   };
 }
 
@@ -100,18 +150,23 @@ export function createConstraintModel(opts?: { constraints?: Record<PaneId, Part
 export function constraintUpdate(msg: ConstraintMsg, model: ConstraintModel): ConstraintModel {
   switch (msg.type) {
     case 'constraint-set': {
-      const existing = model.constraints[msg.paneId] ?? DEFAULT_CONSTRAINT;
+      assertPaneId(msg.paneId);
+      const existing = ownConstraint(model, msg.paneId) ?? DEFAULT_CONSTRAINT;
+      if (!ownConstraint(model, msg.paneId) && Object.keys(model.constraints).length >= MAX_SPLIT_PANES) {
+        throw new RangeError(`Constraint models support at most ${MAX_SPLIT_PANES} panes`);
+      }
       return {
         ...model,
         constraints: {
           ...model.constraints,
-          [msg.paneId]: { ...existing, ...msg.constraint },
+          [msg.paneId]: normalizeConstraint(msg.constraint, existing),
         },
       };
     }
 
     case 'constraint-remove': {
-      if (model.constraints[msg.paneId] === undefined) {
+      assertPaneId(msg.paneId);
+      if (ownConstraint(model, msg.paneId) === undefined) {
         return model;
       }
       const next = { ...model.constraints };
@@ -120,7 +175,11 @@ export function constraintUpdate(msg: ConstraintMsg, model: ConstraintModel): Co
     }
 
     case 'constraint-lock': {
-      const existing = model.constraints[msg.paneId] ?? DEFAULT_CONSTRAINT;
+      assertPaneId(msg.paneId);
+      const existing = ownConstraint(model, msg.paneId) ?? DEFAULT_CONSTRAINT;
+      if (!ownConstraint(model, msg.paneId) && Object.keys(model.constraints).length >= MAX_SPLIT_PANES) {
+        throw new RangeError(`Constraint models support at most ${MAX_SPLIT_PANES} panes`);
+      }
       return {
         ...model,
         constraints: {
@@ -131,7 +190,7 @@ export function constraintUpdate(msg: ConstraintMsg, model: ConstraintModel): Co
     }
 
     case 'constraint-unlock': {
-      const existing = model.constraints[msg.paneId];
+      const existing = ownConstraint(model, msg.paneId);
       if (existing === undefined) return model;
       return {
         ...model,
@@ -143,7 +202,7 @@ export function constraintUpdate(msg: ConstraintMsg, model: ConstraintModel): Co
     }
 
     case 'constraint-collapse': {
-      const existing = model.constraints[msg.paneId];
+      const existing = ownConstraint(model, msg.paneId);
       if (existing === undefined || !existing.collapsible) return model;
       return {
         ...model,
@@ -155,7 +214,7 @@ export function constraintUpdate(msg: ConstraintMsg, model: ConstraintModel): Co
     }
 
     case 'constraint-expand': {
-      const existing = model.constraints[msg.paneId];
+      const existing = ownConstraint(model, msg.paneId);
       if (existing === undefined) return model;
       return {
         ...model,
@@ -167,7 +226,7 @@ export function constraintUpdate(msg: ConstraintMsg, model: ConstraintModel): Co
     }
 
     case 'constraint-toggle-collapse': {
-      const existing = model.constraints[msg.paneId];
+      const existing = ownConstraint(model, msg.paneId);
       if (existing === undefined || !existing.collapsible) return model;
       return {
         ...model,
@@ -179,7 +238,7 @@ export function constraintUpdate(msg: ConstraintMsg, model: ConstraintModel): Co
     }
 
     case 'constraint-set-snap-threshold': {
-      return { ...model, snapThreshold: msg.threshold };
+      return { ...model, snapThreshold: clampFinite(msg.threshold, 0, MAX_CELL_SIZE, model.snapThreshold) };
     }
   }
 }
@@ -190,22 +249,22 @@ export function constraintUpdate(msg: ConstraintMsg, model: ConstraintModel): Co
 
 /** Get the constraint for a pane, or undefined if none */
 export function getConstraint(model: ConstraintModel, paneId: PaneId): PaneConstraint | undefined {
-  return model.constraints[paneId];
+  return ownConstraint(model, paneId);
 }
 
 /** Whether a pane is locked */
 export function isLocked(model: ConstraintModel, paneId: PaneId): boolean {
-  return model.constraints[paneId]?.locked ?? false;
+  return ownConstraint(model, paneId)?.locked ?? false;
 }
 
 /** Whether a pane is currently collapsed */
 export function isCollapsed(model: ConstraintModel, paneId: PaneId): boolean {
-  return model.constraints[paneId]?.collapsed ?? false;
+  return ownConstraint(model, paneId)?.collapsed ?? false;
 }
 
 /** Whether a pane is collapsible */
 export function isCollapsible(model: ConstraintModel, paneId: PaneId): boolean {
-  return model.constraints[paneId]?.collapsible ?? false;
+  return ownConstraint(model, paneId)?.collapsible ?? false;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,14 +291,39 @@ export function resolveConstraints(
   if (requests.length === 0) {
     return { sizes: [], violations: [] };
   }
+  if (requests.length > MAX_SPLIT_PANES) {
+    throw new RangeError(`Constraint resolution supports at most ${MAX_SPLIT_PANES} panes`);
+  }
+
+  const space = nonNegativeInteger(availableSpace);
+  const threshold = clampFinite(snapThreshold, 0, MAX_CELL_SIZE, DEFAULT_SNAP_THRESHOLD);
+  const seenIds = new Set<PaneId>();
+  const normalizedRequests = requests.map((request) => {
+    assertPaneId(request.id);
+    if (seenIds.has(request.id)) {
+      throw new RangeError(`Duplicate pane id: ${request.id}`);
+    }
+    seenIds.add(request.id);
+    const min = optionalSize(request.min);
+    const rawMax = optionalSize(request.max);
+    const max = rawMax === undefined ? undefined : Math.max(min ?? 0, rawMax);
+    return {
+      ...request,
+      ratio: clampFinite(request.ratio, 0, MAX_CELL_SIZE, 0),
+      min,
+      max,
+      locked: request.locked === true,
+      collapsed: request.collapsed === true,
+      preferredRatio: request.preferredRatio === undefined ? undefined : clampFinite(request.preferredRatio, 0, 1, 0.5),
+      priority: clampFinite(request.priority, -MAX_CELL_SIZE, MAX_CELL_SIZE, 0),
+    } satisfies SizeRequest;
+  });
 
   // Step 1: Separate collapsed from active
-  const collapsed: PaneId[] = [];
   const active: SizeRequest[] = [];
 
-  for (const req of requests) {
+  for (const req of normalizedRequests) {
     if (req.collapsed) {
-      collapsed.push(req.id);
     } else {
       active.push(req);
     }
@@ -248,7 +332,7 @@ export function resolveConstraints(
   // If all collapsed, return zeros
   if (active.length === 0) {
     return {
-      sizes: requests.map((r) => ({ id: r.id, size: 0 })),
+      sizes: normalizedRequests.map((r) => ({ id: r.id, size: 0 })),
       violations: [],
     };
   }
@@ -259,15 +343,15 @@ export function resolveConstraints(
 
   for (const req of active) {
     const normalizedRatio = totalRatio > 0 ? req.ratio / totalRatio : 1 / active.length;
-    sizes.set(req.id, normalizedRatio * availableSpace);
+    sizes.set(req.id, normalizedRatio * space);
   }
 
   // Step 3: Snap to preferredRatio when within threshold
   for (const req of active) {
     if (req.preferredRatio !== undefined) {
-      const preferredSize = req.preferredRatio * availableSpace;
+      const preferredSize = req.preferredRatio * space;
       const currentSize = sizes.get(req.id)!;
-      if (Math.abs(currentSize - preferredSize) <= snapThreshold) {
+      if (Math.abs(currentSize - preferredSize) <= threshold) {
         sizes.set(req.id, preferredSize);
       }
     }
@@ -278,7 +362,7 @@ export function resolveConstraints(
   const snappedIds = new Set<PaneId>();
   for (const req of active) {
     if (req.preferredRatio !== undefined) {
-      const preferredSize = req.preferredRatio * availableSpace;
+      const preferredSize = req.preferredRatio * space;
       const currentSize = sizes.get(req.id)!;
       if (currentSize === preferredSize) {
         snappedIds.add(req.id);
@@ -291,7 +375,7 @@ export function resolveConstraints(
     for (const id of snappedIds) {
       snappedTotal += sizes.get(id)!;
     }
-    const remaining = availableSpace - snappedTotal;
+    const remaining = Math.max(0, space - snappedTotal);
     const unsnapped = active.filter((r) => !snappedIds.has(r.id));
     const unsnappedRatioTotal = unsnapped.reduce((s, r) => s + r.ratio, 0);
     for (const req of unsnapped) {
@@ -383,14 +467,14 @@ export function resolveConstraints(
   let roundedTotal = 0;
 
   for (const req of active) {
-    const rounded = Math.round(sizes.get(req.id)!);
+    const rounded = Math.max(0, Math.round(finiteNumber(sizes.get(req.id), 0)));
     roundedSizes.set(req.id, rounded);
     roundedTotal += rounded;
   }
 
   // Apply rounding correction to the largest pane
-  const diff = availableSpace - roundedTotal;
-  if (diff !== 0) {
+  const diff = space - roundedTotal;
+  if (diff > 0) {
     let largestId: PaneId | null = null;
     let largestSize = -1;
     for (const req of active) {
@@ -402,6 +486,16 @@ export function resolveConstraints(
     }
     if (largestId !== null) {
       roundedSizes.set(largestId, roundedSizes.get(largestId)! + diff);
+    }
+  } else if (diff < 0) {
+    let excess = -diff;
+    const largestFirst = [...active].sort((a, b) => roundedSizes.get(b.id)! - roundedSizes.get(a.id)!);
+    for (const req of largestFirst) {
+      if (excess === 0) break;
+      const size = roundedSizes.get(req.id)!;
+      const reduction = Math.min(size, excess);
+      roundedSizes.set(req.id, size - reduction);
+      excess -= reduction;
     }
   }
 
@@ -417,7 +511,7 @@ export function resolveConstraints(
   }
 
   // Build result maintaining original request order
-  const result: { id: PaneId; size: number }[] = requests.map((req) => {
+  const result: { id: PaneId; size: number }[] = normalizedRequests.map((req) => {
     if (req.collapsed) {
       return { id: req.id, size: 0 };
     }
@@ -442,12 +536,16 @@ export function applySplitConstraints(
   secondId: PaneId,
   availableSpace: number,
 ): SplitConfig {
-  const firstConstraint = constraints.constraints[firstId];
-  const secondConstraint = constraints.constraints[secondId];
+  assertPaneId(firstId);
+  assertPaneId(secondId);
+  const normalizedRatio = clampFinite(config.ratio, 0, 1, 0.5);
+  const normalizedConfig = normalizedRatio === config.ratio ? config : { ...config, ratio: normalizedRatio };
+  const firstConstraint = ownConstraint(constraints, firstId);
+  const secondConstraint = ownConstraint(constraints, secondId);
 
   // If no constraints on either pane, return unchanged
   if (firstConstraint === undefined && secondConstraint === undefined) {
-    return config;
+    return normalizedConfig;
   }
 
   // Use the appropriate dimension for the split direction
@@ -455,7 +553,7 @@ export function applySplitConstraints(
 
   const firstRequest: SizeRequest = {
     id: firstId,
-    ratio: config.ratio,
+    ratio: normalizedRatio,
     min: firstConstraint ? (isHorizontal ? firstConstraint.minWidth : firstConstraint.minHeight) : undefined,
     max: firstConstraint ? (isHorizontal ? firstConstraint.maxWidth : firstConstraint.maxHeight) : undefined,
     locked: firstConstraint?.locked ?? false,
@@ -466,7 +564,7 @@ export function applySplitConstraints(
 
   const secondRequest: SizeRequest = {
     id: secondId,
-    ratio: 1 - config.ratio,
+    ratio: 1 - normalizedRatio,
     min: secondConstraint ? (isHorizontal ? secondConstraint.minWidth : secondConstraint.minHeight) : undefined,
     max: secondConstraint ? (isHorizontal ? secondConstraint.maxWidth : secondConstraint.maxHeight) : undefined,
     locked: secondConstraint?.locked ?? false,
@@ -475,14 +573,15 @@ export function applySplitConstraints(
     priority: secondConstraint?.priority ?? 0,
   };
 
-  const resolved = resolveConstraints([firstRequest, secondRequest], availableSpace, constraints.snapThreshold);
+  const space = nonNegativeInteger(availableSpace);
+  const resolved = resolveConstraints([firstRequest, secondRequest], space, constraints.snapThreshold);
 
   const firstSize = resolved.sizes[0]!.size;
-  const newRatio = availableSpace > 0 ? firstSize / availableSpace : config.ratio;
+  const newRatio = space > 0 ? firstSize / space : normalizedRatio;
 
   return {
-    ...config,
-    ratio: newRatio,
+    ...normalizedConfig,
+    ratio: clampFinite(newRatio, 0, 1, normalizedRatio),
   };
 }
 
@@ -505,25 +604,28 @@ export function applyTileConstraints(
     return layout;
   }
 
+  const safeWidth = nonNegativeInteger(width);
+  const safeHeight = nonNegativeInteger(height);
+
   // Recursively get the available space for each child
   const isHorizontal = layout.direction === 'horizontal';
-  const availableSpace = isHorizontal ? width : height;
+  const availableSpace = isHorizontal ? safeWidth : safeHeight;
 
   // Collect pane IDs from each subtree to build requests
   const firstId = collectFirstPaneId(layout.first, getPaneId);
   const secondId = collectFirstPaneId(layout.second, getPaneId);
 
-  let newRatio = layout.ratio;
+  let newRatio = clampFinite(layout.ratio, 0, 1, 0.5);
 
   // Only adjust if we have identifiable panes
   if (firstId !== null || secondId !== null) {
-    const firstConstraint = firstId !== null ? constraints.constraints[firstId] : undefined;
-    const secondConstraint = secondId !== null ? constraints.constraints[secondId] : undefined;
+    const firstConstraint = firstId !== null ? ownConstraint(constraints, firstId) : undefined;
+    const secondConstraint = secondId !== null ? ownConstraint(constraints, secondId) : undefined;
 
     if (firstConstraint !== undefined || secondConstraint !== undefined) {
       const firstRequest: SizeRequest = {
         id: firstId ?? '__first__',
-        ratio: layout.ratio,
+        ratio: newRatio,
         min: firstConstraint ? (isHorizontal ? firstConstraint.minWidth : firstConstraint.minHeight) : undefined,
         max: firstConstraint ? (isHorizontal ? firstConstraint.maxWidth : firstConstraint.maxHeight) : undefined,
         locked: firstConstraint?.locked ?? false,
@@ -534,7 +636,7 @@ export function applyTileConstraints(
 
       const secondRequest: SizeRequest = {
         id: secondId ?? '__second__',
-        ratio: 1 - layout.ratio,
+        ratio: 1 - newRatio,
         min: secondConstraint ? (isHorizontal ? secondConstraint.minWidth : secondConstraint.minHeight) : undefined,
         max: secondConstraint ? (isHorizontal ? secondConstraint.maxWidth : secondConstraint.maxHeight) : undefined,
         locked: secondConstraint?.locked ?? false,
@@ -546,15 +648,15 @@ export function applyTileConstraints(
       const resolved = resolveConstraints([firstRequest, secondRequest], availableSpace, constraints.snapThreshold);
 
       const firstSize = resolved.sizes[0]!.size;
-      newRatio = availableSpace > 0 ? firstSize / availableSpace : layout.ratio;
+      newRatio = availableSpace > 0 ? clampFinite(firstSize / availableSpace, 0, 1, newRatio) : newRatio;
     }
   }
 
   // Compute child dimensions for recursive application
-  const firstWidth = isHorizontal ? Math.round(width * newRatio) : width;
-  const firstHeight = isHorizontal ? height : Math.round(height * newRatio);
-  const secondWidth = isHorizontal ? width - firstWidth : width;
-  const secondHeight = isHorizontal ? height : height - firstHeight;
+  const firstWidth = isHorizontal ? Math.round(safeWidth * newRatio) : safeWidth;
+  const firstHeight = isHorizontal ? safeHeight : Math.round(safeHeight * newRatio);
+  const secondWidth = isHorizontal ? safeWidth - firstWidth : safeWidth;
+  const secondHeight = isHorizontal ? safeHeight : safeHeight - firstHeight;
 
   const adjustedFirst = applyTileConstraints(layout.first, constraints, firstWidth, firstHeight, getPaneId);
   const adjustedSecond = applyTileConstraints(layout.second, constraints, secondWidth, secondHeight, getPaneId);
