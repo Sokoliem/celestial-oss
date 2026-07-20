@@ -295,6 +295,31 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@25.5.0)
 
+  packages/mirage:
+    dependencies:
+      '@celestial/aurora':
+        specifier: workspace:*
+        version: link:../aurora
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/nebula':
+        specifier: workspace:*
+        version: link:../nebula
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../rosetta
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
   packages/nebula:
     dependencies:
       '@celestial/atlas':
@@ -345,6 +370,31 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@25.5.0)
 
+  packages/nova:
+    dependencies:
+      '@celestial/aurora':
+        specifier: workspace:*
+        version: link:../aurora
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/mirage':
+        specifier: workspace:*
+        version: link:../mirage
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../rosetta
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
   packages/orbit:
     dependencies:
       '@celestial/corona':
@@ -381,6 +431,25 @@ importers:
       '@celestial/corona':
         specifier: workspace:*
         version: link:../corona
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
+  packages/spectrum:
+    dependencies:
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/nebula':
+        specifier: workspace:*
+        version: link:../nebula
     devDependencies:
       tsup:
         specifier: ^8.3.0

@@ -9,6 +9,9 @@ export const requiredPreviewPackages = Object.freeze([
   '@celestial/core',
   '@celestial/ui',
   '@celestial/orbit',
+  '@celestial/spectrum',
+  '@celestial/mirage',
+  '@celestial/nova',
   '@celestial/test',
 ]);
 
@@ -30,6 +33,9 @@ export const previewPackageDirectories = Object.freeze({
   '@celestial/core': 'packages/core',
   '@celestial/ui': 'packages/constellation',
   '@celestial/orbit': 'packages/orbit',
+  '@celestial/spectrum': 'packages/spectrum',
+  '@celestial/mirage': 'packages/mirage',
+  '@celestial/nova': 'packages/nova',
   '@celestial/test': 'packages/telescope',
   '@celestial/horizon': 'packages/horizon',
 });
