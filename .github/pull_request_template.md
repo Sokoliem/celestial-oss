@@ -18,4 +18,3 @@
 ## Notes
 
 <!-- Any additional context, screenshots, or considerations -->
-
