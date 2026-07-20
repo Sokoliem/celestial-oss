@@ -38,6 +38,7 @@ jobs:
       - run: pnpm run preview:boundary
       - run: pnpm run preview:licenses
       - run: pnpm run preview:lint
+      - run: pnpm run preview:publish:dry-run -- --tag preview
 
   build-and-typecheck:
     name: Build and typecheck preview plus demos

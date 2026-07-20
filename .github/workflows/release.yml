@@ -61,7 +61,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm run preview:validate
-      - run: pnpm run preview:publish:dry-run -- --tag ${{ inputs.npm_tag }}
+      - run: pnpm run preview:publish:dry-run -- --tag "$NPM_TAG"
+        env:
+          NPM_TAG: ${{ inputs.npm_tag }}
 
   publish:
     name: Publish allowlisted packages
@@ -87,7 +89,8 @@ jobs:
       - run: pnpm run preview:build
       - run: pnpm run preview:pack:check
       - name: Publish in dependency order
-        run: node scripts/publish-preview.mjs --confirm --provenance --tag ${{ inputs.npm_tag }}
+        run: node scripts/publish-preview.mjs --confirm --provenance --tag "$NPM_TAG"
         env:
+          NPM_TAG: ${{ inputs.npm_tag }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

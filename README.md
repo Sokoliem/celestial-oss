@@ -201,6 +201,7 @@ pnpm run preview:pack:check
 Preview versions can change APIs between releases. Only exports documented by the packages in this repository are supported.
 
 Contributions should target the preview lane. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md) before opening a report.
+Maintainers should use the [`preview release checklist`](docs/release-checklist.md) for changesets, validation, publication, and post-publish verification.
 
 ## License
 
