@@ -73,6 +73,7 @@ export {
   email,
   equals,
   integer,
+  isRequiredRule,
   max,
   maxLength,
   min,

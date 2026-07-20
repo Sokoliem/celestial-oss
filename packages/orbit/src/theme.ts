@@ -43,10 +43,7 @@ export function orbitToneColor(config: ThemedConfig | undefined, tone: Tone): Co
 }
 
 /** Resolve a feedback color by semantic kind, matching `feedbackTokensMixin`. */
-export function feedbackColor(
-  config: ThemedConfig | undefined,
-  kind: 'success' | 'warning' | 'danger' | 'info' | 'muted' | 'textSoft',
-): Color {
+export function feedbackColor(config: ThemedConfig | undefined, kind: 'success' | 'warning' | 'danger' | 'info' | 'muted' | 'textSoft'): Color {
   const theme = resolveOrbitTheme(config);
   switch (kind) {
     case 'muted':

@@ -1,5 +1,6 @@
 import { getTerminalSize } from '@celestial/core/gravity';
 import type { BreakpointName as CanonicalBreakpointName, VNode } from '@celestial/core/nebula';
+import { clampFinite, MAX_LAYOUT_ITEMS, nonNegativeInteger } from './internal.js';
 
 export interface BreakpointConfig {
   sm?: number;
@@ -16,7 +17,21 @@ let breakpointConfig: Required<BreakpointConfig> = {
 };
 
 export function setBreakpoints(config: BreakpointConfig): void {
-  breakpointConfig = { ...breakpointConfig, ...config };
+  const candidate: Required<BreakpointConfig> = {
+    sm: nonNegativeInteger(config.sm, breakpointConfig.sm),
+    md: nonNegativeInteger(config.md, breakpointConfig.md),
+    lg: nonNegativeInteger(config.lg, breakpointConfig.lg),
+    xl: nonNegativeInteger(config.xl, breakpointConfig.xl),
+  };
+  for (const [name, value] of Object.entries(config)) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 0 || !Number.isInteger(value))) {
+      throw new RangeError(`horizon/setBreakpoints: ${name} must be a non-negative integer`);
+    }
+  }
+  if (!(candidate.sm <= candidate.md && candidate.md <= candidate.lg && candidate.lg <= candidate.xl)) {
+    throw new RangeError('horizon/setBreakpoints: thresholds must be ordered sm <= md <= lg <= xl');
+  }
+  breakpointConfig = candidate;
 }
 
 export function getBreakpoints(): Required<BreakpointConfig> {
@@ -41,6 +56,7 @@ function normalizeBreakpointName(name: BreakpointName): CanonicalBreakpointName 
 }
 
 function resolveBreakpointName(cols: number, thresholds: Required<BreakpointConfig>): CanonicalBreakpointName {
+  cols = nonNegativeInteger(cols);
   if (cols >= thresholds.xl) return 'xl';
   if (cols >= thresholds.lg) return 'lg';
   if (cols >= thresholds.md) return 'md';
@@ -77,17 +93,18 @@ export function isBreakpointOrAbove(name: BreakpointName): boolean {
 }
 
 export function getColumns(): number {
-  return getTerminalSize().cols;
+  return nonNegativeInteger(getTerminalSize().cols);
 }
 
 export function getRows(): number {
-  return getTerminalSize().rows;
+  return nonNegativeInteger(getTerminalSize().rows);
 }
 
 export function responsiveValue<T>(values: Partial<Record<BreakpointName, T>>, fallback: T): T {
   const normalized = new Map<CanonicalBreakpointName, T>();
   for (const [name, value] of Object.entries(values)) {
     if (value === undefined) continue;
+    if (!['xs', 'sm', 'md', 'lg', 'xl', 'compact', 'narrow', 'standard', 'wide'].includes(name)) continue;
     normalized.set(toCanonicalBreakpoint(name as BreakpointName), value);
   }
 
@@ -138,12 +155,16 @@ export function resolveResponsiveOptions(options: ResponsivePanelOptions): {
   collapsed: boolean;
 } {
   const cols = getColumns();
+  const hideTitleBelow = finiteThreshold(options.hideTitleBelow);
+  const reducePaddingBelow = finiteThreshold(options.reducePaddingBelow);
+  const hideBelow = finiteThreshold(options.hideBelow);
+  const collapseBelow = finiteThreshold(options.collapseBelow);
 
   return {
-    showTitle: options.hideTitleBelow === undefined ? true : cols >= options.hideTitleBelow,
-    reducedPadding: options.reducePaddingBelow === undefined ? false : cols < options.reducePaddingBelow,
-    hidden: options.hideBelow === undefined ? false : cols < options.hideBelow,
-    collapsed: options.collapseBelow === undefined ? false : cols < options.collapseBelow,
+    showTitle: hideTitleBelow === undefined ? true : cols >= hideTitleBelow,
+    reducedPadding: reducePaddingBelow === undefined ? false : cols < reducePaddingBelow,
+    hidden: hideBelow === undefined ? false : cols < hideBelow,
+    collapsed: collapseBelow === undefined ? false : cols < collapseBelow,
   };
 }
 
@@ -163,33 +184,45 @@ export function resolveResponsiveSplitOptions(
 } {
   const cols = getColumns();
 
-  let ratio = currentRatio;
+  let ratio = clampFinite(currentRatio, 0, 1, 0.5);
   if (options.minRatioBelow) {
-    for (const { ratio: minRatio, below } of options.minRatioBelow) {
+    for (const entry of options.minRatioBelow.slice(0, MAX_LAYOUT_ITEMS)) {
+      if (!entry || !Number.isFinite(entry.below) || !Number.isFinite(entry.ratio)) continue;
+      const below = nonNegativeInteger(entry.below);
+      const minRatio = clampFinite(entry.ratio, 0, 1);
       if (cols < below) {
         ratio = Math.max(ratio, minRatio);
       }
     }
   }
+  const collapseBelow = finiteThreshold(options.collapseBelow);
+  const hideSeparatorBelow = finiteThreshold(options.hideSeparatorBelow);
 
   return {
-    collapsed: options.collapseBelow !== undefined && cols < options.collapseBelow,
-    showSeparator: options.hideSeparatorBelow === undefined || cols >= options.hideSeparatorBelow,
+    collapsed: collapseBelow !== undefined && cols < collapseBelow,
+    showSeparator: hideSeparatorBelow === undefined || cols >= hideSeparatorBelow,
     ratio,
   };
 }
 
 export function when(condition: BreakpointName | { min?: number; max?: number }, ifTrue: VNode, ifFalse?: VNode): VNode | undefined {
   const cols = getColumns();
-  const matches =
-    typeof condition === 'string'
-      ? isBreakpoint(condition)
-      : (condition.min === undefined || cols >= condition.min) && (condition.max === undefined || cols <= condition.max);
+  const matches = typeof condition === 'string' ? isBreakpoint(condition) : matchesRange(cols, condition);
 
   return matches ? ifTrue : ifFalse;
 }
 
 export function mediaQuery(condition: { min?: number; max?: number }): boolean {
-  const cols = getColumns();
-  return (condition.min === undefined || cols >= condition.min) && (condition.max === undefined || cols <= condition.max);
+  return matchesRange(getColumns(), condition);
+}
+
+function finiteThreshold(value: number | undefined): number | undefined {
+  return value === undefined || !Number.isFinite(value) ? undefined : nonNegativeInteger(value);
+}
+
+function matchesRange(value: number, condition: { min?: number; max?: number }): boolean {
+  const min = finiteThreshold(condition.min);
+  const max = finiteThreshold(condition.max);
+  if (min !== undefined && max !== undefined && min > max) return false;
+  return (min === undefined || value >= min) && (max === undefined || value <= max);
 }

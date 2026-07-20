@@ -5,6 +5,7 @@
  */
 
 import type { ColumnNode, RowNode, TextNode, VNode } from '@celestial/core/nebula';
+import { boundedInteger, MAX_SPLIT_PANES } from './internal.js';
 
 export interface TabConfig {
   /** Stable tab identifier */
@@ -49,14 +50,15 @@ const DEFAULT_INACTIVE_SUFFIX = '  ';
 
 /** Create a tabbed pane layout — shows tab bar + active content */
 export function tabbedPane(config: TabbedPaneConfig): VNode {
-  const { tabs, activeIndex, style } = config;
+  const tabs = config.tabs.slice(0, MAX_SPLIT_PANES).map((tab) => ({ ...tab }));
+  const { style } = config;
 
   if (tabs.length === 0) {
     return { kind: 'empty' };
   }
 
   // Clamp activeIndex to valid range
-  const safeIndex = Math.max(0, Math.min(activeIndex, tabs.length - 1));
+  const safeIndex = boundedInteger(config.activeIndex, 0, 0, tabs.length - 1);
   const separator = style?.separator ?? DEFAULT_TAB_SEPARATOR;
 
   // Build the tab bar as a row of text labels
@@ -127,10 +129,12 @@ export type TabMoveEffect =
  * Preserves the active tab index appropriately.
  */
 export function applyTabMoveEffect<T>(groups: readonly TabGroup<T>[], effect: TabMoveEffect): TabGroup<T>[] {
-  const sourceGroupIndex = groups.findIndex((g) => g.id === effect.sourceTabbedId);
-  if (sourceGroupIndex === -1) return [...groups];
+  const stableGroups = groups.slice(0, MAX_SPLIT_PANES);
+  if (!Number.isInteger(effect.sourceIndex)) return [...stableGroups];
+  const sourceGroupIndex = stableGroups.findIndex((g) => g.id === effect.sourceTabbedId);
+  if (sourceGroupIndex === -1) return [...stableGroups];
 
-  const sourceGroup = groups[sourceGroupIndex]!;
+  const sourceGroup = stableGroups[sourceGroupIndex]!;
   if (effect.sourceIndex < 0 || effect.sourceIndex >= sourceGroup.tabs.length) {
     return [...groups];
   }
@@ -140,39 +144,42 @@ export function applyTabMoveEffect<T>(groups: readonly TabGroup<T>[], effect: Ta
   if (effect.effect === 'move-tab') {
     if (effect.sourceTabbedId === effect.targetTabbedId) {
       // Reorder within the same group
-      if (effect.sourceIndex === effect.targetIndex) return [...groups];
+      if (!Number.isInteger(effect.targetIndex)) return [...stableGroups];
+      const targetIndex = boundedInteger(effect.targetIndex, 0, 0, Math.max(0, sourceGroup.tabs.length - 1));
+      if (effect.sourceIndex === targetIndex) return [...stableGroups];
 
       const newTabs = [...sourceGroup.tabs];
       newTabs.splice(effect.sourceIndex, 1);
-      newTabs.splice(effect.targetIndex, 0, tabToMove);
+      newTabs.splice(targetIndex, 0, tabToMove);
 
-      let newActiveIndex = sourceGroup.activeIndex;
-      if (sourceGroup.activeIndex === effect.sourceIndex) {
-        newActiveIndex = effect.targetIndex;
-      } else if (sourceGroup.activeIndex > effect.sourceIndex && sourceGroup.activeIndex <= effect.targetIndex) {
+      let newActiveIndex = boundedInteger(sourceGroup.activeIndex, 0, 0, Math.max(0, sourceGroup.tabs.length - 1));
+      if (newActiveIndex === effect.sourceIndex) {
+        newActiveIndex = targetIndex;
+      } else if (newActiveIndex > effect.sourceIndex && newActiveIndex <= targetIndex) {
         newActiveIndex--;
-      } else if (sourceGroup.activeIndex < effect.sourceIndex && sourceGroup.activeIndex >= effect.targetIndex) {
+      } else if (newActiveIndex < effect.sourceIndex && newActiveIndex >= targetIndex) {
         newActiveIndex++;
       }
 
-      const newGroups = [...groups];
+      const newGroups = [...stableGroups];
       newGroups[sourceGroupIndex] = { ...sourceGroup, tabs: newTabs, activeIndex: newActiveIndex };
       return newGroups;
     } else {
       // Move to a different existing group
-      const targetGroupIndex = groups.findIndex((g) => g.id === effect.targetTabbedId);
-      if (targetGroupIndex === -1) return [...groups];
+      if (!Number.isInteger(effect.targetIndex)) return [...stableGroups];
+      const targetGroupIndex = stableGroups.findIndex((g) => g.id === effect.targetTabbedId);
+      if (targetGroupIndex === -1) return [...stableGroups];
 
-      const targetGroup = groups[targetGroupIndex]!;
+      const targetGroup = stableGroups[targetGroupIndex]!;
 
       // Remove from source
       const newSourceTabs = [...sourceGroup.tabs];
       newSourceTabs.splice(effect.sourceIndex, 1);
 
-      let newSourceActiveIndex = sourceGroup.activeIndex;
-      if (sourceGroup.activeIndex === effect.sourceIndex) {
+      let newSourceActiveIndex = boundedInteger(sourceGroup.activeIndex, 0, 0, Math.max(0, sourceGroup.tabs.length - 1));
+      if (newSourceActiveIndex === effect.sourceIndex) {
         newSourceActiveIndex = Math.max(0, newSourceTabs.length - 1);
-      } else if (sourceGroup.activeIndex > effect.sourceIndex) {
+      } else if (newSourceActiveIndex > effect.sourceIndex) {
         newSourceActiveIndex--;
       }
 
@@ -182,12 +189,13 @@ export function applyTabMoveEffect<T>(groups: readonly TabGroup<T>[], effect: Ta
       newTargetTabs.splice(targetIndex, 0, tabToMove);
 
       // Update target active index if we inserted before or at it
-      let newTargetActiveIndex = targetGroup.activeIndex;
-      if (targetGroup.activeIndex >= targetIndex) {
+      let newTargetActiveIndex = boundedInteger(targetGroup.activeIndex, 0, 0, Math.max(0, targetGroup.tabs.length - 1));
+      if (newTargetActiveIndex >= targetIndex) {
         newTargetActiveIndex++;
       }
+      newTargetActiveIndex = boundedInteger(newTargetActiveIndex, 0, 0, newTargetTabs.length - 1);
 
-      const newGroups = [...groups];
+      const newGroups = [...stableGroups];
       newGroups[sourceGroupIndex] = { ...sourceGroup, tabs: newSourceTabs, activeIndex: newSourceActiveIndex };
       newGroups[targetGroupIndex] = { ...targetGroup, tabs: newTargetTabs, activeIndex: newTargetActiveIndex };
 
@@ -196,30 +204,31 @@ export function applyTabMoveEffect<T>(groups: readonly TabGroup<T>[], effect: Ta
   } else {
     // move-tab-to-pane
     const targetPaneId = effect.targetPaneId;
+    if (!targetPaneId) return [...stableGroups];
 
     // Check if target pane happens to already be a tabbed group
-    const targetGroupIndex = groups.findIndex((g) => g.id === targetPaneId);
+    const targetGroupIndex = stableGroups.findIndex((g) => g.id === targetPaneId);
 
     // Remove from source
     const newSourceTabs = [...sourceGroup.tabs];
     newSourceTabs.splice(effect.sourceIndex, 1);
 
-    let newSourceActiveIndex = sourceGroup.activeIndex;
-    if (sourceGroup.activeIndex === effect.sourceIndex) {
+    let newSourceActiveIndex = boundedInteger(sourceGroup.activeIndex, 0, 0, Math.max(0, sourceGroup.tabs.length - 1));
+    if (newSourceActiveIndex === effect.sourceIndex) {
       newSourceActiveIndex = Math.max(0, newSourceTabs.length - 1);
-    } else if (sourceGroup.activeIndex > effect.sourceIndex) {
+    } else if (newSourceActiveIndex > effect.sourceIndex) {
       newSourceActiveIndex--;
     }
 
-    const newGroups = [...groups];
+    const newGroups = [...stableGroups];
     newGroups[sourceGroupIndex] = { ...sourceGroup, tabs: newSourceTabs, activeIndex: newSourceActiveIndex };
 
     if (targetGroupIndex !== -1) {
       // It exists, just append it
-      const targetGroup = groups[targetGroupIndex]!;
+      const targetGroup = stableGroups[targetGroupIndex]!;
       const newTargetTabs = [...targetGroup.tabs, tabToMove];
       newGroups[targetGroupIndex] = { ...targetGroup, tabs: newTargetTabs };
-    } else {
+    } else if (newGroups.length < MAX_SPLIT_PANES) {
       // Create new group
       newGroups.push({
         id: targetPaneId,

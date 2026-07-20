@@ -69,7 +69,9 @@ describe('FormDescriptor.getChangedValues', () => {
 
   it('treats deep-equal arrays/objects as unchanged', () => {
     const sut = form({
-      fields: { tags: { label: 'Tags', defaultValue: ['a', 'b'] } } satisfies SampleFields[keyof SampleFields] extends never ? never : Record<string, { readonly label: string; readonly defaultValue: readonly string[] }>,
+      fields: { tags: { label: 'Tags', defaultValue: ['a', 'b'] } } satisfies SampleFields[keyof SampleFields] extends never
+        ? never
+        : Record<string, { readonly label: string; readonly defaultValue: readonly string[] }>,
     });
     const [model] = sut.init();
     const [equivalent] = sut.update({ type: 'form:field-change', field: 'tags', value: ['a', 'b'] }, model);

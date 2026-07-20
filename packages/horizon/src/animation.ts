@@ -1,4 +1,5 @@
 import { type Animation, spring as createSpring, easing, type SpringConfig, type TweenConfig } from '@celestial/core/aurora';
+import { clampFinite, MAX_CELL_SIZE } from './internal.js';
 
 interface NumberAnimation extends Animation<number> {
   setTarget(target: number): void;
@@ -44,15 +45,19 @@ export function createAnimatedLayoutModel(
   config?: LayoutAnimationConfig,
 ): AnimatedLayoutModel {
   const transition = config?.transition ?? transitions.default;
+  const x = clampFinite(initialX, -MAX_CELL_SIZE, MAX_CELL_SIZE, 0);
+  const y = clampFinite(initialY, -MAX_CELL_SIZE, MAX_CELL_SIZE, 0);
+  const width = clampFinite(initialWidth, 0, MAX_CELL_SIZE, 0);
+  const height = clampFinite(initialHeight, 0, MAX_CELL_SIZE, 0);
 
   const springConfig: SpringConfig = transition.type === 'spring' ? (transition.spring ?? { stiffness: 200, damping: 25 }) : { stiffness: 1000, damping: 50 };
 
   return {
     id,
-    animX: createSpring(initialX, { ...springConfig, from: initialX }),
-    animY: createSpring(initialY, { ...springConfig, from: initialY }),
-    animWidth: createSpring(initialWidth, { ...springConfig, from: initialWidth }),
-    animHeight: createSpring(initialHeight, { ...springConfig, from: initialHeight }),
+    animX: createSpring(x, { ...springConfig, from: x }),
+    animY: createSpring(y, { ...springConfig, from: y }),
+    animWidth: createSpring(width, { ...springConfig, from: width }),
+    animHeight: createSpring(height, { ...springConfig, from: height }),
     opacity: 1,
     entering: false,
     exiting: false,
@@ -92,19 +97,23 @@ export function animatedLayoutUpdate(msg: AnimatedLayoutMsg, model: AnimatedLayo
 
       if (msg.x !== undefined) {
         model.animX.stop();
-        updates.animX = createSpring(msg.x, { ...springConfig, from: fromX });
+        const from = clampFinite(fromX, -MAX_CELL_SIZE, MAX_CELL_SIZE, 0);
+        updates.animX = createSpring(clampFinite(msg.x, -MAX_CELL_SIZE, MAX_CELL_SIZE, from), { ...springConfig, from });
       }
       if (msg.y !== undefined) {
         model.animY.stop();
-        updates.animY = createSpring(msg.y, { ...springConfig, from: fromY });
+        const from = clampFinite(fromY, -MAX_CELL_SIZE, MAX_CELL_SIZE, 0);
+        updates.animY = createSpring(clampFinite(msg.y, -MAX_CELL_SIZE, MAX_CELL_SIZE, from), { ...springConfig, from });
       }
       if (msg.width !== undefined) {
         model.animWidth.stop();
-        updates.animWidth = createSpring(msg.width, { ...springConfig, from: fromW });
+        const from = clampFinite(fromW, 0, MAX_CELL_SIZE, 0);
+        updates.animWidth = createSpring(clampFinite(msg.width, 0, MAX_CELL_SIZE, from), { ...springConfig, from });
       }
       if (msg.height !== undefined) {
         model.animHeight.stop();
-        updates.animHeight = createSpring(msg.height, { ...springConfig, from: fromH });
+        const from = clampFinite(fromH, 0, MAX_CELL_SIZE, 0);
+        updates.animHeight = createSpring(clampFinite(msg.height, 0, MAX_CELL_SIZE, from), { ...springConfig, from });
       }
 
       if (Object.keys(updates).length === 0) return model;
@@ -121,10 +130,22 @@ export function animatedLayoutUpdate(msg: AnimatedLayoutMsg, model: AnimatedLayo
 
       return {
         ...model,
-        animX: createSpring(targetX, { ...enterSpringConfig, from: msg.from.x }),
-        animY: createSpring(targetY, { ...enterSpringConfig, from: msg.from.y }),
-        animWidth: createSpring(targetWidth, { ...enterSpringConfig, from: msg.from.width }),
-        animHeight: createSpring(targetHeight, { ...enterSpringConfig, from: msg.from.height }),
+        animX: createSpring(clampFinite(targetX, -MAX_CELL_SIZE, MAX_CELL_SIZE, 0), {
+          ...enterSpringConfig,
+          from: clampFinite(msg.from.x, -MAX_CELL_SIZE, MAX_CELL_SIZE, 0),
+        }),
+        animY: createSpring(clampFinite(targetY, -MAX_CELL_SIZE, MAX_CELL_SIZE, 0), {
+          ...enterSpringConfig,
+          from: clampFinite(msg.from.y, -MAX_CELL_SIZE, MAX_CELL_SIZE, 0),
+        }),
+        animWidth: createSpring(clampFinite(targetWidth, 0, MAX_CELL_SIZE, 0), {
+          ...enterSpringConfig,
+          from: clampFinite(msg.from.width, 0, MAX_CELL_SIZE, 0),
+        }),
+        animHeight: createSpring(clampFinite(targetHeight, 0, MAX_CELL_SIZE, 0), {
+          ...enterSpringConfig,
+          from: clampFinite(msg.from.height, 0, MAX_CELL_SIZE, 0),
+        }),
         opacity: 0,
         entering: true,
       };
@@ -133,7 +154,7 @@ export function animatedLayoutUpdate(msg: AnimatedLayoutMsg, model: AnimatedLayo
       return {
         ...model,
         exiting: true,
-        opacity: msg.to?.opacity ?? 0,
+        opacity: clampFinite(msg.to?.opacity ?? 0, 0, 1),
       };
     }
     case 'complete-enter': {
@@ -155,11 +176,11 @@ export function getAnimatedLayoutValues(model: AnimatedLayoutModel): {
   opacity: number;
 } {
   return {
-    x: model.animX.value(),
-    y: model.animY.value(),
-    width: model.animWidth.value(),
-    height: model.animHeight.value(),
-    opacity: model.opacity,
+    x: clampFinite(model.animX.value(), -MAX_CELL_SIZE, MAX_CELL_SIZE, 0),
+    y: clampFinite(model.animY.value(), -MAX_CELL_SIZE, MAX_CELL_SIZE, 0),
+    width: clampFinite(model.animWidth.value(), 0, MAX_CELL_SIZE, 0),
+    height: clampFinite(model.animHeight.value(), 0, MAX_CELL_SIZE, 0),
+    opacity: clampFinite(model.opacity, 0, 1),
   };
 }
 
@@ -238,7 +259,7 @@ export function collapseAnimationUpdate(msg: CollapseAnimationMsg, model: Collap
 }
 
 export function getCollapseProgress(model: CollapseAnimationModel): number {
-  return model.anim.value();
+  return clampFinite(model.anim.value(), 0, 1);
 }
 
 export function isCollapseAnimationComplete(model: CollapseAnimationModel): boolean {
@@ -253,10 +274,11 @@ export interface RatioAnimationModel {
 export function createRatioAnimationModel(ratio: number, config?: LayoutTransition): RatioAnimationModel {
   const transition = config ?? transitions.default;
   const springConfig: SpringConfig = transition.type === 'spring' ? (transition.spring ?? { stiffness: 200, damping: 25 }) : { stiffness: 200, damping: 25 };
+  const normalizedRatio = clampFinite(ratio, 0, 1, 0.5);
 
   return {
-    ratio,
-    anim: createSpring(ratio, { ...springConfig, from: ratio }),
+    ratio: normalizedRatio,
+    anim: createSpring(normalizedRatio, { ...springConfig, from: normalizedRatio }),
   };
 }
 
@@ -272,11 +294,12 @@ export function ratioAnimationUpdate(msg: RatioAnimationMsg, model: RatioAnimati
       return { ...model };
     }
     case 'set-ratio': {
-      if (msg.ratio === model.ratio) return model;
+      const ratio = clampFinite(msg.ratio, 0, 1, model.ratio);
+      if (ratio === model.ratio) return model;
       model.anim.stop();
       return {
-        ratio: msg.ratio,
-        anim: createSpring(msg.ratio, { ...springConfig, from: model.anim.value() }),
+        ratio,
+        anim: createSpring(ratio, { ...springConfig, from: clampFinite(model.anim.value(), 0, 1, model.ratio) }),
       };
     }
     default:
@@ -285,7 +308,7 @@ export function ratioAnimationUpdate(msg: RatioAnimationMsg, model: RatioAnimati
 }
 
 export function getAnimatedRatio(model: RatioAnimationModel): number {
-  return model.anim.value();
+  return clampFinite(model.anim.value(), 0, 1, model.ratio);
 }
 
 export function isRatioAnimationComplete(model: RatioAnimationModel): boolean {

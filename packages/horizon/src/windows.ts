@@ -1,8 +1,9 @@
 import type { FloatingWindowConfig } from './compat.js';
+import { hitTestFloatingWindowResizeEdge } from './floating-window-drag.js';
+import { finiteCell, isSafeRecordKey, MAX_SPLIT_PANES, positiveInteger } from './internal.js';
 import type { WindowBounds } from './primitives/geometry.js';
 import { computeSnappedPosition, type SnapConfig, type SnapGuide } from './snap.js';
 import { type StateUpdateResult, stateUpdateResult } from './state/update.js';
-import { hitTestFloatingWindowResizeEdge } from './floating-window-drag.js';
 import {
   applyWindowCommand,
   createDesktopWindow,
@@ -62,10 +63,20 @@ export type WindowManagerMsg =
 
 /** Convert Horizon's stable chrome enter/leave tags into manager messages. */
 export function windowManagerMsgFromChromeEvent(event: { handlerTag: string }): WindowManagerMsg | null {
-  const parts = event.handlerTag.split(':');
-  if (parts[0] !== 'window' || !parts[1] || !parts[2] || !parts[3]) return null;
-  const [, id, phase, ...targetParts] = parts;
-  const target = targetParts.join(':') as WindowChromeHoverTarget;
+  const match = /^window:(.+):(hover|leave):(.+)$/.exec(event.handlerTag);
+  if (!match) return null;
+  const [, id, phase, rawTarget] = match;
+  if (!id || !rawTarget || !isSafeRecordKey(id)) return null;
+  const validTarget =
+    rawTarget === 'titlebar' ||
+    rawTarget === 'close' ||
+    rawTarget === 'minimize' ||
+    rawTarget === 'maximize' ||
+    rawTarget === 'fullscreen' ||
+    rawTarget === 'restore' ||
+    /^resize:(left|right|top|bottom|top-left|top-right|bottom-left|bottom-right)$/.test(rawTarget);
+  if (!validTarget) return null;
+  const target = rawTarget as WindowChromeHoverTarget;
   if (phase === 'hover') return { type: 'hover-window-chrome', id, target };
   if (phase === 'leave') return { type: 'leave-window-chrome', id, target };
   return null;
@@ -76,9 +87,8 @@ export function windowManagerMsgFromChromeEvent(event: { handlerTag: string }): 
  * and controls use semantic element events; borders need coordinate hit tests.
  */
 export function windowManagerHoverAt(manager: WindowManager, x: number, y: number): WindowManager {
-  const visible = [...manager.windows]
-    .filter((window) => !window.minimized && !window.hidden && !window.closed)
-    .sort((a, b) => b.zIndex - a.zIndex);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return manager;
+  const visible = [...manager.windows].filter((window) => !window.minimized && !window.hidden && !window.closed).sort((a, b) => b.zIndex - a.zIndex);
   const hit = visible.find((window) => x >= window.x && x < window.x + window.width && y >= window.y && y < window.y + window.height);
   const edge = hit?.resizable === false ? null : hit ? hitTestFloatingWindowResizeEdge(snapshotBounds(hit), x, y) : null;
   const nextTarget = edge ? (`resize:${edge}` as const) : null;
@@ -100,28 +110,19 @@ export function windowManagerHoverAt(manager: WindowManager, x: number, y: numbe
   return changed ? { ...manager, windows } : manager;
 }
 
-function normalizeWindows(windows: FloatingWindowConfig[]): ManagedWindow[] {
-  return windows.map((window, index) => ({
-    ...window,
-    zIndex: window.zIndex ?? index + 1,
-    mode: window.mode ?? (window.minimized ? 'minimized' : window.maximized ? 'maximized' : 'normal'),
-    role: window.role ?? 'window',
-    hidden: window.hidden ?? false,
-    closed: window.closed ?? false,
-    fullscreen: window.fullscreen ?? false,
-    modal: window.modal ?? false,
-    alwaysOnTop: window.alwaysOnTop ?? false,
-    closable: window.closable ?? true,
-    minimizable: window.minimizable ?? true,
-    maximizable: window.maximizable ?? true,
-    fullscreenable: window.fullscreenable ?? true,
-    minimized: window.minimized ?? false,
-    maximized: window.maximized ?? false,
-    focused: window.focused ?? false,
-    restoreBounds: window.restoreBounds,
-    frame: window.frame ? { ...window.frame } : { x: window.x, y: window.y, width: window.width, height: window.height },
-    restoreFrame: window.restoreFrame ? { ...window.restoreFrame } : window.restoreBounds ? { ...window.restoreBounds } : undefined,
-  }));
+function normalizeWindows(windows: readonly FloatingWindowConfig[]): ManagedWindow[] {
+  if (windows.length > MAX_SPLIT_PANES) {
+    throw new RangeError(`Window managers support at most ${MAX_SPLIT_PANES} windows`);
+  }
+  const ids = new Set<string>();
+  const normalized = windows.map((window, index) => {
+    const next = createDesktopWindow({ ...window, zIndex: window.zIndex ?? index + 1 });
+    if (ids.has(next.id)) throw new RangeError(`Duplicate window id: ${next.id}`);
+    ids.add(next.id);
+    return next as ManagedWindow;
+  });
+  const focused = normalized.filter((window) => window.focused && !window.minimized && !window.hidden && !window.closed).sort((a, b) => b.zIndex - a.zIndex)[0];
+  return focused ? normalized.map((window) => ({ ...window, focused: window.id === focused.id })) : normalized;
 }
 
 function snapshotBounds(window: ManagedWindow): WindowBounds {
@@ -133,31 +134,58 @@ function snapshotBounds(window: ManagedWindow): WindowBounds {
   };
 }
 
-function restoreWindowBounds(window: ManagedWindow): void {
-  if (!window.restoreBounds) return;
-  window.x = window.restoreBounds.x;
-  window.y = window.restoreBounds.y;
-  window.width = window.restoreBounds.width;
-  window.height = window.restoreBounds.height;
-  window.frame = snapshotBounds(window);
-}
-
 export function createWindowManager(windows: FloatingWindowConfig[] = [], bounds: { cols: number; rows: number } = { cols: 80, rows: 24 }): WindowManager {
-  return { windows: normalizeWindows(windows), bounds, snapGuides: [] };
+  return {
+    windows: normalizeWindows(windows.slice()),
+    bounds: { cols: positiveInteger(bounds.cols, 80), rows: positiveInteger(bounds.rows, 24) },
+    snapGuides: [],
+  };
 }
 
 function nextFrontZIndex(windows: ManagedWindow[]): number {
-  return windows.reduce((max, window) => Math.max(max, window.zIndex), 0) + 1;
+  return finiteCell(windows.reduce((max, window) => Math.max(max, finiteCell(window.zIndex)), 0) + 1, 1);
+}
+
+function lifecycleCommandFromManagerMsg(msg: WindowManagerMsg): { command: WindowCommand; closePolicy?: 'remove' | 'mark-closed' } | null {
+  switch (msg.type) {
+    case 'focus-window':
+      return { command: { type: 'focus', id: msg.id } };
+    case 'close-window':
+      return { command: { type: 'close', id: msg.id, reason: msg.reason }, closePolicy: msg.policy };
+    case 'destroy-window':
+      return { command: { type: 'destroy', id: msg.id, reason: msg.reason } };
+    case 'hide-window':
+      return { command: { type: 'hide', id: msg.id } };
+    case 'show-window':
+      return { command: { type: 'show', id: msg.id } };
+    case 'minimize-window':
+      return { command: { type: 'minimize', id: msg.id } };
+    case 'maximize-window':
+      return { command: { type: 'maximize', id: msg.id } };
+    case 'fullscreen-window':
+      return { command: { type: 'fullscreen', id: msg.id } };
+    case 'restore-window':
+      return { command: { type: 'restore', id: msg.id } };
+    default:
+      return null;
+  }
 }
 
 export function windowManagerUpdate(msg: WindowManagerMsg, manager: WindowManager): WindowManager {
-  const windows = manager.windows.map((window) => ({ ...window }));
+  const bounds = { cols: positiveInteger(manager.bounds.cols, 80), rows: positiveInteger(manager.bounds.rows, 24) };
+  const windows = normalizeWindows(manager.windows);
   if (msg.type === 'create-window') {
     const next = createDesktopWindow({ ...msg.window, zIndex: msg.window.zIndex ?? nextFrontZIndex(windows) });
+    const result = applyWindowCommand(
+      { type: 'create', window: next },
+      windows.map((window) => createDesktopWindow(window)),
+      { bounds },
+    );
     return {
       ...manager,
+      bounds,
       snapGuides: [],
-      windows: normalizeWindows([...windows, next]),
+      windows: normalizeWindows(result.windows),
     };
   }
 
@@ -165,149 +193,74 @@ export function windowManagerUpdate(msg: WindowManagerMsg, manager: WindowManage
     const result = applyWindowCommand(
       msg.command,
       windows.map((window) => createDesktopWindow(window)),
-      { bounds: manager.bounds, closePolicy: msg.policy },
+      { bounds, closePolicy: msg.policy },
     );
     return {
       ...manager,
+      bounds,
       snapGuides: [],
       windows: normalizeWindows(result.windows),
     };
   }
 
+  const lifecycle = lifecycleCommandFromManagerMsg(msg);
+  if (lifecycle) {
+    const result = applyWindowCommand(
+      lifecycle.command,
+      windows.map((window) => createDesktopWindow(window)),
+      {
+        bounds,
+        closePolicy: lifecycle.closePolicy,
+      },
+    );
+    return { ...manager, bounds, snapGuides: [], windows: normalizeWindows(result.windows) };
+  }
+
   const target = windows.find((window) => window.id === msg.id);
-  if (!target) return manager;
+  if (!target) return { ...manager, bounds, windows };
 
   switch (msg.type) {
-    case 'focus-window': {
-      const zIndex = nextFrontZIndex(windows);
-      return {
-        ...manager,
-        snapGuides: [],
-        windows: windows.map((window) => ({ ...window, focused: window.id === msg.id, zIndex: window.id === msg.id ? zIndex : window.zIndex })),
-      };
-    }
     case 'move-window':
-      target.x = msg.x;
-      target.y = msg.y;
-      target.frame = { x: msg.x, y: msg.y, width: target.width, height: target.height };
-      return { ...manager, windows, snapGuides: [] };
+      target.x = finiteCell(msg.x, target.x);
+      target.y = finiteCell(msg.y, target.y);
+      target.frame = snapshotBounds(target);
+      return { ...manager, bounds, windows, snapGuides: [] };
     case 'snap-move-window': {
       const snapped = computeSnappedPosition(
         { x: msg.x, y: msg.y },
         snapshotBounds(target),
         windows.filter((window) => window.id !== msg.id),
-        manager.bounds,
+        bounds,
         msg.config,
       );
       target.x = snapped.x;
       target.y = snapped.y;
       target.frame = { x: snapped.x, y: snapped.y, width: target.width, height: target.height };
-      return { ...manager, windows, snapGuides: snapped.guides };
+      return { ...manager, bounds, windows, snapGuides: snapped.guides };
     }
-    case 'resize-window':
-      target.width = msg.width;
-      target.height = msg.height;
-      target.frame = { x: target.x, y: target.y, width: msg.width, height: msg.height };
-      return { ...manager, windows, snapGuides: [] };
-    case 'set-window-frame':
-      target.x = msg.frame.x;
-      target.y = msg.frame.y;
-      target.width = msg.frame.width;
-      target.height = msg.frame.height;
-      target.frame = { ...msg.frame };
-      return { ...manager, windows, snapGuides: [] };
+    case 'resize-window': {
+      const next = createDesktopWindow({
+        ...target,
+        width: msg.width,
+        height: msg.height,
+        frame: { x: target.x, y: target.y, width: msg.width, height: msg.height },
+      });
+      return { ...manager, bounds, windows: windows.map((window) => (window.id === target.id ? next : window)), snapGuides: [] };
+    }
+    case 'set-window-frame': {
+      const next = createDesktopWindow({ ...target, ...msg.frame, frame: msg.frame });
+      return { ...manager, bounds, windows: windows.map((window) => (window.id === target.id ? next : window)), snapGuides: [] };
+    }
     case 'hover-window-chrome':
       target.chrome = { ...target.chrome, hoveredTarget: msg.target };
-      return { ...manager, windows };
+      return { ...manager, bounds, windows };
     case 'leave-window-chrome':
       if (!msg.target || target.chrome?.hoveredTarget === msg.target) {
         target.chrome = { ...target.chrome, hoveredTarget: null };
       }
-      return { ...manager, windows };
-    case 'close-window': {
-      if (target.closable === false) {
-        return manager;
-      }
-      if (msg.policy === 'mark-closed') {
-        target.mode = 'closed';
-        target.closed = true;
-        target.focused = false;
-        target.lastCloseReason = msg.reason;
-        return { ...manager, windows: normalizeWindows(windows), snapGuides: [] };
-      }
-      return { ...manager, windows: normalizeWindows(windows.filter((window) => window.id !== msg.id)), snapGuides: [] };
-    }
-    case 'destroy-window':
-      return { ...manager, windows: normalizeWindows(windows.filter((window) => window.id !== msg.id)), snapGuides: [] };
-    case 'hide-window':
-      target.mode = 'hidden';
-      target.hidden = true;
-      target.focused = false;
-      return { ...manager, windows: normalizeWindows(windows), snapGuides: [] };
-    case 'show-window':
-      target.mode = 'normal';
-      target.hidden = false;
-      target.closed = false;
-      target.focused = true;
-      target.zIndex = nextFrontZIndex(windows);
-      return { ...manager, windows: normalizeWindows(windows), snapGuides: [] };
-    case 'minimize-window': {
-      if (target.minimizable === false) {
-        return manager;
-      }
-      target.mode = 'minimized';
-      target.minimized = true;
-      target.focused = false;
-      // Promote the new frontmost visible window so the UI is never
-      // left with no focused window after a minimize.
-      const newFront = [...windows].filter((w) => !w.minimized).sort((a, b) => b.zIndex - a.zIndex)[0];
-      if (newFront) {
-        newFront.focused = true;
-      }
-      return { ...manager, windows, snapGuides: [] };
-    }
-    case 'maximize-window':
-      if (target.maximizable === false) {
-        return manager;
-      }
-      if (!target.maximized) {
-        target.restoreBounds = snapshotBounds(target);
-      }
-      target.mode = 'maximized';
-      target.maximized = true;
-      target.minimized = false;
-      target.x = 0;
-      target.y = 0;
-      target.width = manager.bounds.cols;
-      target.height = manager.bounds.rows;
-      target.frame = snapshotBounds(target);
-      target.zIndex = nextFrontZIndex(windows);
-      return { ...manager, windows, snapGuides: [] };
-    case 'restore-window':
-      restoreWindowBounds(target);
-      target.minimized = false;
-      target.maximized = false;
-      target.fullscreen = false;
-      target.mode = 'normal';
-      return { ...manager, windows, snapGuides: [] };
-    case 'fullscreen-window':
-      if (target.fullscreenable === false) {
-        return manager;
-      }
-      if (!target.fullscreen) {
-        target.restoreBounds = snapshotBounds(target);
-      }
-      target.mode = 'fullscreen';
-      target.fullscreen = true;
-      target.maximized = false;
-      target.minimized = false;
-      target.x = 0;
-      target.y = 0;
-      target.width = manager.bounds.cols;
-      target.height = manager.bounds.rows;
-      target.frame = snapshotBounds(target);
-      target.zIndex = nextFrontZIndex(windows);
-      return { ...manager, windows, snapGuides: [] };
+      return { ...manager, bounds, windows };
+    default:
+      return { ...manager, bounds, windows };
   }
 }
 
@@ -316,5 +269,9 @@ export function windowManagerUpdateResult(msg: WindowManagerMsg, manager: Window
 }
 
 export function getFrontmostWindow(manager: WindowManager): ManagedWindow | undefined {
-  return [...manager.windows].filter((window) => !window.minimized && !window.hidden && !window.closed).sort((a, b) => b.zIndex - a.zIndex)[0];
+  return [...manager.windows]
+    .filter(
+      (window) => !window.minimized && !window.hidden && !window.closed && window.mode !== 'minimized' && window.mode !== 'hidden' && window.mode !== 'closed',
+    )
+    .sort((a, b) => finiteCell(b.zIndex) - finiteCell(a.zIndex))[0];
 }

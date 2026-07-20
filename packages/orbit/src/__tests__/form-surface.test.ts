@@ -1,6 +1,6 @@
-import { Cmd, type Msg, Sub, type VNode, text } from '@celestial/nebula';
+import { Cmd, type Msg, Sub, text, type VNode } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
-import { formSurface, surface, type SurfaceChild, type SurfaceCloseReason, type SurfaceMsg, wizardSurface } from '../form-surface.js';
+import { formSurface, type SurfaceChild, type SurfaceCloseReason, type SurfaceMsg, surface, wizardSurface } from '../form-surface.js';
 
 // A minimal child descriptor that tracks a counter and reports submit msgs.
 interface CounterModel {
@@ -122,12 +122,21 @@ describe('surface()', () => {
     const [initial] = sut.init();
     const subOpen = sut.subscriptions!(initial);
     expect(subOpen).toBeDefined();
+    expect(JSON.stringify(subOpen)).toContain('elementMouse');
 
     const [closed] = sut.update({ type: 'surface:close', reason: 'escape' }, initial);
     const subClosed = sut.subscriptions!(closed);
     // Sub.none() returns a sub object with no key bindings; we just verify
     // it is a different shape than the open subscription bundle.
     expect(subClosed).toBeDefined();
+  });
+
+  it('renders a real pointer-enabled close control with a capability fallback', () => {
+    const sut = surface({ child: counterChild, glyphLevel: 'none' });
+    const [model] = sut.init();
+    const rendered = JSON.stringify(sut.view(model));
+    expect(rendered).toContain('[X Close]');
+    expect(rendered).toContain('activate-close');
   });
 
   it('treats programmatic close on an already-closed surface as a no-op', () => {
@@ -173,12 +182,13 @@ describe('wizardSurface()', () => {
 // Sanity: surface msgs follow the documented shape so callers can pattern
 // match on the union without surprises.
 describe('SurfaceMsg shape', () => {
-  it('typechecks the three msg variants', () => {
+  it('typechecks the four msg variants', () => {
     const _msgs: SurfaceMsg<CounterMsg>[] = [
       { type: 'surface:open' },
       { type: 'surface:close', reason: 'escape' },
       { type: 'surface:child', msg: { type: 'counter:inc' } },
+      { type: 'surface:noop' },
     ];
-    expect(_msgs.length).toBe(3);
+    expect(_msgs.length).toBe(4);
   });
 });

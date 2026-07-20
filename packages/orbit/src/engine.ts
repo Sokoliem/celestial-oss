@@ -4,6 +4,7 @@ import { Cmd, column, empty, focus, Sub, text } from '@celestial/nebula';
 import { formField } from '@celestial/ui';
 import { type FormFieldTypeRegistry, getDefaultFormFieldRegistry } from './field-registry.js';
 import { tr } from './i18n.js';
+import { boundedInteger, MAX_FORM_FIELDS, nextSequence, normalizePromptOptions } from './internal.js';
 import { emitLedgerEvent } from './ledger.js';
 import { feedbackColor, formColor } from './theme.js';
 import type {
@@ -23,7 +24,7 @@ import type {
   ValidationMessagesConfig,
   ValidationRule,
 } from './types.js';
-import { runRules } from './validation.js';
+import { isRequiredRule, runRules } from './validation.js';
 
 export type FormMsg =
   | Msg<'form:field-change', { readonly field: string; readonly value: unknown }>
@@ -150,7 +151,8 @@ function hasAnyValidating<Fields extends FieldMap>(model: FormModel<Fields>): bo
 
 function getNextEnabledField<Fields extends FieldMap>(model: FormModel<Fields>, fieldConfigs: Fields, direction: 1 | -1): number {
   const len = model.fieldOrder.length;
-  let idx = model.activeField + direction;
+  if (len === 0) return 0;
+  let idx = boundedInteger(model.activeField, 0, 0, len - 1) + direction;
   const values = extractValues(model) as Record<string, unknown>;
 
   for (let i = 0; i < len; i++) {
@@ -276,6 +278,41 @@ function createResetClearCmd<Fields extends FieldMap>(autosave: AutosaveConfig<F
 }
 
 export function form<Fields extends FieldMap, T = FormValues<Fields>>(config: FormConfig<Fields, T>): FormDescriptor<Fields, FormMsg> {
+  const fieldEntries = Object.entries(config.fields) as [keyof Fields & string, FieldConfig<any>][];
+  if (fieldEntries.length > MAX_FORM_FIELDS) throw new RangeError(`orbit/form: fields cannot exceed ${MAX_FORM_FIELDS}`);
+  for (const [key] of fieldEntries) {
+    if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
+      throw new Error(`orbit/form: unsafe field name "${key}"`);
+    }
+  }
+  const stableFields = Object.fromEntries(
+    fieldEntries.map(([key, field]) => [
+      key,
+      {
+        ...field,
+        validate: field.validate ? [...field.validate] : undefined,
+        asyncValidate: field.asyncValidate ? [...field.asyncValidate] : undefined,
+        options: field.options ? normalizePromptOptions(field.options) : undefined,
+        validationMessages: field.validationMessages ? { ...field.validationMessages } : undefined,
+      },
+    ]),
+  ) as Fields;
+  config = {
+    ...config,
+    fields: stableFields,
+    analytics: config.analytics ? { ...config.analytics } : undefined,
+    autosave: config.autosave ? { ...config.autosave } : undefined,
+    messages: config.messages ? { ...config.messages } : undefined,
+    validationMessages: config.validationMessages
+      ? {
+          ...config.validationMessages,
+          global: config.validationMessages.global ? { ...config.validationMessages.global } : undefined,
+          fields: config.validationMessages.fields
+            ? Object.fromEntries(Object.entries(config.validationMessages.fields).map(([key, value]) => [key, { ...value }]))
+            : undefined,
+        }
+      : undefined,
+  };
   const fieldOrder = Object.keys(config.fields) as (keyof Fields & string)[];
   const focusGroup = config.focusGroup ?? 'orbit-form';
   const fieldTypeRegistry: FormFieldTypeRegistry = config.fieldTypeRegistry ?? getDefaultFormFieldRegistry();
@@ -415,7 +452,7 @@ export function form<Fields extends FieldMap, T = FormValues<Fields>>(config: Fo
           }
 
           if (nextField.errors.length === 0 && fieldConfig.asyncValidate?.length) {
-            const token = (fieldState.asyncToken ?? 0) + 1;
+            const token = nextSequence(fieldState.asyncToken);
             const asyncRules = [...fieldConfig.asyncValidate];
             const asyncValue = msg.value;
             nextField = { ...nextField, validating: true, asyncToken: token };
@@ -503,7 +540,7 @@ export function form<Fields extends FieldMap, T = FormValues<Fields>>(config: Fo
           let nextModel: FormModel<Fields> = {
             ...model,
             submitted: true,
-            submitCount: model.submitCount + 1,
+            submitCount: nextSequence(model.submitCount),
             fields: { ...model.fields },
             formErrors: [],
           };
@@ -518,7 +555,7 @@ export function form<Fields extends FieldMap, T = FormValues<Fields>>(config: Fo
             nextModel.fields[key] = {
               ...currentState,
               touched: true,
-              asyncToken: (currentState.asyncToken ?? 0) + 1,
+              asyncToken: nextSequence(currentState.asyncToken),
               validating: false,
             } as FormModel<Fields>['fields'][typeof key];
           }
@@ -680,6 +717,7 @@ export function form<Fields extends FieldMap, T = FormValues<Fields>>(config: Fo
         const key = fieldOrder[i]!;
         const fieldConfig = config.fields[key] as FieldConfig<any>;
         const fieldState = model.fields[key];
+        if (!fieldState) continue;
         if (!isFieldVisible(fieldConfig, values)) continue;
 
         const isFocused = i === model.activeField;
@@ -703,10 +741,7 @@ export function form<Fields extends FieldMap, T = FormValues<Fields>>(config: Fo
 
         const fieldView = formField({
           label: fieldConfig.label,
-          required: fieldConfig.validate?.some((rule) => {
-            const result = (rule as any)('');
-            return !result.valid && result.message?.includes('required');
-          }),
+          required: fieldConfig.validate?.some((rule) => isRequiredRule(rule as ValidationRule<unknown>)),
           hint: fieldConfig.helpText,
           error: (fieldState.touched || model.submitted) && fieldState.errors.length > 0 ? fieldState.errors[0] : undefined,
           child: text(displayValue || ' ', valueStyle),

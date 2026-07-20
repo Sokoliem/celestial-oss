@@ -59,6 +59,45 @@ describe('debouncedAsync', () => {
     const result = await promise;
     expect(result).toEqual({ valid: false, message: 'boom' });
   });
+
+  it('does not let an obsolete caller abort the newest pending invocation', async () => {
+    const inner = vi.fn(async (value: string) => ({ valid: true as const, message: value }));
+    const wrapped = debouncedAsync(inner, 20);
+    const first = new AbortController();
+    const second = new AbortController();
+    const p1 = wrapped('first', first.signal);
+    const p2 = wrapped('second', second.signal);
+    first.abort();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await p1).toEqual({ valid: true });
+    expect(await p2).toEqual({ valid: true, message: 'second' });
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts a superseded rule that has already started', async () => {
+    let firstSignal: AbortSignal | undefined;
+    const inner = vi.fn((value: string, signal: AbortSignal) => {
+      if (value === 'second') return Promise.resolve({ valid: true as const });
+      firstSignal = signal;
+      return new Promise<{ valid: true }>((resolve) => signal.addEventListener('abort', () => resolve({ valid: true }), { once: true }));
+    });
+    const wrapped = debouncedAsync(inner, 10);
+    const first = new AbortController();
+    const second = new AbortController();
+    const p1 = wrapped('first', first.signal);
+    await vi.advanceTimersByTimeAsync(10);
+    const p2 = wrapped('second', second.signal);
+    expect(firstSignal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(p1).resolves.toEqual({ valid: true });
+    await expect(p2).resolves.toEqual({ valid: true });
+  });
+
+  it('rejects non-finite delays', () => {
+    const inner = vi.fn(async () => ({ valid: true as const }));
+    expect(() => debouncedAsync(inner, Number.NaN)).toThrow(RangeError);
+    expect(() => debouncedAsync(inner, Number.POSITIVE_INFINITY)).toThrow(RangeError);
+  });
 });
 
 describe('uniqueValue', () => {
@@ -98,9 +137,7 @@ describe('uniqueValue', () => {
 
 describe('serverValidate', () => {
   it('returns valid when the endpoint returns { valid: true }', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ valid: true }), { status: 200, headers: { 'content-type': 'application/json' } }),
-    );
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ valid: true }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 
     const rule = serverValidate('https://api.example.com/check');
@@ -110,8 +147,8 @@ describe('serverValidate', () => {
   });
 
   it('returns the server-provided message when valid is false', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ valid: false, message: 'taken' }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ valid: false, message: 'taken' }), { status: 200, headers: { 'content-type': 'application/json' } }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -140,6 +177,16 @@ describe('serverValidate', () => {
     const result = await promise;
     expect(result).toEqual({ valid: true });
   });
+
+  it('never accepts a valid-looking payload from a failed HTTP response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ valid: true }), { status: 500 })),
+    );
+    const rule = serverValidate('https://api.example.com/check');
+    const result = await rule('value', new AbortController().signal);
+    expect(result).toEqual({ valid: false, message: 'Server validation failed' });
+  });
 });
 
 describe('composeAsync threads the signal through every rule', () => {
@@ -161,6 +208,18 @@ describe('composeAsync threads the signal through every rule', () => {
     const ctrl = new AbortController();
     expect(await composed('hi', ctrl.signal)).toEqual({ valid: true });
     expect(await composed('', ctrl.signal)).toEqual({ valid: false, message: 'empty' });
+  });
+
+  it('passes cancellation to validators with a defaulted signal parameter', async () => {
+    let received: AbortSignal | undefined;
+    const rule = async (_value: string, signal = new AbortController().signal) => {
+      received = signal;
+      return { valid: true as const };
+    };
+    const ctrl = new AbortController();
+    expect(rule.length).toBe(1);
+    expect(await composeAsync(rule)('value', ctrl.signal)).toEqual({ valid: true });
+    expect(received).toBe(ctrl.signal);
   });
 });
 

@@ -158,14 +158,14 @@ export {
   type HorizonSplitControllerOptions,
   splitPaneFromController,
 } from './split-controller.js';
+export * from './state/index.js';
 // ─── Weighted Pane Stack ─────────────────────────────────────────────────
 export {
   getWeightedPaneStackLayout,
   type PaneRange,
   type PaneSpec,
   type ResizeHandleRange,
-  weightedPaneStack,
   type WeightedPaneStackConfig,
   type WeightedPaneStackLayout,
+  weightedPaneStack,
 } from './weighted-pane-stack.js';
-export * from './state/index.js';

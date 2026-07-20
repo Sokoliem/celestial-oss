@@ -1,4 +1,5 @@
 import type { ComponentNode, VNode } from '@celestial/core/nebula';
+import { MAX_SPLIT_PANES, nonNegativeInteger } from './internal.js';
 
 export type SplitterDirection = 'row' | 'column';
 
@@ -51,7 +52,7 @@ export interface HorizonSplitController<TId extends string = string> {
 }
 
 function normalizeWeights<TId extends string>(entries: readonly [TId, number][]): Map<TId, number> {
-  const positive = entries.map(([id, weight]) => [id, Math.max(0, weight)] as [TId, number]);
+  const positive = entries.map(([id, weight]) => [id, Number.isFinite(weight) ? Math.max(0, weight) : 0] as [TId, number]);
   const total = positive.reduce((sum, [, weight]) => sum + weight, 0);
   if (total <= 0) {
     const even = positive.length > 0 ? 1 / positive.length : 0;
@@ -62,26 +63,36 @@ function normalizeWeights<TId extends string>(entries: readonly [TId, number][])
 
 function createLocalSplitterController<TId extends string>(panes: readonly SplitterPaneSpec<TId>[]): SplitterController<TId> {
   const initial = normalizeWeights(panes.map((pane) => [pane.id, pane.weight ?? 1]));
+  const knownIds = new Set(initial.keys());
   let weights = new Map(initial);
   let collapsed = new Set<TId>();
   const listeners = new Set<() => void>();
 
   function notify(): void {
-    for (const listener of listeners) listener();
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {
+        // One observer cannot prevent the remaining layout subscribers from
+        // receiving the same state transition.
+      }
+    }
   }
 
   return {
     getWeight: (id) => weights.get(id) ?? 0,
     setWeight: (id, weight) => {
+      if (!knownIds.has(id)) return;
       weights = normalizeWeights([...weights.entries()].map(([entryId, value]) => [entryId, entryId === id ? weight : value]));
       notify();
     },
     setWeights: (nextWeights) => {
-      weights = normalizeWeights([...weights.entries()].map(([id, value]) => [id, nextWeights[id] ?? value]));
+      weights = normalizeWeights([...weights.entries()].map(([id, value]) => [id, Object.hasOwn(nextWeights, id) ? (nextWeights[id] ?? value) : value]));
       notify();
     },
     isCollapsed: (id) => collapsed.has(id),
     setCollapsed: (id, nextCollapsed) => {
+      if (!knownIds.has(id)) return;
       collapsed = new Set(collapsed);
       if (nextCollapsed) collapsed.add(id);
       else collapsed.delete(id);
@@ -97,9 +108,16 @@ function createLocalSplitterController<TId extends string>(panes: readonly Split
       panes: [...weights.entries()].map(([id, weight]) => ({ id, weight, collapsed: collapsed.has(id) })),
     }),
     hydrate: (snapshot) => {
-      if (snapshot.version !== 1) return;
-      weights = normalizeWeights(snapshot.panes.map((pane) => [pane.id, pane.weight]));
-      collapsed = new Set(snapshot.panes.filter((pane) => pane.collapsed).map((pane) => pane.id));
+      if (!snapshot || snapshot.version !== 1 || !Array.isArray(snapshot.panes)) return;
+      const incoming = new Map<TId, number>();
+      const nextCollapsed = new Set<TId>();
+      for (const pane of snapshot.panes.slice(0, MAX_SPLIT_PANES)) {
+        if (!pane || !knownIds.has(pane.id) || incoming.has(pane.id)) continue;
+        incoming.set(pane.id, pane.weight);
+        if (pane.collapsed) nextCollapsed.add(pane.id);
+      }
+      weights = normalizeWeights([...initial.keys()].map((id) => [id, incoming.get(id) ?? weights.get(id) ?? initial.get(id) ?? 0]));
+      collapsed = nextCollapsed;
       notify();
     },
     subscribe: (listener) => {
@@ -110,15 +128,39 @@ function createLocalSplitterController<TId extends string>(panes: readonly Split
 }
 
 function distribute(axisSize: number, panes: readonly SplitterPaneSpec[], controller: SplitterController): number[] {
-  const totalWeight = panes.reduce((sum, pane) => sum + (controller.isCollapsed(pane.id) ? 0 : controller.getWeight(pane.id)), 0);
+  const budget = nonNegativeInteger(axisSize);
+  const totalWeight = panes.reduce((sum, pane) => {
+    const weight = controller.getWeight(pane.id);
+    return sum + (controller.isCollapsed(pane.id) || !Number.isFinite(weight) ? 0 : Math.max(0, weight));
+  }, 0);
   if (totalWeight <= 0) {
-    return panes.map((pane) => pane.collapsedSize ?? pane.min ?? 0);
+    return fitToBudget(
+      panes.map((pane) => nonNegativeInteger(pane.collapsedSize ?? pane.min)),
+      budget,
+    );
   }
-  return panes.map((pane) => {
-    if (controller.isCollapsed(pane.id)) return pane.collapsedSize ?? pane.min ?? 0;
-    const raw = Math.floor((controller.getWeight(pane.id) / totalWeight) * axisSize);
-    return Math.max(pane.min ?? 0, Math.min(pane.max ?? Number.POSITIVE_INFINITY, raw));
-  });
+  return fitToBudget(
+    panes.map((pane) => {
+      const min = nonNegativeInteger(pane.min);
+      const max = pane.max === undefined || pane.max === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : Math.max(min, nonNegativeInteger(pane.max, min));
+      if (controller.isCollapsed(pane.id)) return nonNegativeInteger(pane.collapsedSize ?? pane.min);
+      const weight = controller.getWeight(pane.id);
+      const raw = Math.floor(((Number.isFinite(weight) ? Math.max(0, weight) : 0) / totalWeight) * budget);
+      return Math.max(min, Math.min(max, raw));
+    }),
+    budget,
+  );
+}
+
+function fitToBudget(sizes: number[], budget: number): number[] {
+  const fitted = sizes.map((size) => nonNegativeInteger(size));
+  let overflow = fitted.reduce((sum, size) => sum + size, 0) - budget;
+  for (let index = fitted.length - 1; index >= 0 && overflow > 0; index--) {
+    const reduction = Math.min(fitted[index]!, overflow);
+    fitted[index] = fitted[index]! - reduction;
+    overflow -= reduction;
+  }
+  return fitted;
 }
 
 function paneBox(child: VNode, direction: SplitterDirection, size: number): VNode {
@@ -140,7 +182,7 @@ function handle(
     kind: 'event',
     id: `${idPrefix}:${leadingPaneId}:handle`,
     child: direction === 'row' ? { kind: 'box', width: handleSize, children: [] } : { kind: 'box', height: handleSize, children: [] },
-    handlers: {},
+    handlers: { onMouseDown: `${idPrefix}:${leadingPaneId}:resize-start` },
     metadata: {
       intent: 'drag',
       affordances: ['drag'],
@@ -158,34 +200,46 @@ function handle(
 }
 
 export function createHorizonSplitController<TId extends string = string>(options: HorizonSplitControllerOptions<TId>): HorizonSplitController<TId> {
-  const controller = options.controller ?? createLocalSplitterController(options.panes);
+  if (options.panes.length > MAX_SPLIT_PANES) throw new RangeError(`horizon/splitController: panes cannot exceed ${MAX_SPLIT_PANES}`);
+  const panes = options.panes.map((pane) => ({ ...pane }));
+  const ids = new Set<string>();
+  for (const pane of panes) {
+    if (typeof pane.id !== 'string' || pane.id.length === 0) throw new Error('horizon/splitController: pane ids cannot be empty');
+    if (ids.has(pane.id)) throw new Error(`horizon/splitController: duplicate pane id "${pane.id}"`);
+    ids.add(pane.id);
+  }
+  const direction: SplitterDirection = options.direction === 'column' ? 'column' : 'row';
+  const controller = options.controller ?? createLocalSplitterController(panes);
   return {
     controller,
     render: (overrides = {}) => {
-      const handleSize = Math.max(0, overrides.handleSize ?? options.handleSize ?? 1);
-      const idPrefix = overrides.idPrefix ?? options.idPrefix ?? 'horizon-split';
+      const requestedHandleSize = nonNegativeInteger(overrides.handleSize ?? options.handleSize, 1);
+      const idPrefix = overrides.idPrefix || options.idPrefix || 'horizon-split';
       return {
         kind: 'component',
         render: (context): VNode => {
-          const axisSize =
-            options.direction === 'row'
+          const axisSize = nonNegativeInteger(
+            direction === 'row'
               ? (context?.container?.cols ?? context?.available?.cols ?? context?.terminal?.cols ?? 80)
-              : (context?.container?.rows ?? context?.available?.rows ?? context?.terminal?.rows ?? 24);
-          const sizes = distribute(Math.max(0, axisSize - handleSize * Math.max(0, options.panes.length - 1)), options.panes, controller);
+              : (context?.container?.rows ?? context?.available?.rows ?? context?.terminal?.rows ?? 24),
+          );
+          const handleCount = Math.max(0, panes.length - 1);
+          const handleSize = handleCount > 0 ? Math.min(requestedHandleSize, Math.floor(axisSize / handleCount)) : 0;
+          const sizes = distribute(Math.max(0, axisSize - handleSize * handleCount), panes, controller);
           const children: VNode[] = [];
           let seam = 0;
-          for (let index = 0; index < options.panes.length; index++) {
-            const pane = options.panes[index]!;
+          for (let index = 0; index < panes.length; index++) {
+            const pane = panes[index]!;
             const size = sizes[index] ?? 0;
-            children.push(paneBox(pane.child, options.direction, size));
+            children.push(paneBox(pane.child, direction, size));
             seam += size;
-            const next = options.panes[index + 1];
+            const next = panes[index + 1];
             if (next && handleSize > 0) {
-              children.push(handle(idPrefix, options.direction, pane.id, next.id, handleSize, seam));
+              children.push(handle(idPrefix, direction, pane.id, next.id, handleSize, seam));
               seam += handleSize;
             }
           }
-          return { kind: options.direction, children } as VNode;
+          return { kind: direction, children } as VNode;
         },
       };
     },

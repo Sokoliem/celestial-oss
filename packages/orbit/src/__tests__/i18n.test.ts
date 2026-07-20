@@ -1,9 +1,9 @@
+import { Cmd } from '@celestial/nebula';
 import { describe, expect, it } from 'vitest';
 import { form } from '../engine.js';
+import { submitBar, submitButton } from '../form-actions.js';
 import { interpolate, ORBIT_DEFAULT_MESSAGES, tr } from '../i18n.js';
 import { wizard } from '../wizard.js';
-import { submitBar, submitButton } from '../form-actions.js';
-import { Cmd } from '@celestial/nebula';
 
 describe('interpolate', () => {
   it('substitutes {{name}} placeholders', () => {

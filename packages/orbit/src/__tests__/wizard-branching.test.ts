@@ -1,6 +1,6 @@
-import { Cmd, type VNode, text } from '@celestial/nebula';
+import { Cmd, text, type VNode } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
-import { wizard, type WizardModel, type WizardStepConfig } from '../wizard.js';
+import { type WizardModel, type WizardStepConfig, type WizardStepRef, wizard } from '../wizard.js';
 
 function makeStep(name: string, value: unknown = name, overrides: Partial<WizardStepConfig> = {}): WizardStepConfig<unknown, never> {
   return {
@@ -41,11 +41,7 @@ describe('wizard branching — nextStep predicate', () => {
 
   it('routes by index when the predicate returns a number', () => {
     const sut = wizard({
-      steps: [
-        makeStep('a', 'a', { nextStep: () => 2 }),
-        makeStep('b'),
-        makeStep('c'),
-      ],
+      steps: [makeStep('a', 'a', { nextStep: () => 2 }), makeStep('b'), makeStep('c')],
     });
     const [initial] = sut.init();
     const [next] = sut.update({ type: 'wizard:next' }, initial);
@@ -55,10 +51,7 @@ describe('wizard branching — nextStep predicate', () => {
   it('finishes the wizard when nextStep returns null', () => {
     const onComplete = vi.fn();
     const sut = wizard({
-      steps: [
-        makeStep('a', 'a', { nextStep: () => null }),
-        makeStep('b'),
-      ],
+      steps: [makeStep('a', 'a', { nextStep: () => null }), makeStep('b')],
       onComplete,
     });
     const [initial] = sut.init();
@@ -69,10 +62,7 @@ describe('wizard branching — nextStep predicate', () => {
 
   it('treats unknown refs returned from nextStep as a no-op (configuration error)', () => {
     const sut = wizard({
-      steps: [
-        makeStep('a', 'a', { nextStep: () => 'does-not-exist' }),
-        makeStep('b'),
-      ],
+      steps: [makeStep('a', 'a', { nextStep: () => 'does-not-exist' }), makeStep('b')],
     });
     const [initial] = sut.init();
     const [next] = sut.update({ type: 'wizard:next' }, initial);
@@ -98,11 +88,7 @@ describe('wizard branching — previousStep predicate + visited history', () => 
 
   it('uses a custom previousStep predicate when defined', () => {
     const sut = wizard({
-      steps: [
-        makeStep('intro'),
-        makeStep('branch-a', 'branch-a', { previousStep: () => 'intro' }),
-        makeStep('branch-b'),
-      ],
+      steps: [makeStep('intro'), makeStep('branch-a', 'branch-a', { previousStep: () => 'intro' }), makeStep('branch-b')],
     });
     let [model] = sut.init();
     [model] = sut.update({ type: 'wizard:goto', step: 'branch-a' }, model);
@@ -113,10 +99,7 @@ describe('wizard branching — previousStep predicate + visited history', () => 
 
   it('ignores back navigation when previousStep returns null', () => {
     const sut = wizard({
-      steps: [
-        makeStep('a'),
-        makeStep('b', 'b', { previousStep: () => null }),
-      ],
+      steps: [makeStep('a'), makeStep('b', 'b', { previousStep: () => null })],
     });
     let [model] = sut.init();
     [model] = sut.update({ type: 'wizard:next' }, model);
@@ -158,11 +141,7 @@ describe('wizard goto by name and index', () => {
 describe('getGraph()', () => {
   it('records edges as numeric, dynamic, or end', () => {
     const sut = wizard({
-      steps: [
-        makeStep('a', 'a', { nextStep: () => 'c' }),
-        makeStep('b'),
-        makeStep('c'),
-      ],
+      steps: [makeStep('a', 'a', { nextStep: () => 'c' }), makeStep('b'), makeStep('c')],
     });
     const graph = sut.getGraph();
     expect(graph.edges).toEqual([
@@ -182,6 +161,16 @@ describe('getGraph()', () => {
     expect(graph.stepOrder).toEqual(['start', 'end-step']);
   });
 
+  it('returns defensive graph snapshots', () => {
+    const sut = wizard({ steps: [makeStep('start'), makeStep('end-step')] });
+    const graph = sut.getGraph();
+    (graph.nameToIndex as Map<string, number>).set('injected', 99);
+    expect(() => (graph.stepOrder as WizardStepRef[]).push('injected')).toThrow();
+    const fresh = sut.getGraph();
+    expect(fresh.nameToIndex.has('injected')).toBe(false);
+    expect(fresh.stepOrder).toEqual(['start', 'end-step']);
+  });
+
   it('refuses duplicate step names at construction time', () => {
     expect(() => wizard({ steps: [makeStep('dupe'), makeStep('dupe')] })).toThrow(/duplicate step name/);
   });
@@ -196,11 +185,7 @@ describe('wizard model carries visited history from init', () => {
 
   it('records branch hops in visited order', () => {
     const sut = wizard({
-      steps: [
-        makeStep('a', 'a', { nextStep: () => 'c' }),
-        makeStep('b'),
-        makeStep('c'),
-      ],
+      steps: [makeStep('a', 'a', { nextStep: () => 'c' }), makeStep('b'), makeStep('c')],
     });
     let [model] = sut.init();
     [model] = sut.update({ type: 'wizard:next' }, model);

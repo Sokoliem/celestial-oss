@@ -33,6 +33,7 @@
 
 import { type Border, border, type Color, color, defaultTheme, style } from '@celestial/core/corona';
 import { box, column, Sub, scroll, text, type VNode } from '@celestial/core/nebula';
+import { clampFinite, nonNegativeInteger, positiveInteger } from './internal.js';
 import { getScrollProgress, type ScrollRegionModel, type ScrollRegionMsg } from './scroll.js';
 
 const PANEL_BORDER_COLOR = defaultTheme.elevation.raised.border ?? defaultTheme.colors.border;
@@ -130,12 +131,13 @@ export function scrollablePane(config: ScrollablePaneConfig): VNode {
     children.push(text(`${titleColor.fg()}${title}${R}`));
   }
 
-  const safeViewport = Math.max(1, Math.floor(viewportHeight));
-  const safeOffset = Math.max(0, Math.floor(scrollY));
+  const safeViewport = positiveInteger(viewportHeight, 1);
+  const safeContentHeight = contentHeight === undefined ? undefined : nonNegativeInteger(contentHeight);
+  const safeOffset = safeContentHeight === undefined ? nonNegativeInteger(scrollY) : clampFinite(scrollY, 0, Math.max(0, safeContentHeight - safeViewport));
   children.push(scroll(body, { height: safeViewport, offset: safeOffset }));
 
-  if (showIndicator && contentHeight !== undefined) {
-    children.push(text(`${INDICATOR_COLOR.fg()}${formatIndicator(safeOffset, safeViewport, contentHeight)}${R}`));
+  if (showIndicator && safeContentHeight !== undefined) {
+    children.push(text(`${INDICATOR_COLOR.fg()}${formatIndicator(safeOffset, safeViewport, safeContentHeight)}${R}`));
   }
 
   if (typeof footer === 'string') {
@@ -157,12 +159,15 @@ export function scrollablePane(config: ScrollablePaneConfig): VNode {
  * Exported for testing.
  */
 export function formatIndicator(scrollY: number, viewportHeight: number, contentHeight: number): string {
-  if (contentHeight <= 0) return 'lines 0–0 of 0  (100%)';
-  const start = Math.min(contentHeight, scrollY + 1);
-  const end = Math.min(contentHeight, scrollY + viewportHeight);
-  const maxScroll = Math.max(0, contentHeight - viewportHeight);
-  const pct = maxScroll === 0 ? 100 : Math.round((scrollY / maxScroll) * 100);
-  return `lines ${start}–${end} of ${contentHeight}  (${Math.max(0, Math.min(100, pct))}%)`;
+  const content = nonNegativeInteger(contentHeight);
+  if (content <= 0) return 'lines 0–0 of 0  (100%)';
+  const viewport = positiveInteger(viewportHeight, 1);
+  const maxScroll = Math.max(0, content - viewport);
+  const offset = clampFinite(scrollY, 0, maxScroll);
+  const start = Math.min(content, offset + 1);
+  const end = Math.min(content, offset + viewport);
+  const pct = maxScroll === 0 ? 100 : Math.round((offset / maxScroll) * 100);
+  return `lines ${start}–${end} of ${content}  (${Math.max(0, Math.min(100, pct))}%)`;
 }
 
 /**
@@ -277,7 +282,7 @@ const KEY_MAPS: Record<ScrollKeyBindings, KeyMap> = {
  * help overlay or merge the bindings with their own.
  */
 export function resolveScrollKeyBindings(bindings: ScrollKeyBindings = 'default'): ScrollKeyBinding[] {
-  const map = KEY_MAPS[bindings];
+  const map = KEY_MAPS[bindings] ?? KEY_MAPS.default;
 
   // Half-page bindings use a fixed amount of 12 lines as a sensible default
   // when the live viewport isn't known. Apps that want exact half-page

@@ -647,3 +647,40 @@ describe('form.subscriptions', () => {
     expect(subs._tag).toBe('sub');
   });
 });
+
+describe('form boundary hardening', () => {
+  it('snapshots field metadata, options, and validators', () => {
+    const validators = [required()];
+    const options = [{ label: 'Original option', value: 'original' }];
+    const fields = { choice: { label: 'Original label', type: 'select' as const, validate: validators, options } };
+    const f = form({ fields });
+    fields.choice.label = 'Changed label';
+    validators.length = 0;
+    options[0]!.label = 'Changed option';
+    let [model] = f.init();
+    expect(JSON.stringify(f.view(model))).toContain('Original label');
+    [model] = f.update({ type: 'form:submit' }, model);
+    expect(model.valid).toBe(false);
+    expect(model.fields.choice.errors).toContain('This field is required');
+  });
+
+  it('does not execute arbitrary validation rules while rendering', () => {
+    const validate = vi.fn(() => ({ valid: true as const }));
+    const f = form({ fields: { name: { label: 'Name', validate: [validate] } } });
+    const [model] = f.init();
+    f.view(model);
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsafe field names and normalizes corrupted focus/counters', () => {
+    const unsafe = JSON.parse('{"__proto__":{"label":"Unsafe"}}');
+    expect(() => form({ fields: unsafe })).toThrow(/unsafe field name/);
+
+    const f = form({ fields: { name: { label: 'Name', defaultValue: 'Ada' } } });
+    const [model] = f.init();
+    const [focused] = f.update({ type: 'form:focus-next' }, { ...model, activeField: Number.NaN });
+    expect(focused.activeField).toBe(0);
+    const [submitted] = f.update({ type: 'form:submit' }, { ...model, submitCount: Number.NaN });
+    expect(submitted.submitCount).toBe(1);
+  });
+});

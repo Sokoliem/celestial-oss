@@ -1,3 +1,4 @@
+import { clampFinite, finiteCell, nonNegativeInteger, positiveInteger } from './internal.js';
 import type { WindowBounds } from './primitives/geometry.js';
 
 export interface FloatingViewportBounds {
@@ -49,14 +50,21 @@ export interface FloatingWindowHitTestOptions {
 }
 
 interface FloatingViewportRect {
+  cols: number;
+  rows: number;
   minX: number;
   minY: number;
+  bottomInset: number;
   maxWidth: number;
   maxHeight: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+  return clampFinite(value, min, max);
+}
+
+function isFiniteFrame(frame: FloatingWindowFrame): boolean {
+  return Number.isFinite(frame.x) && Number.isFinite(frame.y) && Number.isFinite(frame.width) && Number.isFinite(frame.height);
 }
 
 /** Resolve the resize edge under a pointer, preferring corners. */
@@ -66,10 +74,10 @@ export function hitTestFloatingWindowResizeEdge(
   mouseY: number,
   options: FloatingWindowHitTestOptions = {},
 ): FloatingWindowResizeEdge | null {
-  if (frame.width <= 0 || frame.height <= 0) return null;
+  if (!isFiniteFrame(frame) || !Number.isFinite(mouseX) || !Number.isFinite(mouseY) || frame.width <= 0 || frame.height <= 0) return null;
   if (mouseX < frame.x || mouseX >= frame.x + frame.width || mouseY < frame.y || mouseY >= frame.y + frame.height) return null;
 
-  const handleSize = Math.max(1, Math.floor(options.handleSize ?? 1));
+  const handleSize = positiveInteger(options.handleSize, 1);
   const leftDistance = mouseX - frame.x;
   const rightDistance = frame.x + frame.width - 1 - mouseX;
   const topDistance = mouseY - frame.y;
@@ -92,9 +100,10 @@ export function hitTestFloatingWindowResizeEdge(
 
 /** True when the pointer is on the title row, excluding the outer border. */
 export function hitTestFloatingWindowTitleBar(frame: FloatingWindowFrame, mouseX: number, mouseY: number, options: FloatingWindowHitTestOptions = {}): boolean {
-  const borderWidth = Math.max(0, Math.floor(options.borderWidth ?? 1));
-  const titleBarHeight = Math.max(1, Math.floor(options.titleBarHeight ?? 1));
-  const endInset = Math.max(0, Math.floor(options.endInset ?? 0));
+  if (!isFiniteFrame(frame) || !Number.isFinite(mouseX) || !Number.isFinite(mouseY) || frame.width <= 0 || frame.height <= 0) return false;
+  const borderWidth = nonNegativeInteger(options.borderWidth, 1);
+  const titleBarHeight = positiveInteger(options.titleBarHeight, 1);
+  const endInset = nonNegativeInteger(options.endInset, 0);
   return (
     mouseX >= frame.x + borderWidth &&
     mouseX < frame.x + frame.width - borderWidth - endInset &&
@@ -112,23 +121,28 @@ export function beginFloatingWindowResize(
 ): FloatingWindowResizeState {
   return {
     edge,
-    startMouseX: mouseX,
-    startMouseY: mouseY,
-    startX: frame.x,
-    startY: frame.y,
-    startWidth: frame.width,
-    startHeight: frame.height,
+    startMouseX: finiteCell(mouseX),
+    startMouseY: finiteCell(mouseY),
+    startX: finiteCell(frame.x),
+    startY: finiteCell(frame.y),
+    startWidth: positiveInteger(frame.width, 1),
+    startHeight: positiveInteger(frame.height, 1),
   };
 }
 
 function getViewportRect(viewport: FloatingViewportBounds): FloatingViewportRect {
-  const topInset = Math.max(0, viewport.topInset ?? 0);
-  const bottomInset = Math.max(0, viewport.bottomInset ?? 0);
+  const cols = positiveInteger(viewport.cols, 1);
+  const rows = positiveInteger(viewport.rows, 1);
+  const topInset = nonNegativeInteger(viewport.topInset, 0, rows - 1);
+  const bottomInset = nonNegativeInteger(viewport.bottomInset, 0, rows - topInset - 1);
   return {
+    cols,
+    rows,
     minX: 0,
     minY: topInset,
-    maxWidth: Math.max(1, viewport.cols),
-    maxHeight: Math.max(1, viewport.rows - topInset - bottomInset),
+    bottomInset,
+    maxWidth: cols,
+    maxHeight: Math.max(1, rows - topInset - bottomInset),
   };
 }
 
@@ -137,10 +151,10 @@ function getNormalizedConstraints(
   defaults: Pick<FloatingWindowDefaults, 'minWidth' | 'minHeight' | 'maxWidth' | 'maxHeight'>,
 ): { viewportRect: FloatingViewportRect; minWidth: number; minHeight: number; maxWidth: number; maxHeight: number } {
   const viewportRect = getViewportRect(viewport);
-  const maxWidth = Math.max(1, Math.min(defaults.maxWidth ?? viewportRect.maxWidth, viewportRect.maxWidth));
-  const maxHeight = Math.max(1, Math.min(defaults.maxHeight ?? viewportRect.maxHeight, viewportRect.maxHeight));
-  const minWidth = Math.min(Math.max(1, defaults.minWidth), maxWidth);
-  const minHeight = Math.min(Math.max(1, defaults.minHeight), maxHeight);
+  const maxWidth = positiveInteger(defaults.maxWidth, viewportRect.maxWidth, viewportRect.maxWidth);
+  const maxHeight = positiveInteger(defaults.maxHeight, viewportRect.maxHeight, viewportRect.maxHeight);
+  const minWidth = positiveInteger(defaults.minWidth, 1, maxWidth);
+  const minHeight = positiveInteger(defaults.minHeight, 1, maxHeight);
   return { viewportRect, minWidth, minHeight, maxWidth, maxHeight };
 }
 
@@ -150,12 +164,12 @@ export function clampFloatingWindowFrame(
   frame?: Partial<FloatingWindowFrame> | null,
 ): FloatingWindowFrame {
   const { viewportRect, minWidth, minHeight, maxWidth, maxHeight } = getNormalizedConstraints(viewport, defaults);
-  const width = clamp(frame?.width ?? defaults.width, minWidth, maxWidth);
-  const height = clamp(frame?.height ?? defaults.height, minHeight, maxHeight);
-  const centeredX = Math.max(viewportRect.minX, Math.floor((viewport.cols - width) / 2));
+  const width = clamp(positiveInteger(frame?.width, positiveInteger(defaults.width, minWidth), maxWidth), minWidth, maxWidth);
+  const height = clamp(positiveInteger(frame?.height, positiveInteger(defaults.height, minHeight), maxHeight), minHeight, maxHeight);
+  const centeredX = Math.max(viewportRect.minX, Math.floor((viewportRect.cols - width) / 2));
   const centeredY = Math.max(viewportRect.minY, Math.floor((viewportRect.minY + viewportRect.maxHeight - height) / 2));
-  const x = clamp(frame?.x ?? centeredX, viewportRect.minX, Math.max(viewportRect.minX, viewport.cols - width));
-  const y = clamp(frame?.y ?? centeredY, viewportRect.minY, Math.max(viewportRect.minY, viewport.rows - (viewport.bottomInset ?? 0) - height));
+  const x = clamp(finiteCell(frame?.x, centeredX), viewportRect.minX, Math.max(viewportRect.minX, viewportRect.cols - width));
+  const y = clamp(finiteCell(frame?.y, centeredY), viewportRect.minY, Math.max(viewportRect.minY, viewportRect.rows - viewportRect.bottomInset - height));
   return { x, y, width, height };
 }
 
@@ -166,10 +180,17 @@ export function translateFloatingWindowFrame(
   viewport: FloatingViewportBounds,
 ): FloatingWindowFrame {
   const viewportRect = getViewportRect(viewport);
+  const width = positiveInteger(frame.width, 1, viewportRect.maxWidth);
+  const height = positiveInteger(frame.height, 1, viewportRect.maxHeight);
   return {
-    ...frame,
-    x: clamp(frame.x + deltaX, viewportRect.minX, Math.max(viewportRect.minX, viewport.cols - frame.width)),
-    y: clamp(frame.y + deltaY, viewportRect.minY, Math.max(viewportRect.minY, viewport.rows - (viewport.bottomInset ?? 0) - frame.height)),
+    width,
+    height,
+    x: clamp(finiteCell(frame.x) + finiteCell(deltaX), viewportRect.minX, Math.max(viewportRect.minX, viewportRect.cols - width)),
+    y: clamp(
+      finiteCell(frame.y, viewportRect.minY) + finiteCell(deltaY),
+      viewportRect.minY,
+      Math.max(viewportRect.minY, viewportRect.rows - viewportRect.bottomInset - height),
+    ),
   };
 }
 
@@ -181,19 +202,24 @@ export function translateFloatingWindowFromDragState(
   viewport: FloatingViewportBounds,
   deadzone = 1,
 ): { frame: FloatingWindowFrame; dragging: boolean } {
-  const deltaX = mouseX - drag.startMouseX;
-  const deltaY = mouseY - drag.startMouseY;
-  const dragging = Math.abs(deltaX) >= deadzone || Math.abs(deltaY) >= deadzone;
+  const deltaX = finiteCell(mouseX) - finiteCell(drag.startMouseX);
+  const deltaY = finiteCell(mouseY) - finiteCell(drag.startMouseY);
+  const safeDeadzone = nonNegativeInteger(deadzone, 1);
+  const dragging = Math.abs(deltaX) >= safeDeadzone || Math.abs(deltaY) >= safeDeadzone;
   const viewportRect = getViewportRect(viewport);
-  const nextX = dragging ? drag.startX + deltaX : drag.startX;
-  const nextY = dragging ? drag.startY + deltaY : drag.startY;
+  const width = positiveInteger(frame.width, 1, viewportRect.maxWidth);
+  const height = positiveInteger(frame.height, 1, viewportRect.maxHeight);
+  const startX = finiteCell(drag.startX);
+  const startY = finiteCell(drag.startY, viewportRect.minY);
+  const nextX = dragging ? startX + deltaX : startX;
+  const nextY = dragging ? startY + deltaY : startY;
 
   return {
     frame: {
-      x: clamp(nextX, viewportRect.minX, Math.max(viewportRect.minX, viewport.cols - frame.width)),
-      y: clamp(nextY, viewportRect.minY, Math.max(viewportRect.minY, viewport.rows - (viewport.bottomInset ?? 0) - frame.height)),
-      width: frame.width,
-      height: frame.height,
+      x: clamp(nextX, viewportRect.minX, Math.max(viewportRect.minX, viewportRect.cols - width)),
+      y: clamp(nextY, viewportRect.minY, Math.max(viewportRect.minY, viewportRect.rows - viewportRect.bottomInset - height)),
+      width,
+      height,
     },
     dragging,
   };
@@ -206,14 +232,18 @@ export function resizeFloatingWindowFrame(
   viewport: FloatingViewportBounds,
   defaults: Pick<FloatingWindowDefaults, 'minWidth' | 'minHeight' | 'maxWidth' | 'maxHeight'>,
 ): FloatingWindowFrame {
-  const deltaX = mouseX - resize.startMouseX;
-  const deltaY = mouseY - resize.startMouseY;
+  const deltaX = finiteCell(mouseX) - finiteCell(resize.startMouseX);
+  const deltaY = finiteCell(mouseY) - finiteCell(resize.startMouseY);
   const { viewportRect, minWidth, minHeight, maxWidth, maxHeight } = getNormalizedConstraints(viewport, defaults);
 
-  let nextX = resize.startX;
-  let nextY = resize.startY;
-  let nextWidth = resize.startWidth;
-  let nextHeight = resize.startHeight;
+  const startX = clamp(finiteCell(resize.startX), viewportRect.minX, viewportRect.cols - 1);
+  const startY = clamp(finiteCell(resize.startY, viewportRect.minY), viewportRect.minY, viewportRect.rows - viewportRect.bottomInset - 1);
+  const startWidth = positiveInteger(resize.startWidth, minWidth, maxWidth);
+  const startHeight = positiveInteger(resize.startHeight, minHeight, maxHeight);
+  let nextX = startX;
+  let nextY = startY;
+  let nextWidth = startWidth;
+  let nextHeight = startHeight;
 
   const growLeft = resize.edge === 'left' || resize.edge === 'top-left' || resize.edge === 'bottom-left';
   const growRight = resize.edge === 'right' || resize.edge === 'top-right' || resize.edge === 'bottom-right';
@@ -221,30 +251,32 @@ export function resizeFloatingWindowFrame(
   const growBottom = resize.edge === 'bottom' || resize.edge === 'bottom-left' || resize.edge === 'bottom-right';
 
   if (growLeft) {
-    const rawX = resize.startX + deltaX;
-    const maxLeftX = resize.startX + resize.startWidth - minWidth;
+    const rawX = startX + deltaX;
+    const maxLeftX = startX + startWidth - minWidth;
     nextX = clamp(rawX, viewportRect.minX, maxLeftX);
-    nextWidth = resize.startWidth + (resize.startX - nextX);
+    nextWidth = startWidth + (startX - nextX);
   }
   if (growRight) {
-    const maxRightWidth = viewport.cols - resize.startX;
-    nextWidth = clamp(resize.startWidth + deltaX, minWidth, Math.min(maxWidth, maxRightWidth));
+    const maxRightWidth = viewportRect.cols - startX;
+    nextWidth = clamp(startWidth + deltaX, minWidth, Math.min(maxWidth, maxRightWidth));
   }
   if (growTop) {
-    const rawY = resize.startY + deltaY;
-    const maxTopY = resize.startY + resize.startHeight - minHeight;
+    const rawY = startY + deltaY;
+    const maxTopY = startY + startHeight - minHeight;
     nextY = clamp(rawY, viewportRect.minY, maxTopY);
-    nextHeight = resize.startHeight + (resize.startY - nextY);
+    nextHeight = startHeight + (startY - nextY);
   }
   if (growBottom) {
-    const maxBottomHeight = viewport.rows - (viewport.bottomInset ?? 0) - resize.startY;
-    nextHeight = clamp(resize.startHeight + deltaY, minHeight, Math.min(maxHeight, maxBottomHeight));
+    const maxBottomHeight = viewportRect.rows - viewportRect.bottomInset - startY;
+    nextHeight = clamp(startHeight + deltaY, minHeight, Math.min(maxHeight, maxBottomHeight));
   }
 
+  const width = clamp(nextWidth, minWidth, maxWidth);
+  const height = clamp(nextHeight, minHeight, maxHeight);
   return {
-    x: nextX,
-    y: nextY,
-    width: clamp(nextWidth, minWidth, maxWidth),
-    height: clamp(nextHeight, minHeight, maxHeight),
+    x: clamp(nextX, viewportRect.minX, Math.max(viewportRect.minX, viewportRect.cols - width)),
+    y: clamp(nextY, viewportRect.minY, Math.max(viewportRect.minY, viewportRect.rows - viewportRect.bottomInset - height)),
+    width,
+    height,
   };
 }

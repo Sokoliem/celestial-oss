@@ -29,6 +29,18 @@ export {
 // Geometry types are exported from primitives/index.ts — do not re-export here.
 
 export {
+  clampFloatingWindowFrame,
+  type FloatingViewportBounds,
+  type FloatingWindowDefaults,
+  type FloatingWindowDragState,
+  type FloatingWindowFrame,
+  type FloatingWindowResizeEdge,
+  type FloatingWindowResizeState,
+  resizeFloatingWindowFrame,
+  translateFloatingWindowFrame,
+  translateFloatingWindowFromDragState,
+} from '../floating-window-drag.js';
+export {
   buildNavMap,
   createFocusModel,
   type Direction,
@@ -51,18 +63,6 @@ export {
   type PaneRect,
 } from '../focus.js';
 export {
-  createKeymap,
-  findKeymapConflicts,
-  type KeyBinding,
-  type KeyCommand,
-  type KeymapConflict,
-  type KeymapModel,
-  type KeymapPlatform,
-  type KeymapScope,
-  normalizeAccelerator,
-  resolvePlatformKeyAction,
-} from '../keymap.js';
-export {
   createKeybindingModel,
   getActivePane,
   type KeyBindingAction,
@@ -74,6 +74,18 @@ export {
   keybindingUpdateResult,
   resolveKeyAction,
 } from '../keybindings.js';
+export {
+  createKeymap,
+  findKeymapConflicts,
+  type KeyBinding,
+  type KeyCommand,
+  type KeymapConflict,
+  type KeymapModel,
+  type KeymapPlatform,
+  type KeymapScope,
+  normalizeAccelerator,
+  resolvePlatformKeyAction,
+} from '../keymap.js';
 export type {
   HorizonLayoutState,
   HorizonPersistenceConfig,
@@ -129,7 +141,6 @@ export {
   scrollRegionUpdate,
   scrollRegionUpdateResult,
 } from '../scroll.js';
-
 export {
   createSessionStore,
   listSessions,
@@ -140,6 +151,36 @@ export {
   saveSession,
   type WorkspaceSession,
 } from '../session.js';
+export {
+  getWindowChromeControlWidth,
+  hitTestWindowChromeTitleBar,
+  type RenderWindowChromeOptions,
+  renderWindowChrome,
+  type WindowChromeHitTarget,
+  type WindowChromeTokens,
+  windowChromeContract,
+} from '../window-chrome.js';
+export {
+  applyWindowCommand,
+  closeWindow,
+  createDesktopWindow,
+  type DesktopWindowState,
+  fullscreenWindow,
+  hideWindow,
+  normalizeManagedWindow,
+  restoreWindow,
+  showWindow,
+  type WindowChromeConfig,
+  type WindowChromeControl,
+  type WindowChromeHoverTarget,
+  type WindowCommand,
+  type WindowCommandSource,
+  type WindowLifecycleOptions,
+  type WindowLifecycleResult,
+  type WindowMode,
+  type WindowRole,
+  windowLifecycleUpdate,
+} from '../window-lifecycle.js';
 export {
   createWindowManager,
   getFrontmostWindow,
@@ -152,53 +193,11 @@ export {
   windowManagerUpdateResult,
 } from '../windows.js';
 export {
-  createDesktopWindow,
-  fullscreenWindow,
-  hideWindow,
-  type DesktopWindowState,
-  type WindowChromeConfig,
-  type WindowChromeControl,
-  type WindowChromeHoverTarget,
-  type WindowCommand,
-  type WindowCommandSource,
-  type WindowLifecycleOptions,
-  type WindowLifecycleResult,
-  type WindowMode,
-  type WindowRole,
-  applyWindowCommand,
-  normalizeManagedWindow,
-  restoreWindow,
-  showWindow,
-  windowLifecycleUpdate,
-  closeWindow,
-} from '../window-lifecycle.js';
-export {
-  getWindowChromeControlWidth,
-  hitTestWindowChromeTitleBar,
-  renderWindowChrome,
-  type RenderWindowChromeOptions,
-  type WindowChromeHitTarget,
-  windowChromeContract,
-  type WindowChromeTokens,
-} from '../window-chrome.js';
-export {
-  clampFloatingWindowFrame,
-  resizeFloatingWindowFrame,
-  translateFloatingWindowFrame,
-  translateFloatingWindowFromDragState,
-  type FloatingViewportBounds,
-  type FloatingWindowDefaults,
-  type FloatingWindowDragState,
-  type FloatingWindowFrame,
-  type FloatingWindowResizeEdge,
-  type FloatingWindowResizeState,
-} from '../floating-window-drag.js';
-export {
   createWorkspaceDescriptor,
-  desktopWorkspaceUpdate,
+  createWorkspaceModel,
   type DesktopWorkspaceModel,
   type DesktopWorkspaceMsg,
-  createWorkspaceModel,
+  desktopWorkspaceUpdate,
   getActiveWorkspace,
   movePaneToWorkspace,
   moveTabToWorkspace,

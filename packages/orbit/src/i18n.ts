@@ -9,7 +9,7 @@
  * surfaces.
  */
 
-import { resolveLocale, type LocaleLike } from '@celestial/rosetta';
+import { type LocaleLike, resolveLocale } from '@celestial/rosetta';
 
 export type OrbitMessageKey =
   | 'form.nav.hint'
@@ -60,12 +60,7 @@ export function interpolate(template: string, vars?: Record<string, string | num
 }
 
 /** Look up a translated message. Falls back to the built-in default. */
-export function tr(
-  messages: OrbitMessages | undefined,
-  key: OrbitMessageKey,
-  vars?: Record<string, string | number>,
-  locale?: LocaleLike,
-): string {
+export function tr(messages: OrbitMessages | undefined, key: OrbitMessageKey, vars?: Record<string, string | number>, locale?: LocaleLike): string {
   // Resolving the locale doesn't change the lookup today (no locale-specific
   // defaults shipped yet), but it's threaded so consumers can opt in via
   // rosetta when they ship message bundles.
