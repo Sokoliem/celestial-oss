@@ -1,7 +1,8 @@
+import { StringDecoder } from 'node:string_decoder';
 import { matchOsc52Response, parseBracketedPaste } from '../clipboard.js';
 import { focusNext, focusPrev } from '../focus.js';
 import { parseMouseInputFromBuffer } from '../mouse.js';
-import { type KeyEvent, parseKeyInput } from '../terminal.js';
+import { createKeyInputDecoder, type KeyEvent } from '../terminal.js';
 import { type MouseEventData, type Sub, subKind } from '../types.js';
 import { diff, type LayoutPlan, type LayoutRect, renderUpdates } from '../vdom.js';
 import { applyFastEchoPatches, buildFastEchoPatches } from './fast-echo.js';
@@ -9,6 +10,10 @@ import type { RuntimeContext } from './runtime-context.js';
 import { applySubMap } from './sub-map.js';
 
 export function installInput<Model, M>(ctx: RuntimeContext<Model, M>): void {
+  const inputTextDecoder = new StringDecoder('utf8');
+  const keyDecoder = createKeyInputDecoder();
+  let pendingKeyFlush: ReturnType<typeof setTimeout> | null = null;
+
   function maybeFastEcho(event: KeyEvent): void {
     const patches = buildFastEchoPatches(ctx.focusState.currentId, ctx.lastFocusNodes, ctx.lastLayoutPlan, ctx.prevGrid, event);
     if (!patches || patches.length === 0 || !ctx.prevGrid) return;
@@ -19,9 +24,48 @@ export function installInput<Model, M>(ctx: RuntimeContext<Model, M>): void {
     ctx.prevGrid = nextGrid;
   }
 
+  function dispatchKeyEvents(events: readonly KeyEvent[]): void {
+    if (!ctx.running || ctx.suspended) return;
+    for (const event of events) {
+      maybeFastEcho(event);
+      const subs = ctx.safeGetSubs();
+      ctx.combinatorIdCounter = 0;
+      ctx.dispatchKeyEvent(subs, event);
+
+      if (event.key === 'tab' && !event.ctrl && !event.alt) {
+        ctx.focusState = event.shift ? focusPrev(ctx.focusState, ctx.lastFocusNodes) : focusNext(ctx.focusState, ctx.lastFocusNodes);
+        ctx.combinatorIdCounter = 0;
+        ctx.dispatchFocusChange(subs, ctx.focusState.currentId);
+        ctx.cancelScheduledRender();
+        ctx.render();
+        continue;
+      }
+
+      const refreshedSubs = ctx.safeGetSubs();
+      ctx.combinatorIdCounter = 0;
+      ctx.matchKeySub(refreshedSubs, event.key, event);
+    }
+  }
+
+  function decodeKeyBytes(data: Buffer): void {
+    if (pendingKeyFlush) {
+      clearTimeout(pendingKeyFlush);
+      pendingKeyFlush = null;
+    }
+    dispatchKeyEvents(keyDecoder.push(data));
+    if (keyDecoder.pendingBytes > 0) {
+      pendingKeyFlush = setTimeout(() => {
+        pendingKeyFlush = null;
+        dispatchKeyEvents(keyDecoder.flush());
+      }, 25);
+      pendingKeyFlush.unref?.();
+    }
+  }
+
   ctx.handleInput = (data: Buffer): void => {
     if (!ctx.running || ctx.suspended) return;
-    let inputText = data.toString('utf8');
+    let inputText = inputTextDecoder.write(data);
+    if (inputText.length === 0) return;
 
     while (true) {
       const clipboardMatch = matchOsc52Response(inputText);
@@ -70,26 +114,7 @@ export function installInput<Model, M>(ctx: RuntimeContext<Model, M>): void {
       }
     }
 
-    const keyEvents = parseKeyInput(Buffer.from(inputText, 'utf8'));
-    for (const event of keyEvents) {
-      maybeFastEcho(event);
-      const subs = ctx.safeGetSubs();
-      ctx.combinatorIdCounter = 0;
-      ctx.dispatchKeyEvent(subs, event);
-
-      if (event.key === 'tab' && !event.ctrl && !event.alt) {
-        ctx.focusState = event.shift ? focusPrev(ctx.focusState, ctx.lastFocusNodes) : focusNext(ctx.focusState, ctx.lastFocusNodes);
-        ctx.combinatorIdCounter = 0;
-        ctx.dispatchFocusChange(subs, ctx.focusState.currentId);
-        ctx.cancelScheduledRender();
-        ctx.render();
-        continue;
-      }
-
-      const refreshedSubs = ctx.safeGetSubs();
-      ctx.combinatorIdCounter = 0;
-      ctx.matchKeySub(refreshedSubs, event.key, event);
-    }
+    decodeKeyBytes(Buffer.from(inputText, 'utf8'));
   };
 
   ctx.dispatchPasteEvent = (sub: Sub<M>, text: string): void => {

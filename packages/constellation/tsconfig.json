@@ -2,10 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDirs": ["./src", "../nebula/src"],
+    "rootDirs": ["./src", "../nebula/src", "../rosetta/src"],
     "baseUrl": ".",
     "paths": {
-      "@celestial/nebula": ["../nebula/src/index.ts"]
+      "@celestial/nebula": ["../nebula/src/index.ts"],
+      "@celestial/rosetta": ["../rosetta/src/index.ts"]
     },
     "skipLibCheck": true
   },

@@ -6,4 +6,4 @@
 
 export { ansi } from './terminal/ansi.js';
 export { createTerminal, type TerminalBackend } from './terminal/backend.js';
-export { type KeyEvent, parseKeyInput } from './terminal/key-input.js';
+export { createKeyInputDecoder, type KeyEvent, type KeyInputDecoder, parseKeyInput } from './terminal/key-input.js';

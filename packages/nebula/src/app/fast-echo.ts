@@ -94,6 +94,11 @@ export function buildFastEchoPatches(
   const hint = focusedNode?.echoHint;
   if (!hint || hint.kind !== 'text-input') return null;
   if (event.ctrl || event.alt) return null;
+  // Fast echo patches one terminal cell per character. Defer Unicode,
+  // combining, wide, and multi-cell input to the normal grapheme-aware render.
+  if (!/^[\x20-\x7e]*$/.test(hint.value) || (event.char !== undefined && !/^[\x20-\x7e]$/.test(event.char)) || (hint.mask && !/^[\x20-\x7e]$/.test(hint.mask))) {
+    return null;
+  }
 
   const focusEntry = findFocusedEntry(plan.root, focusedId);
   if (!focusEntry) return null;

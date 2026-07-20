@@ -1,13 +1,21 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
 import { style } from '@celestial/core/corona';
-import type { EchoHint, FocusOptions, Msg, ThemeContext, VNode } from '@celestial/core/nebula';
+import type { EchoHint, FocusOptions, KeyEvent, LayoutRects, Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { Cmd, event, focus, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
+import {
+  applySingleLineKey,
+  deleteBackward,
+  deleteForward,
+  graphemeIndexAtCell,
+  graphemes,
+  insertSingleLinePaste,
+  replaceSelection,
+  selectionRange,
+} from './editable-text.js';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 import type { Validator } from './validation.js';
 import { compose as composeValidators, validate } from './validation.js';
-
-// ─── Token contract ─────────────────────────────────────────────────────────
 
 export interface TextInputTokens {
   text: Color;
@@ -20,13 +28,13 @@ export interface TextInputTokens {
 }
 
 export const textInputContract: TokenContract<TextInputTokens> = {
-  text: (t: SemanticTheme) => t.colors.text,
-  placeholder: (t: SemanticTheme) => t.colors.muted,
-  border: (t: SemanticTheme) => t.colors.border,
-  borderHover: (t: SemanticTheme) => t.colors.borderHover,
-  borderActive: (t: SemanticTheme) => t.colors.borderActive,
-  placeholderStyle: (t: SemanticTheme) => t.typography.caption,
-  bodyStyle: (t: SemanticTheme) => t.typography.body,
+  text: (theme: SemanticTheme) => theme.colors.text,
+  placeholder: (theme: SemanticTheme) => theme.colors.muted,
+  border: (theme: SemanticTheme) => theme.colors.border,
+  borderHover: (theme: SemanticTheme) => theme.colors.borderHover,
+  borderActive: (theme: SemanticTheme) => theme.colors.borderActive,
+  placeholderStyle: (theme: SemanticTheme) => theme.typography.caption,
+  bodyStyle: (theme: SemanticTheme) => theme.typography.body,
 };
 
 export interface TextInputConfig {
@@ -40,14 +48,23 @@ export interface TextInputConfig {
   themeCtx?: ThemeContext;
   theme?: ThemeInput;
 }
+
 export interface TextInputModel {
   value: string;
+  /** Cursor position measured in grapheme clusters. */
   cursor: number;
   focused: boolean;
   hovered?: boolean;
+  selectionAnchor?: number;
+  layoutX?: number;
   validationError?: string;
 }
+
 export type TextInputMsg =
+  | Msg<'key', { event: KeyEvent }>
+  | Msg<'paste', { value: string }>
+  | Msg<'pointer', { x: number }>
+  | Msg<'layout', { rects: LayoutRects }>
   | Msg<'char', { char: string }>
   | Msg<'backspace'>
   | Msg<'delete'>
@@ -62,35 +79,27 @@ export type TextInputMsg =
   | Msg<'blur'>
   | Msg<'noop'>;
 
-function printableCharSubscriptions(): Array<Sub<TextInputMsg>> {
-  const subscriptions: Array<Sub<TextInputMsg>> = [Sub.key('space', { type: 'char', char: ' ' })];
-
-  for (let code = 33; code <= 126; code++) {
-    const char = String.fromCharCode(code);
-    subscriptions.push(Sub.key(char, { type: 'char', char }));
-  }
-
-  return subscriptions;
-}
-
-/** Convert a string to an array of codepoints (handles surrogate pairs). */
-function toCodepoints(s: string): string[] {
-  return Array.from(s);
+function keyEvent(key: string, char?: string): KeyEvent {
+  return { key, char, ctrl: false, alt: false, shift: false };
 }
 
 export function textInput(config: TextInputConfig): ComponentDescriptor<TextInputModel, TextInputMsg> {
   const placeholder = config.placeholder ?? '';
   const mask = config.mask;
-  const printableSubs = printableCharSubscriptions();
+  const maskGrapheme = mask ? (graphemes(mask)[0] ?? '*') : undefined;
   const inputId = `text-input-${Math.random().toString(36).slice(2, 10)}`;
+  const surfaceId = `${inputId}:surface`;
+  const focusTag = `${inputId}:focus`;
+  const hoverTag = `${inputId}:hover`;
+  const leaveTag = `${inputId}:leave`;
 
   function buildEchoHint(model: TextInputModel): EchoHint {
-    return {
-      kind: 'text-input' as const,
-      value: model.value,
-      cursor: model.cursor,
-      mask,
-    };
+    return { kind: 'text-input', value: model.value, cursor: model.cursor, mask: maskGrapheme };
+  }
+
+  function displayedGraphemes(value: string): string[] {
+    const parts = graphemes(value);
+    return maskGrapheme ? parts.map(() => maskGrapheme) : parts;
   }
 
   function buildDisplayRow(model: TextInputModel, tokens: TextInputTokens): VNode {
@@ -104,71 +113,92 @@ export function textInput(config: TextInputConfig): ComponentDescriptor<TextInpu
         }),
       );
     }
-    const cps = toCodepoints(model.value);
-    const cpLen = cps.length;
-    const displayCps = mask ? Array(cpLen).fill(mask) : cps;
-    const display = displayCps.join('');
+
+    const parts = displayedGraphemes(model.value);
+    const display = parts.join('');
     if (!model.focused) {
-      return row(text(display, model.hovered ? style({ color: tokens.borderHover, bold: true, reverse: true }) : undefined));
+      return row(text(display, model.hovered ? style({ color: tokens.borderHover, bold: true, reverse: true }) : style({ color: tokens.text })));
     }
-    const beforeStr = displayCps.slice(0, model.cursor).join('');
-    const ch = model.cursor < cpLen ? displayCps[model.cursor]! : ' ';
-    const afterStr = displayCps.slice(model.cursor + 1).join('');
-    const cursorStyle = style({ reverse: true });
-    return row(text(beforeStr), text(ch, cursorStyle), text(afterStr));
+
+    const range = selectionRange(model);
+    if (range) {
+      return row(
+        text(parts.slice(0, range[0]).join(''), style({ color: tokens.text })),
+        text(parts.slice(range[0], range[1]).join(''), style({ color: tokens.text, reverse: true })),
+        text(parts.slice(range[1]).join(''), style({ color: tokens.text })),
+      );
+    }
+
+    const before = parts.slice(0, model.cursor).join('');
+    const cursor = model.cursor < parts.length ? parts[model.cursor]! : ' ';
+    const after = parts.slice(model.cursor + 1).join('');
+    return row(text(before, style({ color: tokens.text })), text(cursor, style({ color: tokens.text, reverse: true })), text(after, style({ color: tokens.text })));
+  }
+
+  function submit(model: TextInputModel): TextInputModel {
+    if (config.validators && config.validators.length > 0) {
+      const error = validate(model.value, composeValidators(...config.validators));
+      if (error) return { ...model, validationError: error };
+    }
+    config.onSubmit?.(model.value);
+    return { ...model, validationError: undefined };
+  }
+
+  function applyKey(model: TextInputModel, event: KeyEvent): TextInputModel {
+    const result = applySingleLineKey(model, event);
+    if (result.submit) return submit(model);
+    if (result.changed) config.onChange?.(result.state.value);
+    return { ...model, ...result.state };
   }
 
   return {
     init(): [TextInputModel, Cmd<TextInputMsg>] {
-      const initVal = config.value ?? '';
-      return [{ value: initVal, cursor: toCodepoints(initVal).length, focused: false }, Cmd.none()];
+      const value = config.value ?? '';
+      return [{ value, cursor: graphemes(value).length, focused: false }, Cmd.none()];
     },
     update(msg: TextInputMsg, model: TextInputModel): [TextInputModel, Cmd<TextInputMsg>] {
-      const cps = toCodepoints(model.value);
-      const cpLen = cps.length;
       switch (msg.type) {
+        case 'key':
+          return [applyKey(model, msg.event), Cmd.none()];
+        case 'paste': {
+          const state = insertSingleLinePaste(model, msg.value);
+          if (state.value !== model.value) config.onChange?.(state.value);
+          return [{ ...model, ...state }, Cmd.none()];
+        }
+        case 'pointer': {
+          const display = displayedGraphemes(model.value).join('');
+          const cursor = graphemeIndexAtCell(display, msg.x - (model.layoutX ?? msg.x));
+          return [{ ...model, cursor, selectionAnchor: undefined, focused: true }, Cmd.none()];
+        }
+        case 'layout': {
+          const rect = msg.rects.rects.get(inputId);
+          return rect ? [{ ...model, layoutX: rect.x }, Cmd.none()] : [model, Cmd.none()];
+        }
         case 'char': {
-          const before = cps.slice(0, model.cursor).join('');
-          const after = cps.slice(model.cursor).join('');
-          const nv = before + msg.char + after;
-          config.onChange?.(nv);
-          return [{ ...model, value: nv, cursor: model.cursor + 1 }, Cmd.none()];
+          const state = replaceSelection(model, msg.char);
+          if (state.value !== model.value) config.onChange?.(state.value);
+          return [{ ...model, ...state }, Cmd.none()];
         }
         case 'backspace': {
-          if (model.cursor === 0) return [model, Cmd.none()];
-          const before = cps.slice(0, model.cursor - 1).join('');
-          const after = cps.slice(model.cursor).join('');
-          const nv = before + after;
-          config.onChange?.(nv);
-          return [{ ...model, value: nv, cursor: model.cursor - 1 }, Cmd.none()];
+          const state = deleteBackward(model);
+          if (state.value !== model.value) config.onChange?.(state.value);
+          return [{ ...model, ...state }, Cmd.none()];
         }
         case 'delete': {
-          if (model.cursor >= cpLen) return [model, Cmd.none()];
-          const before = cps.slice(0, model.cursor).join('');
-          const after = cps.slice(model.cursor + 1).join('');
-          const nv = before + after;
-          config.onChange?.(nv);
-          return [{ ...model, value: nv }, Cmd.none()];
+          const state = deleteForward(model);
+          if (state.value !== model.value) config.onChange?.(state.value);
+          return [{ ...model, ...state }, Cmd.none()];
         }
         case 'cursor-left':
-          return [{ ...model, cursor: Math.max(0, model.cursor - 1) }, Cmd.none()];
+          return [applyKey(model, keyEvent('left')), Cmd.none()];
         case 'cursor-right':
-          return [{ ...model, cursor: Math.min(cpLen, model.cursor + 1) }, Cmd.none()];
+          return [applyKey(model, keyEvent('right')), Cmd.none()];
         case 'home':
-          return [{ ...model, cursor: 0 }, Cmd.none()];
+          return [applyKey(model, keyEvent('home')), Cmd.none()];
         case 'end':
-          return [{ ...model, cursor: cpLen }, Cmd.none()];
-        case 'submit': {
-          if (config.validators && config.validators.length > 0) {
-            const composed = composeValidators(...config.validators);
-            const error = validate(model.value, composed);
-            if (error) {
-              return [{ ...model, validationError: error }, Cmd.none()];
-            }
-          }
-          config.onSubmit?.(model.value);
-          return [{ ...model, validationError: undefined }, Cmd.none()];
-        }
+          return [applyKey(model, keyEvent('end')), Cmd.none()];
+        case 'submit':
+          return [submit(model), Cmd.none()];
         case 'hover':
           return [{ ...model, hovered: true }, Cmd.none()];
         case 'leave':
@@ -176,7 +206,7 @@ export function textInput(config: TextInputConfig): ComponentDescriptor<TextInpu
         case 'focus':
           return [{ ...model, focused: true }, Cmd.none()];
         case 'blur':
-          return [{ ...model, focused: false }, Cmd.none()];
+          return [{ ...model, focused: false, selectionAnchor: undefined }, Cmd.none()];
         case 'noop':
           return [model, Cmd.none()];
       }
@@ -186,47 +216,32 @@ export function textInput(config: TextInputConfig): ComponentDescriptor<TextInpu
       const content = buildDisplayRow(model, tokens);
       const focusOptions: FocusOptions = {
         focused: model.focused,
-        echoHint: model.focused ? buildEchoHint(model) : undefined,
+        echoHint: model.focused && !selectionRange(model) ? buildEchoHint(model) : undefined,
       };
-      const surfaceId = `${inputId}:surface`;
-      const focusTag = `${inputId}:focus`;
-      const hoverTag = `${inputId}:hover`;
-      const leaveTag = `${inputId}:leave`;
       const surface = event(
         surfaceId,
         content,
         { onClick: focusTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
         { label: placeholder || 'Text input', intent: 'edit', affordances: ['hover', 'click'], cursor: 'text', keyboardHint: 'Type' },
       );
-      setVNodeMeta(surface, {
-        testId: placeholder || inputId,
-        a11y: { role: 'textbox', label: placeholder },
-      });
+      setVNodeMeta(surface, { testId: placeholder || inputId, a11y: { role: 'textbox', label: placeholder } });
       return focus(inputId, surface, focusOptions);
     },
     subscriptions(model: TextInputModel): Sub<TextInputMsg> {
-      const surfaceId = `${inputId}:surface`;
-      const focusTag = `${inputId}:focus`;
-      const hoverTag = `${inputId}:hover`;
-      const leaveTag = `${inputId}:leave`;
       const mouse = Sub.elementMouse<TextInputMsg>((mouseEvent) => {
         if (mouseEvent.elementId !== surfaceId) return { type: 'noop' };
-        if (mouseEvent.handlerTag === focusTag) return { type: 'focus' };
+        if (mouseEvent.handlerTag === focusTag) return { type: 'pointer', x: mouseEvent.x };
         if (mouseEvent.handlerTag === hoverTag) return { type: 'hover' };
         if (mouseEvent.handlerTag === leaveTag) return { type: 'leave' };
         return { type: 'noop' };
       });
-      if (!model.focused) return mouse;
-      return Sub.batch<TextInputMsg>(
+      const layout = Sub.layout<TextInputMsg>([inputId], (rects) => ({ type: 'layout', rects }));
+      if (!model.focused) return Sub.batch(mouse, layout);
+      return Sub.batch(
         mouse,
-        ...printableSubs,
-        Sub.key('left', { type: 'cursor-left' }),
-        Sub.key('right', { type: 'cursor-right' }),
-        Sub.key('home', { type: 'home' }),
-        Sub.key('end', { type: 'end' }),
-        Sub.key('backspace', { type: 'backspace' }),
-        Sub.key('delete', { type: 'delete' }),
-        Sub.key('enter', { type: 'submit' }),
+        layout,
+        Sub.keyEvent<TextInputMsg>((event) => ({ type: 'key', event })),
+        Sub.paste<TextInputMsg>((value) => ({ type: 'paste', value })),
       );
     },
   };

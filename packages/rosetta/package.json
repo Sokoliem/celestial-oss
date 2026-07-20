@@ -1,25 +1,27 @@
 {
-  "name": "@celestial/ui",
+  "name": "@celestial/rosetta",
   "version": "0.1.0-preview.1",
-  "description": "Curated, accessible UI components for Celestial terminal applications",
+  "description": "Internationalization and bidirectional text for the Celestial TUI ecosystem",
   "keywords": [
     "tui",
     "terminal",
     "cli",
     "typescript",
     "celestial",
-    "components",
-    "widgets",
-    "ui-kit",
-    "select",
-    "table",
-    "modal"
+    "i18n",
+    "internationalization",
+    "localization",
+    "translation"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/Sokoliem/celestial-oss.git",
-    "directory": "packages/constellation"
+    "directory": "packages/rosetta"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/rosetta",
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -41,20 +43,14 @@
   ],
   "scripts": {
     "build": "tsup",
-    "test": "vitest run --config vitest.preview.config.ts",
-    "test:all": "vitest run",
-    "test:watch": "vitest --config vitest.preview.config.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.preview.json",
-    "typecheck:all": "tsc --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
-    "@celestial/core": "workspace:*",
-    "@celestial/rosetta": "workspace:*"
+    "@celestial/corona": "workspace:*"
   },
   "devDependencies": {
-    "@celestial/nebula": "workspace:*",
-    "@celestial/test": "workspace:*",
     "tsup": "^8.3.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"

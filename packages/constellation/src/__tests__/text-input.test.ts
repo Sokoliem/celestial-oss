@@ -158,7 +158,12 @@ describe('textInput', () => {
     const component = textInput({ placeholder: 'Name' });
     const [model] = component.init();
     const sub = component.subscriptions?.(model);
-    expect(subKind(sub!).kind).toBe('elementMouse');
+    const kind = subKind(sub!);
+    expect(kind.kind).toBe('batch');
+    if (kind.kind === 'batch') {
+      expect(kind.subs.some((entry) => subKind(entry).kind === 'elementMouse')).toBe(true);
+      expect(kind.subs.some((entry) => subKind(entry).kind === 'layout')).toBe(true);
+    }
 
     const [hovered] = component.update({ type: 'hover' }, model);
     expect(hovered.hovered).toBe(true);
@@ -192,7 +197,7 @@ describe('textInput', () => {
     expect(onSubmit).toHaveBeenCalledWith('hello');
   });
 
-  it('subscribes to printable characters when focused', () => {
+  it('subscribes to Unicode key events and bracketed paste when focused', () => {
     const component = textInput({});
     const sub = component.subscriptions?.({ value: '', cursor: 0, focused: true });
     expect(sub).toBeDefined();
@@ -207,16 +212,8 @@ describe('textInput', () => {
       return;
     }
 
-    const charBindings = kind.subs.flatMap((entry) => {
-      const entryKind = subKind(entry);
-      if (entryKind.kind !== 'key' || entryKind.msg.type !== 'char') {
-        return [];
-      }
-      return [`${entryKind.key}:${entryKind.msg.char}`];
-    });
-
-    expect(charBindings).toContain('a:a');
-    expect(charBindings).toContain('space: ');
+    expect(kind.subs.some((entry) => subKind(entry).kind === 'keyEvent')).toBe(true);
+    expect(kind.subs.some((entry) => subKind(entry).kind === 'paste')).toBe(true);
   });
 
   it('exposes an echo hint on the focused input node', () => {

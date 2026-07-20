@@ -2,6 +2,7 @@ packages:
   - "packages/atlas"
   - "packages/corona"
   - "packages/aurora"
+  - "packages/rosetta"
   - "packages/nebula"
   - "packages/gravity"
   - "packages/nexus"

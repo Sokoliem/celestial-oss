@@ -15,6 +15,7 @@
       "@celestial/nebula": ["./packages/nebula/src/index.ts"],
       "@celestial/corona": ["./packages/corona/src/index.ts"],
       "@celestial/aurora": ["./packages/aurora/src/index.ts"],
+      "@celestial/rosetta": ["./packages/rosetta/src/index.ts"],
       "@celestial/atlas": ["./packages/atlas/src/index.ts"],
       "@celestial/gravity": ["./packages/gravity/src/index.ts"],
       "@celestial/nexus": ["./packages/nexus/src/index.ts"],
