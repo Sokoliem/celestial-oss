@@ -1,17 +1,23 @@
 # Upstream provenance
 
-The focused public preview is extracted selectively from the private full
-Celestial repository. It does not share or import the private repository's Git
-history.
+This repository is the canonical development and release line for Celestial.
+It began as a selective extraction from the earlier full Celestial repository,
+but fixes and new public work now land here and are not backported.
 
 This capability expansion is pinned to full Celestial commit
 `d2d23c79d14aba1e7214cf9c459d40dd06cdf328`.
 
-Each imported package is reviewed before publication. Private dependencies,
+The earlier full repository is a read-only donor. Each imported package or
+feature is pinned to a donor commit and reviewed before publication. Private dependencies,
 browser-only integrations, unsafe execution hooks, and experimental APIs are
 removed or replaced with public adapters. Public package names and manifests
 are then adapted for `Sokoliem/celestial-oss` and validated from packed
 artifacts.
+
+The machine-readable import ledger is
+[`scripts/donor-imports.json`](../scripts/donor-imports.json). The public
+boundary check rejects a publishable package without complete donor, license,
+dependency, API, test, and security review records.
 
 The extraction was adapted in these deliberate ways:
 
@@ -23,9 +29,9 @@ The extraction was adapted in these deliberate ways:
 
 Every package manifest points at this public repository. The boundary checker rejects unpublished Celestial dependencies in manifests, source, emitted JavaScript, and declarations, while the packed-install gate exercises both ESM and CommonJS consumers.
 
-The authoritative repositories are:
+The repository roles are:
 
-- `C:\Users\emsok\celestial`: full source used for selective extraction.
-- `C:\Users\emsok\celestial-oss`: clean-history public working checkout.
+- `C:\Users\emsok\celestial-oss`: canonical source and public release checkout.
+- `C:\Users\emsok\celestial`: read-only donor used for selective migration.
 - `C:\Users\emsok\celestial-oss-preview`: private-history staging only; never
   a pull-request source for the public repository.
