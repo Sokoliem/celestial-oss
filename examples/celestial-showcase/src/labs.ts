@@ -48,6 +48,7 @@ export const SMOKE_STEPS: Array<{ id: SmokeId; label: string; lab: LabId; instru
   { id: 'visual', label: 'Visual stack inspected', lab: 'visuals', instruction: 'Visit the Visuals lab.' },
   { id: 'mouse-click', label: 'Mouse target clicked', lab: 'mouse', instruction: 'Click inside the pointer target.' },
   { id: 'mouse-drag', label: 'Payload dropped', lab: 'mouse', instruction: 'Drag the receipt into the drop bay.' },
+  { id: 'context-menu', label: 'Context menu opened', lab: 'mouse', instruction: 'Right-click a lab, control, window, or blank panel area.' },
   { id: 'layer', label: 'Layer composed', lab: 'layers', instruction: 'Open and dismiss any transient surface.' },
   { id: 'adaptive', label: 'Breakpoint crossed', lab: 'windows', instruction: 'Resize across 120 or 80 columns.' },
   { id: 'window', label: 'Window managed', lab: 'windows', instruction: 'Focus, minimize, maximize, restore, or close a window.' },
@@ -83,7 +84,12 @@ function action(
   const node = event(
     `showcase-action:${id}`,
     visual,
-    { onClick: `showcase-action:${id}`, onMouseEnter: `showcase-hover:${region}`, onMouseLeave: `showcase-leave:${region}` },
+    {
+      onClick: `showcase-action:${id}`,
+      onRightClick: `showcase-context:action:${id}`,
+      onMouseEnter: `showcase-hover:${region}`,
+      onMouseLeave: `showcase-leave:${region}`,
+    },
     { label, intent: id, affordances: ['hover', 'click'], cursor: 'pointer' },
   );
   runtime.setVNodeMeta(node, { a11y: { role: 'button', label } });
@@ -391,6 +397,9 @@ export function renderMouseLab(model: CelestialShowcaseModel): VNode {
   return column(
     row(text('MOUSE + NEXUS', headingStyle), text('  mouse-first, keyboard-backed', mutedStyle)),
     text('Sub.mouse supplies terminal coordinates; event-scoped regions supply semantic targets and propagation.', mutedStyle, { wrap: true }),
+    text('Right-click labs, controls, windows, or blank panel space for a target-specific menu; arrows and Escape provide keyboard backup.', actionStyle, {
+      wrap: true,
+    }),
     text(''),
     model.cols >= 100 ? splitPane({ direction: 'horizontal', ratio: 0.58, first: target, second: telemetry, minSize: 30 }) : target,
     text(''),

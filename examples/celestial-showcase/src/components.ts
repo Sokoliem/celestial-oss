@@ -138,8 +138,8 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
   },
   mouse: {
     purpose: 'Exercise terminal pointer tracking and event-scoped hit regions.',
-    mouse: 'Move over the target, click it, use the wheel, then drag the verification receipt into the drop bay.',
-    verify: 'Watch coordinates, event phase, target, click count, drag offset, and the drop receipt update.',
+    mouse: 'Move over the target, click it, use the wheel, drag the receipt, then right-click a lab, control, window, or blank panel area.',
+    verify: 'Watch coordinates, event phase, target, click count, drag offset, drop receipt, and target-specific context actions update.',
   },
   layers: {
     purpose: 'Compose transient UI over a preserved base application.',
@@ -154,7 +154,7 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
   smoke: {
     purpose: 'Turn the interaction history into a repeatable acceptance check.',
     mouse: 'Click any incomplete receipt to jump to its relevant lab.',
-    verify: 'Complete all ten receipts, then run the README headless and PTY commands.',
+    verify: 'Complete all eleven receipts, then run the README headless and PTY commands.',
   },
 };
 
@@ -497,7 +497,12 @@ function action(
   const node = event(
     `showcase-action:${id}`,
     visual,
-    { onClick: `showcase-action:${id}`, onMouseEnter: `showcase-hover:action:${id}`, onMouseLeave: `showcase-leave:action:${id}` },
+    {
+      onClick: `showcase-action:${id}`,
+      onRightClick: `showcase-context:action:${id}`,
+      onMouseEnter: `showcase-hover:action:${id}`,
+      onMouseLeave: `showcase-leave:action:${id}`,
+    },
     { label, intent: id, affordances: ['hover', 'click'], cursor: 'pointer' },
   );
   runtime.setVNodeMeta(node, { a11y: { role: 'button', label } });

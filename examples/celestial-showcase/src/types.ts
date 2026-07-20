@@ -10,6 +10,8 @@ import type {
   CommandPaletteMsg,
   ConfirmDialogModel,
   ConfirmDialogMsg,
+  ContextMenuMsg,
+  ContextMenuState,
   DataTableModel,
   DataTableMsg,
   DrawerModel,
@@ -44,7 +46,16 @@ export type LabId = 'core' | 'components' | 'workflows' | 'visuals' | 'mouse' | 
 export type ViewportTier = 'compact' | 'medium' | 'wide';
 export type ComponentFocus = 'none' | 'text' | 'textarea' | 'checkbox' | 'radio' | 'select' | 'toggle' | 'slider' | 'tabs' | 'pagination' | 'table' | 'tree';
 export type SurfaceId = 'modal' | 'confirm' | 'drawer' | 'tooltip' | 'palette' | 'toast';
-export type SmokeId = 'core' | 'component' | 'workflow' | 'visual' | 'mouse-click' | 'mouse-drag' | 'layer' | 'adaptive' | 'window' | 'help';
+export type SmokeId = 'core' | 'component' | 'workflow' | 'visual' | 'mouse-click' | 'mouse-drag' | 'context-menu' | 'layer' | 'adaptive' | 'window' | 'help';
+
+export type ShowcaseContextAction =
+  | { type: 'run-action'; action: string }
+  | { type: 'switch-lab'; lab: LabId }
+  | { type: 'open-help'; lab: LabId }
+  | { type: 'next-receipt' }
+  | { type: 'window-action'; id: string; action: 'focus' | 'close' | 'minimize' | 'maximize' | 'restore' }
+  | { type: 'reset' }
+  | { type: 'close' };
 
 export interface ShowcaseWorkspace {
   id: 'flight' | 'systems' | 'verification';
@@ -66,6 +77,16 @@ export interface MouseDragPayload {
   label: string;
 }
 
+export interface ElementMouseReceipt {
+  handlerTag: string;
+  elementId: string;
+  x: number;
+  y: number;
+  type?: MouseEventData['type'];
+  deltaY?: number;
+  stopPropagation(): void;
+}
+
 export type WindowDrag = { id: string; kind: 'drag'; state: FloatingWindowDragState } | { id: string; kind: 'resize'; state: FloatingWindowResizeState };
 
 export interface CelestialShowcaseModel {
@@ -79,6 +100,8 @@ export interface CelestialShowcaseModel {
   componentPage: number;
   componentFocus: ComponentFocus;
   helpOpen: boolean;
+  contextMenu: ContextMenuState<ShowcaseContextAction>;
+  contextMenuSource: string | null;
   hoveredRegion: string | null;
   pointer: PointerTelemetry;
   dragDemo: DragState<MouseDragPayload>;
@@ -109,14 +132,6 @@ export interface CelestialShowcaseModel {
   palette: CommandPaletteModel;
 }
 
-export interface ElementMouseReceipt {
-  handlerTag: string;
-  elementId: string;
-  x: number;
-  y: number;
-  type?: MouseEventData['type'];
-}
-
 export type CelestialShowcaseMsg =
   | { type: 'switch-lab'; lab: LabId }
   | { type: 'next-lab'; delta: 1 | -1 }
@@ -124,6 +139,10 @@ export type CelestialShowcaseMsg =
   | { type: 'tick' }
   | { type: 'element-mouse'; event: ElementMouseReceipt }
   | { type: 'raw-mouse'; event: MouseEventData }
+  | { type: 'context-menu'; msg: ContextMenuMsg<ShowcaseContextAction> }
+  | { type: 'context-menu-activate' }
+  | { type: 'open-context-menu-keyboard' }
+  | { type: 'run-action'; action: string }
   | { type: 'component-page'; page: number }
   | { type: 'component-focus'; focus: ComponentFocus }
   | { type: 'text-input'; msg: TextInputMsg }

@@ -202,6 +202,96 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.completed.has('mouse-drag')).toBe(true);
   });
 
+  it('opens target-specific right-click menus with keyboard navigation, resize clamping, and click-away shielding', async () => {
+    const handle = flightDeck(140, 42);
+    const screen = createScreen(handle);
+    const coreTab = findText(handle.lastFrame(), '1 Core');
+
+    const componentsTab = findText(handle.lastFrame(), '2 Components');
+    handle.click(componentsTab.col + 2, componentsTab.row, 'right');
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenuSource).toBe('lab:components');
+    expect(handle.lastFrame()).toContain('Open Components lab');
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+
+    handle.click(coreTab.col + 2, coreTab.row, 'right');
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenu.open).toBe(true);
+    expect(handle.model.contextMenuSource).toBe('lab:core');
+    expect(handle.model.completed.has('context-menu')).toBe(true);
+    expect(handle.lastFrame()).toContain('Open Core help');
+    expect(handle.lastFrame()).toContain('Switch lab');
+    expect(handle.lastFrame()).toContain('Close menu');
+
+    screen.fireResize(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
+    expect(handle.model.contextMenu.open).toBe(true);
+    expect(handle.lastFrame()).toContain('Open Core help');
+    expect(handle.lastFrame()).toContain('Close menu');
+
+    const outside = findText(handle.lastFrame(), 'CELESTIAL FLIGHT DECK');
+    handle.click(outside.col, outside.row);
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenu.open).toBe(false);
+    expect(handle.model.activeLab).toBe('core');
+
+    const compactCoreTab = findText(handle.lastFrame(), '1 Core');
+    handle.click(compactCoreTab.col + 2, compactCoreTab.row, 'right');
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenuSource).toBe('lab:core');
+    handle.pressKey('down');
+    handle.pressKey('right');
+    expect(handle.lastFrame()).toContain('Components');
+    handle.pressKey('enter');
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenu.open).toBe(false);
+    expect(handle.model.activeLab).toBe('components');
+
+    handle.pressKey('f10', { shift: true });
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenu.open).toBe(true);
+    expect(handle.model.contextMenuSource).toBe('lab:components');
+    expect(handle.lastFrame()).toContain('Open Components help');
+    handle.pressKey('escape');
+
+    screen.fireResize(140, 42);
+    handle.pressKey('1');
+    await handle.waitForUpdate();
+    handle.click(100, 30, 'right');
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenuSource).toBe('lab:core');
+    expect(handle.lastFrame()).toContain('Open Core help');
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+
+    const commands = findText(handle.lastFrame(), 'Commands');
+    handle.click(commands.col + 2, commands.row, 'right');
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenuSource).toBe('action:palette');
+    expect(handle.lastFrame()).toContain('Open command palette');
+  });
+
+  it('routes a window context-menu action by mouse without clicking through to the window canvas', async () => {
+    const handle = flightDeck(140, 42);
+    handle.pressKey('7');
+    await handle.waitForUpdate();
+    const instrumentBody = findText(handle.lastFrame(), 'Live instrument bus');
+
+    handle.click(instrumentBody.col, instrumentBody.row, 'right');
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenuSource).toBe('window:telemetry');
+    expect(handle.lastFrame()).toContain('Focus Telemetry instrument');
+    expect(handle.lastFrame()).toContain('Minimize window');
+    expect(handle.lastFrame()).toContain('Close window');
+
+    const minimize = findText(handle.lastFrame(), 'Minimize window');
+    handle.click(minimize.col, minimize.row);
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenu.open).toBe(false);
+    expect(handle.model.windows.windows.find((window) => window.id === 'telemetry')?.minimized).toBe(true);
+    expect(handle.model.windowDrag).toBeNull();
+  });
+
   it('advances an Orbit workflow and renders the rich visual stack', async () => {
     const handle = flightDeck(140, 48);
 

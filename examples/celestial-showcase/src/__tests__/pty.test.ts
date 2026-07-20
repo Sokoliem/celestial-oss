@@ -3,7 +3,7 @@ import { createPtyHarness } from '@celestial/test/pty';
 import { describe, expect, it } from 'vitest';
 
 describe('Celestial Flight Deck PTY', () => {
-  it('launches, changes lab and breakpoint, opens contextual help, and exits cleanly', async () => {
+  it('launches, opens the keyboard-backed context menu, changes lab and breakpoint, opens contextual help, and exits cleanly', async () => {
     const packageRoot = fileURLToPath(new URL('../..', import.meta.url));
     const harness = await createPtyHarness({
       command: process.execPath,
@@ -18,6 +18,15 @@ describe('Celestial Flight Deck PTY', () => {
     try {
       await harness.waitForText('CELESTIAL FLIGHT DECK');
       await harness.waitForText('WIDE / floating');
+      // F10 is the compatibility form of the Shift+F10 context-menu gesture.
+      // ConPTY does not preserve synthetic Shift modifiers consistently.
+      harness.write('\u001b[21~');
+      await harness.waitForText('Open Core help');
+      harness.write('\u001b');
+      // The status-bar diff may repaint that receipt in non-contiguous chunks.
+      // A lab shortcut only works after Escape dismisses the topmost menu, so
+      // the next assertion verifies the state transition behaviorally.
+      await new Promise<void>((resolve) => setTimeout(resolve, 75));
       harness.write('7');
       // Incremental terminal diffs do not guarantee that a replaced heading is
       // emitted as one contiguous chunk. This window body is newly painted and

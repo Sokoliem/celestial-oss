@@ -212,6 +212,11 @@ describe('parseKeyInput', () => {
       expect(events).toEqual([{ key: 'f10', char: undefined, ctrl: false, alt: false, shift: false }]);
     });
 
+    it('parses Shift+F10 from the xterm modifier parameter', () => {
+      const events = parseKeyInput(esc('\x1b[21;2~'));
+      expect(events).toEqual([{ key: 'f10', char: undefined, ctrl: false, alt: false, shift: true }]);
+    });
+
     it('should parse F11 (\\x1b[23~)', () => {
       const events = parseKeyInput(esc('\x1b[23~'));
       expect(events).toEqual([{ key: 'f11', char: undefined, ctrl: false, alt: false, shift: false }]);
@@ -220,6 +225,13 @@ describe('parseKeyInput', () => {
     it('should parse F12 (\\x1b[24~)', () => {
       const events = parseKeyInput(esc('\x1b[24~'));
       expect(events).toEqual([{ key: 'f12', char: undefined, ctrl: false, alt: false, shift: false }]);
+    });
+  });
+
+  describe('xterm modifiers', () => {
+    it('parses combined modifiers on CSI letter keys', () => {
+      const events = parseKeyInput(esc('\x1b[1;8A'));
+      expect(events).toEqual([{ key: 'up', char: undefined, ctrl: true, alt: true, shift: true }]);
     });
   });
 

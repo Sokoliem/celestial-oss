@@ -89,7 +89,7 @@ The same architecture powers four supported, local-only demos:
 | Task Console | `pnpm demo:tasks` | Real worker processes, streaming subscriptions, progress, cancellation, retry, responsive layout, and layered UI |
 | API Inspector | `pnpm demo:api` | Loopback HTTP, abortable commands, form controls, response tabs, history, and error states |
 | Horizon Workbench | `pnpm demo:horizon` | Beta splits, tabs, workspaces, responsive panes, floating windows, and window chrome |
-| Celestial Flight Deck | `pnpm demo:showcase` | The complete focused preview: eight labs, 44 curated builders, Orbit workflows, rich terminal output, mouse/layers/adaptiveness, Horizon windows, contextual help, and live smoke receipts |
+| Celestial Flight Deck | `pnpm demo:showcase` | The complete focused preview: eight labs, 44 curated builders, Orbit workflows, rich terminal output, target-specific right-click menus, mouse/layers/adaptiveness, Horizon windows, contextual help, and live smoke receipts |
 
 All four demos import only the supported preview packages. They use bundled/local fixtures and never require credentials or an external service. The Flight Deck's detailed manual and automated acceptance path is in [`examples/celestial-showcase/README.md`](examples/celestial-showcase/README.md).
 

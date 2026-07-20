@@ -61,6 +61,22 @@ function makeKey(key: string, options?: { char?: string; ctrl?: boolean; alt?: b
   };
 }
 
+function parseXtermModifiers(params: string): Pick<KeyEvent, 'ctrl' | 'alt' | 'shift'> | null {
+  const parts = params.split(';');
+  if (parts.length === 1) return { ctrl: false, alt: false, shift: false };
+  if (parts.length !== 2) return null;
+
+  const encoded = Number(parts[1]);
+  if (!Number.isInteger(encoded) || encoded < 1 || encoded > 8) return null;
+
+  const mask = encoded - 1;
+  return {
+    shift: (mask & 1) !== 0,
+    alt: (mask & 2) !== 0,
+    ctrl: (mask & 4) !== 0,
+  };
+}
+
 function utf8SequenceLength(first: number): number {
   if (first <= 0x7f) return 1;
   if (first >= 0xc2 && first <= 0xdf) return 2;
@@ -110,8 +126,9 @@ function parseCSI(data: Buffer, start: number, final: boolean): CsiResult {
   i++;
 
   if (finalChar === '~') {
-    const keyName = TILDE_KEY_MAP[params];
-    return keyName ? { event: makeKey(keyName), nextIndex: i } : null;
+    const keyName = TILDE_KEY_MAP[params.split(';')[0] ?? ''];
+    const modifiers = parseXtermModifiers(params);
+    return keyName && modifiers ? { event: makeKey(keyName, modifiers), nextIndex: i } : null;
   }
 
   if (finalChar === 'M' && params === '' && i + 2 >= data.length) return final ? null : 'incomplete';
@@ -125,7 +142,8 @@ function parseCSI(data: Buffer, start: number, final: boolean): CsiResult {
   if (finalChar === 'Z') return { event: makeKey('tab', { shift: true }), nextIndex: i };
 
   const letterKey = CSI_LETTER_MAP[finalChar];
-  return letterKey ? { event: makeKey(letterKey), nextIndex: i } : null;
+  const modifiers = parseXtermModifiers(params);
+  return letterKey && modifiers ? { event: makeKey(letterKey, modifiers), nextIndex: i } : null;
 }
 
 function parseChunk(data: Buffer, final: boolean): { events: KeyEvent[]; consumed: number } {
