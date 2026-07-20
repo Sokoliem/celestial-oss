@@ -15,6 +15,8 @@
       "@celestial/mirage": ["./packages/mirage/src/index.ts"],
       "@celestial/nova": ["./packages/nova/src/index.ts"],
       "@celestial/stellar": ["./packages/stellar/src/index.ts"],
+      "@celestial/pulsar": ["./packages/pulsar/src/index.ts"],
+      "@celestial/pulsar/*": ["./packages/pulsar/src/*.ts"],
       "@celestial/test": ["./packages/telescope/src/index.ts"],
       "@celestial/test/*": ["./packages/telescope/src/*.ts"],
       "@celestial/nebula": ["./packages/nebula/src/index.ts"],

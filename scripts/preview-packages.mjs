@@ -13,15 +13,13 @@ export const requiredPreviewPackages = Object.freeze([
   '@celestial/mirage',
   '@celestial/nova',
   '@celestial/stellar',
+  '@celestial/pulsar',
   '@celestial/test',
 ]);
 
 export const conditionalPreviewPackages = Object.freeze(['@celestial/horizon']);
 
-export const previewPackages = Object.freeze([
-  ...requiredPreviewPackages,
-  ...conditionalPreviewPackages,
-]);
+export const previewPackages = Object.freeze([...requiredPreviewPackages, ...conditionalPreviewPackages]);
 
 export const previewPackageDirectories = Object.freeze({
   '@celestial/atlas': 'packages/atlas',
@@ -38,6 +36,7 @@ export const previewPackageDirectories = Object.freeze({
   '@celestial/mirage': 'packages/mirage',
   '@celestial/nova': 'packages/nova',
   '@celestial/stellar': 'packages/stellar',
+  '@celestial/pulsar': 'packages/pulsar',
   '@celestial/test': 'packages/telescope',
   '@celestial/horizon': 'packages/horizon',
 });
