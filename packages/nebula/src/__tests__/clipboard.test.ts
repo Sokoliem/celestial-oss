@@ -142,6 +142,12 @@ describe('parseOsc52Response', () => {
     const encoded = Buffer.from('test', 'utf-8').toString('base64');
     expect(parseOsc52Response(`\x1b]52;c;${encoded}`)).toBeNull();
   });
+
+  it('rejects malformed and oversized clipboard payloads', () => {
+    expect(parseOsc52Response('\x1b]52;c;not-base64!\x07')).toBeNull();
+    const oversized = Buffer.alloc(1024 * 1024 + 1, 0x61).toString('base64');
+    expect(parseOsc52Response(`\x1b]52;c;${oversized}\x07`)).toBeNull();
+  });
 });
 
 // ─── ClipboardCmd ───────────────────────────────────────────────────────────

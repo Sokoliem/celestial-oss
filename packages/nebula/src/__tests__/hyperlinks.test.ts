@@ -110,4 +110,28 @@ describe('hyperlink rendering', () => {
 
     expect(output).toContain(`\x1b]8;;${url}\x1b\\`);
   });
+
+  it('rejects unsafe hyperlink protocols at the paint boundary', () => {
+    const grid = layout(link('javascript:alert(1)', 'X'), 2, 1);
+    const output = renderUpdates(diff({ cells: [], width: 0, height: 0 }, grid));
+
+    expect(grid.cells[0]![0]!.href).toBeUndefined();
+    expect(output).not.toContain('\x1b]8;');
+    expect(output).not.toContain('javascript:');
+  });
+
+  it('preserves safe inline OSC 8 links without allowing protocol injection', () => {
+    const content = `${osc8Open('https://example.com/docs')}X${OSC8_CLOSE}`;
+    const grid = layout(text(content), 2, 1);
+
+    expect(grid.cells[0]![0]!.href).toBe('https://example.com/docs');
+  });
+
+  it('neutralizes control and style injection in direct cell updates', () => {
+    const output = renderUpdates([{ row: 0, col: 0, char: `A\x1b[2JB`, style: { fg: `\x1b[31m\x1b[2J` } }]);
+
+    expect(output).not.toContain('\x1b[2J');
+    expect(output).not.toContain('\x1b[31m');
+    expect(output).toContain('A␛[2JB');
+  });
 });

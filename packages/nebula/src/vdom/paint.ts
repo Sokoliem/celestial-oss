@@ -2,17 +2,20 @@
  * Extracted from ../vdom.ts. Behavior-preserving split.
  */
 
+import { sanitizeHyperlink, sanitizeTerminalText, tokenizeTerminalText } from '@celestial/corona';
 import { segmentGraphemes } from '@celestial/rosetta';
 import type { Cell, CellGrid } from './cells.js';
 import type { TextNode } from './nodes.js';
 import type { ResolvedStyleAttrs } from './style.js';
 import { visualWidth, wrapText } from './visual-width.js';
 
-export function setCellTransparent(grid: CellGrid, row: number, col: number, char: string, style: ResolvedStyleAttrs): void {
+export function setCellTransparent(grid: CellGrid, row: number, col: number, char: string, style: ResolvedStyleAttrs, href?: string): void {
   if (row >= 0 && row < grid.height && col >= 0 && col < grid.width) {
     // Skip "empty" overlay cells — allow base content to show through
     if (char === ' ' && !style.bg) return;
-    grid.cells[row]![col] = { char, style };
+    const cell: Cell = { char, style };
+    if (href) cell.href = href;
+    grid.cells[row]![col] = cell;
   }
 }
 
@@ -38,7 +41,7 @@ export function writeRenderedCell(
   const width = measuredWidth;
 
   if (transparent) {
-    setCellTransparent(grid, row, col, char, style);
+    setCellTransparent(grid, row, col, char, style, href);
   } else {
     setCell(grid, row, col, char, style, href);
   }
@@ -50,59 +53,58 @@ export function writeRenderedCell(
   return width;
 }
 
-/** Parse ANSI SGR codes from a string and yield chars with accumulated style */
-export function parseAnsiLine(line: string, baseStyle: ResolvedStyleAttrs): Array<{ char: string; style: ResolvedStyleAttrs }> {
-  const result: Array<{ char: string; style: ResolvedStyleAttrs }> = [];
-  let currentStyle: ResolvedStyleAttrs = { ...baseStyle };
-  let i = 0;
+export interface ParsedAnsiCell {
+  char: string;
+  style: ResolvedStyleAttrs;
+  href?: string;
+}
 
-  while (i < line.length) {
-    // Check for ANSI escape sequence
-    if (line[i] === '\x1b' && line[i + 1] === '[') {
-      // Find the end of the sequence (terminated by 'm')
-      let j = i + 2;
-      while (j < line.length && line[j] !== 'm') j++;
-      if (j < line.length) {
-        const codes = line
-          .slice(i + 2, j)
-          .split(';')
-          .map(Number);
-        currentStyle = applyAnsiCodes(currentStyle, codes, baseStyle);
-        i = j + 1;
-        continue;
-      }
+function parseSgrCodes(parameters: string): number[] {
+  if (parameters === '') return [0];
+  const codes: number[] = [];
+  for (const group of parameters.split(';')) {
+    const parts = group.split(':');
+    const code = Number(parts[0] || 0);
+    if (!Number.isInteger(code)) continue;
+    codes.push(code);
+    if ((code === 38 || code === 48) && parts.length > 1) {
+      const extended = parts
+        .slice(1)
+        .filter((part) => part !== '')
+        .map(Number)
+        .filter(Number.isInteger);
+      codes.push(...extended);
     }
-    // Check for OSC sequence (e.g., OSC 8 hyperlinks: \x1b]8;params;url\x07)
-    if (line[i] === '\x1b' && line[i + 1] === ']') {
-      let j = i + 2;
-      // Scan forward to BEL (\x07) or ST (\x1b\\)
-      while (j < line.length) {
-        if (line[j] === '\x07') {
-          j++; // skip past BEL
-          break;
-        }
-        if (line[j] === '\x1b' && line[j + 1] === '\\') {
-          j += 2; // skip past ST (\x1b\\)
-          break;
-        }
-        j++;
-      }
-      i = j;
+  }
+  return codes;
+}
+
+/** Parse the safe inline SGR/OSC 8 subset and expose all other controls as text. */
+export function parseAnsiLine(line: string, baseStyle: ResolvedStyleAttrs): ParsedAnsiCell[] {
+  const result: ParsedAnsiCell[] = [];
+  let currentStyle: ResolvedStyleAttrs = { ...baseStyle };
+  let currentHref: string | undefined;
+  const safeLine = sanitizeTerminalText(line);
+
+  for (const token of tokenizeTerminalText(safeLine)) {
+    if (token.kind === 'sgr') {
+      currentStyle = applyAnsiCodes(currentStyle, parseSgrCodes(token.parameters), baseStyle);
       continue;
     }
-    const nextEscape = line.indexOf('\x1b', i);
-    const plainEnd = nextEscape === -1 ? line.length : nextEscape;
-    if (plainEnd === i) {
-      // Preserve malformed or unsupported escapes as a zero-width/control
-      // unit while guaranteeing progress through the input.
-      result.push({ char: line[i]!, style: { ...currentStyle } });
-      i++;
+    if (token.kind === 'hyperlink-open') {
+      currentHref = sanitizeHyperlink(token.href);
       continue;
     }
-    for (const grapheme of segmentGraphemes(line.slice(i, plainEnd))) {
-      result.push({ char: grapheme, style: { ...currentStyle } });
+    if (token.kind === 'hyperlink-close') {
+      currentHref = undefined;
+      continue;
     }
-    i = plainEnd;
+    if (token.kind !== 'text') continue;
+    for (const grapheme of segmentGraphemes(token.value)) {
+      const cell: ParsedAnsiCell = { char: grapheme, style: { ...currentStyle } };
+      if (currentHref) cell.href = currentHref;
+      result.push(cell);
+    }
   }
 
   return result;
@@ -148,13 +150,14 @@ function ansi256ToRgb(n: number): [number, number, number] {
 }
 
 function applyAnsiCodes(current: ResolvedStyleAttrs, codes: number[], base: ResolvedStyleAttrs): ResolvedStyleAttrs {
-  const s: ResolvedStyleAttrs = { ...current };
+  let s: ResolvedStyleAttrs = { ...current };
 
   for (let ci = 0; ci < codes.length; ci++) {
     const code = codes[ci]!;
     switch (code) {
       case 0: // reset
-        return { ...base };
+        s = { ...base };
+        break;
       case 1:
         s.bold = true;
         break;
@@ -327,30 +330,38 @@ function applyAnsiCodes(current: ResolvedStyleAttrs, codes: number[], base: Reso
       case 38: // fg extended
         if (codes[ci + 1] === 5 && ci + 2 < codes.length) {
           const n = codes[ci + 2]!;
-          s.fg = `\x1b[38;5;${n}m`;
-          s.fgRgb = ansi256ToRgb(n);
+          if (n >= 0 && n <= 255) {
+            s.fg = `\x1b[38;5;${n}m`;
+            s.fgRgb = ansi256ToRgb(n);
+          }
           ci += 2;
         } else if (codes[ci + 1] === 2 && ci + 4 < codes.length) {
           const r = codes[ci + 2]!,
             g = codes[ci + 3]!,
             b = codes[ci + 4]!;
-          s.fg = `\x1b[38;2;${r};${g};${b}m`;
-          s.fgRgb = [r, g, b];
+          if ([r, g, b].every((channel) => channel >= 0 && channel <= 255)) {
+            s.fg = `\x1b[38;2;${r};${g};${b}m`;
+            s.fgRgb = [r, g, b];
+          }
           ci += 4;
         }
         break;
       case 48: // bg extended
         if (codes[ci + 1] === 5 && ci + 2 < codes.length) {
           const n = codes[ci + 2]!;
-          s.bg = `\x1b[48;5;${n}m`;
-          s.bgRgb = ansi256ToRgb(n);
+          if (n >= 0 && n <= 255) {
+            s.bg = `\x1b[48;5;${n}m`;
+            s.bgRgb = ansi256ToRgb(n);
+          }
           ci += 2;
         } else if (codes[ci + 1] === 2 && ci + 4 < codes.length) {
           const r = codes[ci + 2]!,
             g = codes[ci + 3]!,
             b = codes[ci + 4]!;
-          s.bg = `\x1b[48;2;${r};${g};${b}m`;
-          s.bgRgb = [r, g, b];
+          if ([r, g, b].every((channel) => channel >= 0 && channel <= 255)) {
+            s.bg = `\x1b[48;2;${r};${g};${b}m`;
+            s.bgRgb = [r, g, b];
+          }
           ci += 4;
         }
         break;
@@ -363,6 +374,7 @@ export function renderText(node: TextNode, resolvedStyle: ResolvedStyleAttrs, gr
   const lines = node.wrap ? wrapText(node.content, availW) : node.content.split('\n');
   const baseStyle = resolvedStyle ?? {};
   const gradientFg = baseStyle.gradientFg;
+  const nodeHref = node.href ? sanitizeHyperlink(node.href) : undefined;
   const maxLines = Math.min(lines.length, availH);
 
   let globalCharIdx = 0;
@@ -377,7 +389,7 @@ export function renderText(node: TextNode, resolvedStyle: ResolvedStyleAttrs, gr
       if (colOffset + w > availW) break; // wide char would overflow
       // Apply per-character gradient foreground if available
       const cellStyle = gradientFg && globalCharIdx < gradientFg.length ? { ...cell.style, fg: gradientFg[globalCharIdx] } : cell.style;
-      colOffset += writeRenderedCell(grid, y + lineIdx, x + colOffset, cell.char, cellStyle, false, node.href);
+      colOffset += writeRenderedCell(grid, y + lineIdx, x + colOffset, cell.char, cellStyle, false, nodeHref ?? cell.href);
       globalCharIdx++;
     }
   }
@@ -394,6 +406,7 @@ export function renderTextTransparent(
 ): void {
   const lines = node.wrap ? wrapText(node.content, availW) : node.content.split('\n');
   const baseStyle = resolvedStyle ?? {};
+  const nodeHref = node.href ? sanitizeHyperlink(node.href) : undefined;
   const maxLines = Math.min(lines.length, availH);
 
   for (let lineIdx = 0; lineIdx < maxLines; lineIdx++) {
@@ -405,7 +418,7 @@ export function renderTextTransparent(
       const w = visualWidth(cell.char);
       if (w === 0) continue; // skip zero-width chars (combining marks, ZWJ, etc.)
       if (colOffset + w > availW) break;
-      colOffset += writeRenderedCell(grid, y + lineIdx, x + colOffset, cell.char, cell.style, true);
+      colOffset += writeRenderedCell(grid, y + lineIdx, x + colOffset, cell.char, cell.style, true, nodeHref ?? cell.href);
     }
   }
 }

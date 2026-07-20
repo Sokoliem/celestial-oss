@@ -3,10 +3,9 @@
  *
  * SECURITY (PRD §13 / R-7):
  *   - URL passed as an argv element. Never `shell: true`.
- *   - `new URL(url)` validates the input — throws on malformed before any spawn.
- *   - Windows `start ""` empty-title argument prevents the URL being parsed
- *     as the window title (the classic `start http://...` foot-gun).
- *   - WSL prefers `wslview` over the Windows-interop `cmd.exe /c start`.
+ *   - URL passed as a single argv element with an explicit protocol allowlist.
+ *   - Windows uses rundll32 directly rather than a command-shell built-in.
+ *   - WSL prefers `wslview` over Windows interop.
  */
 
 import type { ChildHandle, ProcessEnvProbe, SpawnFn } from './process-env.js';
@@ -14,13 +13,14 @@ import { getEnv } from './process-env.js';
 
 export interface OpenUrlOpts {
   readonly timeoutMs?: number;
+  readonly allowedProtocols?: readonly string[];
   readonly spawn?: SpawnFn;
   readonly env?: ProcessEnvProbe;
 }
 
 export interface OpenUrlResult {
   readonly ok: boolean;
-  readonly tool?: 'open' | 'xdg-open' | 'start' | 'wslview' | 'powershell';
+  readonly tool?: 'open' | 'xdg-open' | 'rundll32' | 'wslview';
   readonly error?: string;
   readonly durationMs?: number;
 }
@@ -52,8 +52,7 @@ function commandsFor(probe: ProcessEnvProbe, url: string): readonly OpenCommand[
     case 'darwin':
       return [{ cmd: 'open', args: [url], tool: 'open' }];
     case 'win32':
-      // start <title> <url> — empty title prevents URL-as-title parsing.
-      return [{ cmd: 'cmd', args: ['/c', 'start', '""', url], tool: 'start' }];
+      return [{ cmd: 'rundll32.exe', args: ['url.dll,FileProtocolHandler', url], tool: 'rundll32' }];
     default: {
       if (isWsl(probe.env)) {
         return [
@@ -100,16 +99,21 @@ function runOne(spawnFn: SpawnFn, command: OpenCommand, timeoutMs: number): Prom
 }
 
 export async function openUrl(url: string, opts: OpenUrlOpts = {}): Promise<OpenUrlResult> {
-  // Validate the URL up front — throws on malformed before any spawn.
+  let parsed: URL;
   try {
-    // eslint-disable-next-line no-new
-    new URL(url);
+    parsed = new URL(url);
   } catch (err) {
     return { ok: false, error: `invalid URL: ${err instanceof Error ? err.message : String(err)}` };
   }
 
+  const allowedProtocols = new Set((opts.allowedProtocols ?? ['http:', 'https:', 'mailto:']).map((protocol) => `${protocol.replace(/:$/, '').toLowerCase()}:`));
+  if (!allowedProtocols.has(parsed.protocol.toLowerCase())) {
+    return { ok: false, error: `URL protocol is not allowed: ${parsed.protocol}` };
+  }
+
   const env = opts.env ?? getEnv();
   const timeout = opts.timeoutMs ?? 5000;
+  if (!Number.isFinite(timeout) || timeout <= 0) return { ok: false, error: 'timeoutMs must be a positive finite number' };
   const spawnFn = opts.spawn ?? (await defaultSpawn());
   const commands = commandsFor(env, url);
   let lastError: string | undefined;

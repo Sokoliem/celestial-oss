@@ -1,18 +1,17 @@
-import { StringDecoder } from 'node:string_decoder';
-import { matchOsc52Response, parseBracketedPaste } from '../clipboard.js';
 import { focusNext, focusPrev } from '../focus.js';
-import { parseMouseInputFromBuffer } from '../mouse.js';
 import { createKeyInputDecoder, type KeyEvent } from '../terminal.js';
 import { type MouseEventData, type Sub, subKind } from '../types.js';
 import { diff, type LayoutPlan, type LayoutRect, renderUpdates } from '../vdom.js';
 import { applyFastEchoPatches, buildFastEchoPatches } from './fast-echo.js';
+import { createTerminalInputProtocolDecoder, type TerminalInputEvent } from './input-protocol.js';
 import type { RuntimeContext } from './runtime-context.js';
 import { applySubMap } from './sub-map.js';
 
 export function installInput<Model, M>(ctx: RuntimeContext<Model, M>): void {
-  const inputTextDecoder = new StringDecoder('utf8');
+  const protocolDecoder = createTerminalInputProtocolDecoder();
   const keyDecoder = createKeyInputDecoder();
   let pendingKeyFlush: ReturnType<typeof setTimeout> | null = null;
+  let pendingProtocolFlush: ReturnType<typeof setTimeout> | null = null;
 
   function maybeFastEcho(event: KeyEvent): void {
     const patches = buildFastEchoPatches(ctx.focusState.currentId, ctx.lastFocusNodes, ctx.lastLayoutPlan, ctx.prevGrid, event);
@@ -71,59 +70,74 @@ export function installInput<Model, M>(ctx: RuntimeContext<Model, M>): void {
     }
   }
 
+  function dispatchProtocolEvents(events: readonly TerminalInputEvent[]): void {
+    if (!ctx.running || ctx.suspended) return;
+    for (const inputEvent of events) {
+      switch (inputEvent.type) {
+        case 'keys':
+          decodeKeyBytes(inputEvent.data);
+          break;
+        case 'clipboard': {
+          const pendingRequest = ctx.pendingClipboardRequests.shift();
+          pendingRequest?.({ ok: true, value: inputEvent.text });
+          break;
+        }
+        case 'focus': {
+          const subs = ctx.safeGetSubs();
+          ctx.combinatorIdCounter = 0;
+          ctx.dispatchWindowFocus(subs, inputEvent.focused);
+          break;
+        }
+        case 'mouse': {
+          const subs = ctx.safeGetSubs();
+          ctx.combinatorIdCounter = 0;
+          ctx.dispatchMouseEvent(subs, inputEvent.event);
+          ctx.combinatorIdCounter = 0;
+          ctx.dispatchAutoElementMouse(subs, inputEvent.event);
+          break;
+        }
+        case 'paste':
+          if (ctx.pasteActive) {
+            const subs = ctx.safeGetSubs();
+            ctx.combinatorIdCounter = 0;
+            ctx.dispatchPasteEvent(subs, inputEvent.text);
+          }
+          break;
+        case 'discarded':
+          if (process.env.CELESTIAL_DEBUG_INPUT) {
+            process.stderr.write(`[input] discarded incomplete ${inputEvent.protocol} frame\n`);
+          }
+          break;
+      }
+    }
+  }
+
   ctx.handleInput = (data: Buffer): void => {
     if (!ctx.running || ctx.suspended) return;
-    let inputText = inputTextDecoder.write(data);
-    if (inputText.length === 0) return;
-
-    while (true) {
-      const clipboardMatch = matchOsc52Response(inputText);
-      if (!clipboardMatch) break;
-      const pendingRequest = ctx.pendingClipboardRequests.shift();
-      if (pendingRequest) {
-        pendingRequest({ ok: true, value: clipboardMatch.text });
-      }
-      inputText = `${inputText.slice(0, clipboardMatch.start)}${inputText.slice(clipboardMatch.end)}`;
-      if (!inputText) return;
+    if (pendingProtocolFlush) {
+      clearTimeout(pendingProtocolFlush);
+      pendingProtocolFlush = null;
     }
 
     if (process.env.CELESTIAL_DEBUG_INPUT) {
-      process.stderr.write(`[input] len=${data.length} hex=${data.toString('hex').slice(0, 60)} str=${JSON.stringify(inputText.slice(0, 40))}\n`);
+      process.stderr.write(`[input] len=${data.length} hex=${data.toString('hex').slice(0, 60)} str=${JSON.stringify(data.toString('utf8').slice(0, 40))}\n`);
     }
 
     ctx.resetIdleTimers();
-
-    while (true) {
-      const focusEvent = ctx.parseWindowFocusEvent(inputText);
-      if (!focusEvent) break;
-      const subs = ctx.safeGetSubs();
-      ctx.combinatorIdCounter = 0;
-      ctx.dispatchWindowFocus(subs, focusEvent.focused);
-      inputText = `${inputText.slice(0, focusEvent.start)}${inputText.slice(focusEvent.end)}`;
-      if (!inputText) return;
-    }
-
-    const mouseEvent = parseMouseInputFromBuffer(data);
-    if (mouseEvent) {
-      const subs = ctx.safeGetSubs();
-      ctx.combinatorIdCounter = 0;
-      ctx.dispatchMouseEvent(subs, mouseEvent);
-      ctx.combinatorIdCounter = 0;
-      ctx.dispatchAutoElementMouse(subs, mouseEvent);
+    if (data.length === 1 && data[0] === 0x1b && protocolDecoder.pendingBytes === 0) {
+      dispatchProtocolEvents([{ type: 'keys', data }]);
       return;
     }
+    dispatchProtocolEvents(protocolDecoder.push(data));
 
-    if (ctx.pasteActive) {
-      const pastedText = parseBracketedPaste(inputText);
-      if (pastedText !== null) {
-        const subs = ctx.safeGetSubs();
-        ctx.combinatorIdCounter = 0;
-        ctx.dispatchPasteEvent(subs, pastedText);
-        return;
-      }
+    if (protocolDecoder.pendingBytes > 0) {
+      const delay = protocolDecoder.pendingKind === 'paste' ? 1000 : protocolDecoder.pendingKind === 'osc' ? 500 : 25;
+      pendingProtocolFlush = setTimeout(() => {
+        pendingProtocolFlush = null;
+        dispatchProtocolEvents(protocolDecoder.flush());
+      }, delay);
+      pendingProtocolFlush.unref?.();
     }
-
-    decodeKeyBytes(Buffer.from(inputText, 'utf8'));
   };
 
   ctx.dispatchPasteEvent = (sub: Sub<M>, text: string): void => {

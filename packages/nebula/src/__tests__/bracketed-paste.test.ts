@@ -141,6 +141,40 @@ describe('bracketed paste in app runtime', () => {
     handle.stop();
   });
 
+  it('reassembles a paste split across input chunks and preserves trailing keys', () => {
+    const terminal = createMockTerminal();
+    const received: Array<{ type: 'paste'; text: string } | { type: 'key'; key: string }> = [];
+    type Msg = (typeof received)[number];
+
+    const handle = app<{}, Msg>(
+      {
+        init: () => [{}, Cmd.none()],
+        update: (msg, model) => {
+          received.push(msg);
+          return [model, Cmd.none()];
+        },
+        view: () => text('test'),
+        subscriptions: () =>
+          Sub.batch<Msg>(
+            Sub.paste((value) => ({ type: 'paste', text: value })),
+            Sub.key('a', { type: 'key', key: 'a' }),
+          ),
+      },
+      { terminal },
+    );
+
+    terminal.simulateInput(BRACKETED_PASTE_START.slice(0, 3));
+    terminal.simulateInput(`${BRACKETED_PASTE_START.slice(3)}hello`);
+    terminal.simulateInput(` world${BRACKETED_PASTE_END.slice(0, 2)}`);
+    terminal.simulateInput(`${BRACKETED_PASTE_END.slice(2)}a`);
+
+    expect(received).toEqual([
+      { type: 'paste', text: 'hello world' },
+      { type: 'key', key: 'a' },
+    ]);
+    handle.stop();
+  });
+
   it('delivers regular input normally (not as paste)', () => {
     const terminal = createMockTerminal();
     const receivedMsgs: Array<{ type: string; text?: string; key?: string }> = [];

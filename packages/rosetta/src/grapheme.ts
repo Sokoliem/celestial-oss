@@ -9,7 +9,7 @@
  * environments without it.
  */
 
-import { charWidth } from '@celestial/corona';
+import { graphemeCellWidth } from '@celestial/corona';
 
 // ── Segmenter availability ──────────────────────────────────────────────
 
@@ -117,13 +117,7 @@ export function graphemeSlice(text: string, start: number, end?: number): string
  * @returns The terminal cell width for that grapheme
  */
 export function measureGraphemeWidth(grapheme: string): number {
-  let width = 0;
-
-  for (const char of grapheme) {
-    width = Math.max(width, charWidth(char.codePointAt(0)!));
-  }
-
-  return width;
+  return graphemeCellWidth(grapheme);
 }
 
 /**

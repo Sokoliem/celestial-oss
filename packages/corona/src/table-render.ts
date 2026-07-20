@@ -142,6 +142,9 @@ export function renderStaticTable(options: RenderStaticTableOptions): string {
       padding,
       separatorWidth: borderStyle.columnSeparators ? 1 : 0,
     });
+    if (sizing.mode === 'stacked') {
+      return formattedRows.map((row) => headers.map((header, index) => `${header}: ${row[index] ?? emptyPlaceholder}`).join('\n')).join('\n\n');
+    }
     colWidths = sizing.finalWidths;
   }
 

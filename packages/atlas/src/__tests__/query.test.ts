@@ -154,4 +154,20 @@ describe('detectCapabilitiesAsync()', () => {
     await promise;
     expect(stdin.setRawMode).toHaveBeenCalledWith(false);
   });
+
+  it('does not restore or pause stdin while another terminal owner is active', async () => {
+    const { acquireTerminalLease } = await import('../terminal-lease.js');
+    const { stdin, stdout, emit } = createMockStreams();
+    const appLease = acquireTerminalLease(stdin as any);
+    const promise = queryDeviceAttributes({ stdin: stdin as any, stdout: stdout as any, timeout: 100 });
+
+    emit('\x1b[?1;2c');
+    await promise;
+    expect(stdin.setRawMode).not.toHaveBeenCalledWith(false);
+    expect(stdin.pause).not.toHaveBeenCalled();
+
+    appLease.release();
+    expect(stdin.setRawMode).toHaveBeenLastCalledWith(false);
+    expect(stdin.pause).toHaveBeenCalledTimes(1);
+  });
 });
