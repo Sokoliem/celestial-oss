@@ -154,7 +154,7 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
   smoke: {
     purpose: 'Turn the interaction history into a repeatable acceptance check.',
     mouse: 'Click any incomplete receipt to jump to its relevant lab.',
-    verify: 'Complete all eight receipts, then run the README headless and PTY commands.',
+    verify: 'Complete all ten receipts, then run the README headless and PTY commands.',
   },
 };
 
@@ -627,7 +627,7 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           }),
         ),
         named('divider()', divider({ label: 'Preview boundary', width: 42, tone: 'accent' })),
-        named('emptyState()', emptyState({ title: 'No private dependencies', description: 'The supported demo stays inside the reduced preview.', width: 42 })),
+        named('emptyState()', emptyState({ title: 'No private dependencies', description: 'The supported demo stays inside the focused preview.', width: 42 })),
       );
     case 6:
       return column(

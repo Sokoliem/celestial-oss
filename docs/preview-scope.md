@@ -6,10 +6,12 @@ Celestial's broader research codebase is larger than this focused public reposit
 
 The following packages may be published:
 
-- Foundation: `@celestial/atlas`, `@celestial/corona`, `@celestial/aurora`
+- Foundation: `@celestial/atlas`, `@celestial/corona`, `@celestial/aurora`, `@celestial/rosetta`
 - Runtime: `@celestial/nebula`, `@celestial/gravity`, `@celestial/nexus`
 - Recommended facade: `@celestial/core`
 - Curated components: `@celestial/ui`
+- Workflows: `@celestial/orbit`
+- Rich rendering: `@celestial/spectrum`, `@celestial/mirage`, `@celestial/nova`, `@celestial/stellar`, `@celestial/pulsar`
 - Testing: `@celestial/test`
 - Conditional beta: `@celestial/horizon`
 
@@ -22,7 +24,7 @@ Four private workspaces demonstrate the supported packages without widening the 
 - `examples/task-console` uses `@celestial/core` and `@celestial/ui` with bundled Node worker fixtures.
 - `examples/api-inspector` uses `@celestial/core` and `@celestial/ui` with an ephemeral loopback HTTP server.
 - `examples/horizon-workbench` adds the `@celestial/horizon` beta surface for window and workspace management.
-- `examples/celestial-showcase` combines the entire reduced preview into an adaptive, mouse-first Flight Deck with contextual help and live smoke receipts.
+- `examples/celestial-showcase` combines the entire focused preview into an adaptive, mouse-first Flight Deck with eight labs, contextual help, and live smoke receipts.
 
 The boundary checker validates both their manifests and source imports. `@celestial/test` and `@celestial/test/pty` are permitted only in test files. Other applications and examples are outside this repository's scope.
 
@@ -33,7 +35,17 @@ The boundary checker validates both their manifests and source imports. `@celest
 
 ## UI boundary
 
-`@celestial/ui` exposes 27 component builders. Its public barrel is the contract; files elsewhere in `packages/constellation/src` are not deep-import APIs. The selected interaction-heavy components are exercised through both mouse and keyboard paths in the headless harness.
+`@celestial/ui` exposes 44 component builders. Its public barrel is the contract; files elsewhere in `packages/constellation/src` are not deep-import APIs. The selected interaction-heavy components are exercised through both mouse and keyboard paths in the headless harness. Modals and contextual surfaces must reflow at supported widths, expose a visible close affordance, and respond to Escape.
+
+## Rich-rendering gate
+
+The rendering packages remain public only while they meet these conditions:
+
+1. Unicode width, wrapping, clipping, and animation operate on grapheme clusters rather than UTF-16 code units.
+2. Motion APIs provide deterministic reduced-motion output.
+3. Pulsar uses only allowlisted public integrations; chart fences validate input and clamp dimensions, Mermaid preserves readable source, and image rendering emits safe placeholders.
+4. Stellar's static exporter escapes untrusted content and does not require a browser runtime.
+5. ESM, CommonJS, declarations, unit tests, and packed-install checks pass for every public entry point.
 
 ## Horizon beta gate
 
@@ -50,12 +62,13 @@ If the gate fails, Horizon stays private without blocking the other preview pack
 
 The following areas are intentionally unpublished:
 
-- 3D and advanced rendering (`astral`, `orrery`, and related experiments)
+- 3D rendering (`astral`, `orrery`, and related experiments)
 - Browser and multi-target rendering (`portal`, `rift`)
 - Remote sharing (`warp`)
 - Multiprocess coordination (`cluster`)
 - Agent and MCP tooling (`agent`, `beacon`, `quasar`, and related packages)
-- Advanced effects and transitions (`mirage`, `flicker`, `nova`)
+- Demoscene effects (`flicker`)
+- Binary terminal image protocols and Canvas-backed Mermaid rendering
 - Product applications under `apps/*` and legacy examples under `examples/*`, except the four supported demos above
 
 These areas are not included in this repository. They may be introduced selectively from Celestial's broader development codebase only after their dependencies, public API, tests, documentation, licensing, and release posture satisfy this repository's gates.
