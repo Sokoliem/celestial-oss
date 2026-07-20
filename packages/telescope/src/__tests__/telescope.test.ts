@@ -1,6 +1,7 @@
-import { type AppConfig, box, Cmd, column, empty, event, row, Sub, text, type VNode } from '@celestial/core/nebula';
+import { type AppConfig, box, Cmd, column, component, empty, event, row, Sub, text, type VNode } from '@celestial/core/nebula';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MockTerminal } from '../mock-terminal.js';
+import { mockFetch } from '../mocks.js';
 import { renderToLines, renderToText } from '../render.js';
 import { createTestApp, type TestAppHandle } from '../test-app.js';
 
@@ -63,6 +64,15 @@ describe('MockTerminal', () => {
     expect(term.getSize()).toEqual({ cols: 120, rows: 40 });
   });
 
+  it('rejects invalid dimensions at construction and resize boundaries', () => {
+    expect(() => new MockTerminal({ cols: 0 })).toThrow(/columns must be/i);
+    expect(() => new MockTerminal({ rows: 0.5 })).toThrow(/rows must be/i);
+    const term = new MockTerminal();
+    expect(() => term.simulateResize(Number.NaN, 10)).toThrow(/columns must be/i);
+    expect(() => term.simulateResize(120, 0)).toThrow(/rows must be/i);
+    expect(term.getSize()).toEqual({ cols: 80, rows: 24 });
+  });
+
   it('delivers simulated input to registered handlers', () => {
     const term = new MockTerminal();
     const received: Buffer[] = [];
@@ -87,6 +97,23 @@ describe('MockTerminal', () => {
     term.offInput(handler);
     term.simulateInput(Buffer.from('b'));
     expect(received).toHaveLength(1); // still 1, handler was removed
+  });
+
+  it('uses a stable handler snapshot during event delivery', () => {
+    const term = new MockTerminal();
+    const received: string[] = [];
+    const second = () => received.push('second');
+    term.onInput(() => {
+      received.push('first');
+      term.offInput(second);
+    });
+    term.onInput(second);
+
+    term.simulateInput(Buffer.from('x'));
+    expect(received).toEqual(['first', 'second']);
+
+    term.simulateInput(Buffer.from('y'));
+    expect(received).toEqual(['first', 'second', 'first']);
   });
 
   it('strips ANSI from plainOutput', () => {
@@ -176,6 +203,21 @@ describe('createTestApp', () => {
     handle.dispatch({ type: 'increment' });
     handle.dispatch({ type: 'decrement' });
     expect(handle.model).toEqual({ count: 1 });
+  });
+
+  it('restores fetch mocks when app startup fails', () => {
+    const originalFetch = globalThis.fetch;
+    const brokenApp: AppConfig<null, CounterMsg> = {
+      init: () => {
+        throw new Error('startup failed');
+      },
+      update: (_message, model) => [model, Cmd.none()],
+      view: () => text('unreachable'),
+      subscriptions: () => Sub.none(),
+    };
+
+    expect(() => createTestApp(brokenApp, { fetchMocks: [mockFetch('https://example.test', { body: 'ok' })] })).toThrow('startup failed');
+    expect(globalThis.fetch).toBe(originalFetch);
   });
 
   it('lastFrameRaw includes ANSI sequences', () => {
@@ -291,5 +333,24 @@ describe('renderToText', () => {
     for (const line of lines) {
       expect(line.length).toBeLessThanOrEqual(10);
     }
+  });
+
+  it('renders wide graphemes once without phantom continuation spaces', () => {
+    expect(renderToText(text('界🙂Z'))).toBe('界🙂Z');
+  });
+
+  it('provides explicit terminal dimensions to responsive components', () => {
+    const vnode = component((context) => text((context?.terminal.cols ?? 80) < 20 ? 'compact' : 'wide'));
+
+    expect(renderToText(vnode, { width: 10, height: 1 })).toBe('compact');
+    expect(renderToText(vnode, { width: 30, height: 1 })).toBe('wide');
+    expect(renderToText(vnode)).toBe('wide');
+  });
+
+  it('rejects invalid and unreasonably large render surfaces', () => {
+    expect(() => renderToText(text('x'), { width: Number.NaN })).toThrow(/width must be/i);
+    expect(() => renderToText(text('x'), { height: Number.POSITIVE_INFINITY })).toThrow(/height must be/i);
+    expect(() => renderToText(text('x'), { width: -1 })).toThrow(/width must be/i);
+    expect(() => renderToText(text('x'), { width: 10_000, height: 10_000 })).toThrow(/safety limit/i);
   });
 });

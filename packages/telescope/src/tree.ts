@@ -5,7 +5,8 @@
  * from VNode trees. Used by both the query engine and a11y auditor.
  */
 
-import type { AriaAttrs, CellGrid, StyleAttrs, VNode } from '@celestial/core/nebula';
+import { type AriaAttrs, type CellGrid, type LayoutEntry, type LayoutPlan, planLayout, type StyleAttrs, type VNode } from '@celestial/core/nebula';
+import { visualWidth } from '@celestial/core/corona';
 import { getMeta } from './metadata.js';
 
 // ── Found Node ──────────────────────────────────────────────────────────
@@ -64,155 +65,109 @@ function toSelectorInfo(meta: ReturnType<typeof getMeta>): FoundNodeSelectorInfo
   };
 }
 
-export function collectNodes(node: VNode, inherited?: { focused?: boolean; hidden?: boolean; ancestors?: readonly FoundNodeSelectorInfo[] }): FoundNode[] {
-  const meta = getMeta(node);
+interface TraversalState {
+  focused?: boolean;
+  hidden?: boolean;
+  ancestors?: readonly FoundNodeSelectorInfo[];
+}
+
+/** Collect metadata from the exact resolved nodes used by a layout pass. */
+export function collectNodesFromPlan(plan: LayoutPlan, inherited?: TraversalState): FoundNode[] {
   const results: FoundNode[] = [];
-  const hidden = inherited?.hidden === true || meta?.a11y?.hidden === true;
-  const selectorInfo = toSelectorInfo(meta);
-  const ancestors = inherited?.ancestors ?? [];
-  const nextAncestors = selectorInfo ? [...ancestors, selectorInfo] : [...ancestors];
+  const textCache = new WeakMap<LayoutEntry, string>();
 
-  const entry: FoundNode = {
-    node,
-    id: meta?.id,
-    classes: meta?.classes,
-    states: meta?.states,
-    label: meta?.label,
-    testId: meta?.testId,
-    a11y: meta?.a11y,
-    ancestors,
-    focused: inherited?.focused,
-    hidden,
-    textContent: extractNodeText(node),
-  };
-
-  if (selectorInfo) {
-    results.push(entry);
+  function entryText(entry: LayoutEntry): string {
+    const cached = textCache.get(entry);
+    if (cached !== undefined) return cached;
+    const value = entry.node.kind === 'text' ? entry.node.content : entry.children.map(entryText).join(' ');
+    textCache.set(entry, value);
+    return value;
   }
 
-  switch (node.kind) {
-    case 'text':
-      break;
-    case 'row':
-    case 'column':
-      for (const child of node.children) {
-        results.push(...collectNodes(child, { ...inherited, hidden, ancestors: nextAncestors }));
-      }
-      break;
-    case 'box':
-      for (const child of node.children) {
-        results.push(...collectNodes(child, { ...inherited, hidden, ancestors: nextAncestors }));
-      }
-      break;
-    case 'focus':
-      results.push(...collectNodes(node.child, { focused: node.focused, hidden, ancestors: nextAncestors }));
-      if (selectorInfo) {
-        entry.focused = node.focused;
-      }
-      break;
-    case 'scroll':
-      results.push(...collectNodes(node.child, { ...inherited, hidden, ancestors: nextAncestors }));
-      break;
-    case 'component':
-      results.push(...collectNodes(node.render(), { ...inherited, hidden, ancestors: nextAncestors }));
-      break;
-    case 'event':
-      results.push(...collectNodes(node.child, { ...inherited, hidden, ancestors: nextAncestors }));
-      break;
-    case 'hover':
-      results.push(...collectNodes(node.child, { ...inherited, hidden, ancestors: nextAncestors }));
-      break;
-    case 'overlay':
-      results.push(...collectNodes(node.child, { ...inherited, hidden, ancestors: nextAncestors }));
-      break;
-    case 'flex':
-      results.push(...collectNodes(node.child, { ...inherited, hidden, ancestors: nextAncestors }));
-      break;
-    case 'empty':
-    case 'image':
-      break;
+  function visit(entry: LayoutEntry, state: TraversalState): void {
+    // Flow planning leaves a zero-size placeholder for overlays and then
+    // produces the positioned entry in plan.overlays. Inspect only the latter.
+    if (entry.node.kind === 'overlay' && entry.children.length === 0) return;
+
+    const meta = getMeta(entry.node);
+    const hidden = state.hidden === true || meta?.a11y?.hidden === true;
+    const focused = entry.node.kind === 'focus' ? entry.node.focused : state.focused;
+    const selectorInfo = toSelectorInfo(meta);
+    const ancestors = state.ancestors ?? [];
+    const nextAncestors = selectorInfo ? [...ancestors, selectorInfo] : ancestors;
+
+    if (selectorInfo) {
+      results.push({
+        node: entry.node,
+        id: meta?.id,
+        classes: meta?.classes,
+        states: meta?.states,
+        label: meta?.label,
+        testId: meta?.testId,
+        a11y: meta?.a11y,
+        ancestors,
+        focused,
+        hidden,
+        textContent: entryText(entry),
+      });
+    }
+
+    for (const child of entry.children) visit(child, { focused, hidden, ancestors: nextAncestors });
   }
 
+  visit(plan.root, inherited ?? {});
+  for (const overlay of plan.overlays) visit(overlay.entry, inherited ?? {});
   return results;
+}
+
+export function collectNodes(node: VNode, inherited?: TraversalState): FoundNode[] {
+  return collectNodesFromPlan(planLayout(node, 80, 24), inherited);
 }
 
 // ── Extract plain text from a VNode ─────────────────────────────────────
 
 export function extractNodeText(node: VNode): string {
-  switch (node.kind) {
-    case 'text':
-      return node.content;
-    case 'row':
-    case 'column':
-      return node.children.map(extractNodeText).join(' ');
-    case 'box':
-      return node.children.map(extractNodeText).join(' ');
-    case 'focus':
-      return extractNodeText(node.child);
-    case 'scroll':
-      return extractNodeText(node.child);
-    case 'component':
-      return extractNodeText(node.render());
-    case 'event':
-      return extractNodeText(node.child);
-    case 'hover':
-      return extractNodeText(node.child);
-    case 'overlay':
-      return extractNodeText(node.child);
-    case 'flex':
-      return extractNodeText(node.child);
-    case 'empty':
-    case 'image':
-      return '';
-    default:
-      return '';
-  }
+  const plan = planLayout(node, 80, 24);
+  const text: string[] = [];
+  const visit = (entry: LayoutEntry): void => {
+    if (entry.node.kind === 'text') text.push(entry.node.content);
+    for (const child of entry.children) visit(child);
+  };
+  visit(plan.root);
+  for (const overlay of plan.overlays) visit(overlay.entry);
+  return text.join(' ');
 }
 
 // ── Find focus state for text ───────────────────────────────────────────
 
 export function findFocusNode(text: string, node: VNode): boolean | undefined {
-  switch (node.kind) {
-    case 'focus': {
-      const childText = extractNodeText(node.child);
-      if (childText.includes(text) || text.includes(childText)) {
-        return node.focused;
-      }
-      return findFocusNode(text, node.child);
-    }
-    case 'text':
-      return undefined;
-    case 'row':
-    case 'column':
-      for (const child of node.children) {
-        const result = findFocusNode(text, child);
-        if (result !== undefined) return result;
-      }
-      return undefined;
-    case 'box':
-      for (const child of node.children) {
-        const result = findFocusNode(text, child);
-        if (result !== undefined) return result;
-      }
-      return undefined;
-    case 'scroll':
-      return findFocusNode(text, node.child);
-    case 'component':
-      return findFocusNode(text, node.render());
-    case 'event':
-      return findFocusNode(text, node.child);
-    case 'hover':
-      return findFocusNode(text, node.child);
-    case 'overlay':
-      return findFocusNode(text, node.child);
-    case 'flex':
-      return findFocusNode(text, node.child);
-    case 'empty':
-    case 'image':
-      return undefined;
-    default:
-      return undefined;
+  return findFocusNodeFromPlan(text, planLayout(node, 80, 24));
+}
+
+export function findFocusNodeFromPlan(text: string, plan: LayoutPlan): boolean | undefined {
+  function entryText(entry: LayoutEntry): string {
+    return entry.node.kind === 'text' ? entry.node.content : entry.children.map(entryText).join(' ');
   }
+
+  function visit(entry: LayoutEntry): boolean | undefined {
+    if (entry.node.kind === 'focus') {
+      const content = entry.children.map(entryText).join(' ');
+      if (content.includes(text) || text.includes(content)) return entry.node.focused;
+    }
+    for (const child of entry.children) {
+      const result = visit(child);
+      if (result !== undefined) return result;
+    }
+    return undefined;
+  }
+
+  const rootResult = visit(plan.root);
+  if (rootResult !== undefined) return rootResult;
+  for (const overlay of plan.overlays) {
+    const result = visit(overlay.entry);
+    if (result !== undefined) return result;
+  }
+  return undefined;
 }
 
 // ── Extract text runs from CellGrid ─────────────────────────────────────
@@ -238,10 +193,11 @@ export function extractTextRuns(grid: CellGrid): TextRun[] {
           currentStyle = cell?.style;
         }
         currentText += ch;
+        if (ch !== ' ') c += Math.max(0, visualWidth(ch) - 1);
       } else if (currentText.length > 0) {
         const trimmed = currentText.trimEnd();
         if (trimmed.length > 0) {
-          runs.push({ text: trimmed, row: r, col: startCol, width: trimmed.length, style: currentStyle });
+          runs.push({ text: trimmed, row: r, col: startCol, width: visualWidth(trimmed), style: currentStyle });
         }
         currentText = '';
         startCol = -1;
@@ -252,7 +208,7 @@ export function extractTextRuns(grid: CellGrid): TextRun[] {
     if (currentText.length > 0) {
       const trimmed = currentText.trimEnd();
       if (trimmed.length > 0) {
-        runs.push({ text: trimmed, row: r, col: startCol, width: trimmed.length, style: currentStyle });
+        runs.push({ text: trimmed, row: r, col: startCol, width: visualWidth(trimmed), style: currentStyle });
       }
     }
   }

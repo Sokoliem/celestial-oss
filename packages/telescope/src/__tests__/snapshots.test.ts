@@ -25,6 +25,14 @@ describe('snapshots', () => {
       expect(snap).toContain('Left');
       expect(snap).toContain('Right');
     });
+
+    it('preserves styles without duplicating wide-grapheme continuation cells', () => {
+      const vnode: VNode = { kind: 'text', content: '界🙂Z', style: { fg: '\x1b[31m', bold: true } };
+      const snap = renderToSnapshot(vnode, { width: 5, height: 1, preserveColors: true });
+
+      expect(snap).toContain('\x1b[31m');
+      expect(normalizeSnapshot(snap)).toBe('界🙂Z');
+    });
   });
 
   // ── normalizeSnapshot ──────────────────────────────────────────────

@@ -4,7 +4,10 @@
  * Renders VNode trees to normalized plain text for snapshot testing.
  */
 
-import { type CellGrid, layout, measure, type VNode } from '@celestial/core/nebula';
+import type { CellGrid, VNode } from '@celestial/core/nebula';
+import { stripAnsi, visualWidth } from '@celestial/core/corona';
+import { gridToPlainLines } from './internal/grid-text.js';
+import { renderGrid } from './internal/render-grid.js';
 
 type SnapshotCell = NonNullable<CellGrid['cells'][number][number]>;
 
@@ -22,14 +25,9 @@ export interface SnapshotOptions {
  * Trailing whitespace on each line is trimmed and trailing empty lines removed.
  */
 export function renderToSnapshot(vnode: VNode, options?: SnapshotOptions): string {
-  const size = measure(vnode);
-  const width = options?.width ?? size.width;
-  const height = options?.height ?? size.height;
-
-  if (width <= 0 || height <= 0) return '';
-
-  const grid: CellGrid = layout(vnode, width, height);
-  return options?.preserveColors ? gridToAnsiText(grid) : gridToText(grid);
+  const rendered = renderGrid(vnode, options);
+  if (!rendered) return '';
+  return options?.preserveColors ? gridToAnsiText(rendered.grid) : gridToPlainLines(rendered.grid).join('\n');
 }
 
 /**
@@ -49,28 +47,6 @@ export function normalizeSnapshot(input: string, options?: Pick<SnapshotOptions,
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────
-
-function gridToText(grid: CellGrid): string {
-  const lines: string[] = [];
-  for (let r = 0; r < grid.height; r++) {
-    let line = '';
-    const row = grid.cells[r];
-    if (row) {
-      for (let c = 0; c < grid.width; c++) {
-        const cell = row[c];
-        line += cell ? cell.char : ' ';
-      }
-    }
-    lines.push(line.trimEnd());
-  }
-
-  // Remove trailing empty lines
-  while (lines.length > 0 && lines[lines.length - 1] === '') {
-    lines.pop();
-  }
-
-  return lines.join('\n');
-}
 
 function gridToAnsiText(grid: CellGrid): string {
   const lines: string[] = [];
@@ -95,6 +71,7 @@ function gridToAnsiText(grid: CellGrid): string {
           lastStyleKey = styleKey;
         }
         line += cell ? cell.char : ' ';
+        if (cell?.char && cell.char !== ' ') c += Math.max(0, visualWidth(cell.char) - 1);
       }
     }
 
@@ -124,15 +101,6 @@ function styleToAnsi(style: SnapshotCell['style'] | undefined): string {
   if (style.underline) ansi += '\x1b[4m';
   if (style.strikethrough) ansi += '\x1b[9m';
   return ansi;
-}
-
-/** Strip ANSI escape sequences from a string */
-function stripAnsi(str: string): string {
-  return str
-    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
-    .replace(/\x1b\[[?][0-9;]*[A-Za-z]/g, '')
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
-    .replace(/\x1b[()][AB012]/g, '');
 }
 
 function stripNonColorAnsi(str: string): string {

@@ -18,6 +18,11 @@ describe('terminals (fixture presets)', () => {
     expect(terminals.tall).toEqual({ cols: 80, rows: 60 });
   });
 
+  it('keeps shared presets immutable across tests', () => {
+    expect(Object.isFrozen(terminals)).toBe(true);
+    expect(Object.isFrozen(terminals.standard)).toBe(true);
+  });
+
   it('all presets have positive cols and rows', () => {
     for (const [name, preset] of Object.entries(terminals)) {
       expect(preset.cols, `${name}.cols`).toBeGreaterThan(0);

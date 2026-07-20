@@ -4,10 +4,11 @@
  * Find elements by visible text, ARIA role, test ID, or label.
  */
 
-import { type AriaAttrs, type AriaRole, type CellGrid, layout, type VNode } from '@celestial/core/nebula';
+import { type AriaAttrs, type AriaRole, type LayoutPlan, planLayout, rasterize, type VNode } from '@celestial/core/nebula';
+import { visualWidth } from '@celestial/core/corona';
 import { setMeta } from './metadata.js';
-import { collectNodes, extractTextRuns, type FoundNode, type FoundNodeSelectorInfo, findFocusNode, type TextRun } from './tree.js';
-import type { QueryResult, TextMatch } from './types.js';
+import { collectNodesFromPlan, extractTextRuns, type FoundNode, type FoundNodeSelectorInfo, findFocusNodeFromPlan, type TextRun } from './tree.js';
+import type { QueryResult, TerminalPreset, TextMatch } from './types.js';
 
 // ── VNode Annotation Helpers ────────────────────────────────────────────
 
@@ -70,19 +71,43 @@ export interface QueryEngine {
 
 type SelectorSegment = { kind: 'id'; value: string } | { kind: 'class'; value: string } | { kind: 'test-id'; value: string } | { kind: 'role'; value: string };
 
-/**
- * Create a query engine from a VNode tree and terminal dimensions.
- */
-export function createQueryEngine(getView: () => VNode, cols: number, rows: number): QueryEngine {
-  function currentTree(): VNode {
-    return getView();
+class QueryNotFoundError extends Error {
+  override readonly name = 'QueryNotFoundError';
+}
+
+/** Create a query engine from a VNode tree and fixed terminal dimensions. */
+export function createQueryEngine(getView: () => VNode, cols: number, rows: number): QueryEngine;
+/** Create a query engine whose terminal dimensions are resolved for every query. */
+export function createQueryEngine(getView: () => VNode, getViewport: () => TerminalPreset): QueryEngine;
+export function createQueryEngine(getView: () => VNode, colsOrViewport: number | (() => TerminalPreset), rows?: number): QueryEngine {
+  function currentViewport(): TerminalPreset {
+    const viewport = typeof colsOrViewport === 'function' ? colsOrViewport() : { cols: colsOrViewport, rows: rows ?? 0 };
+    if (!Number.isFinite(viewport.cols) || !Number.isFinite(viewport.rows) || viewport.cols <= 0 || viewport.rows <= 0) {
+      throw new RangeError('Query viewport dimensions must be positive finite numbers.');
+    }
+    const normalizedCols = Math.floor(viewport.cols);
+    const normalizedRows = Math.floor(viewport.rows);
+    if (normalizedCols < 1 || normalizedRows < 1) throw new RangeError('Query viewport dimensions must be at least 1 cell.');
+    return { cols: normalizedCols, rows: normalizedRows };
   }
-  function currentGrid(): CellGrid {
-    return layout(currentTree(), cols, rows);
+
+  function currentSnapshot(): { plan: LayoutPlan; nodes: FoundNode[]; runs: TextRun[] } {
+    const tree = getView();
+    const { cols, rows } = currentViewport();
+    const plan = planLayout(tree, cols, rows);
+    return {
+      plan,
+      nodes: collectNodesFromPlan(plan),
+      runs: extractTextRuns(rasterize(plan)),
+    };
   }
 
   function matchText(matcher: TextMatch, text: string): boolean {
-    return typeof matcher === 'string' ? text === matcher : matcher.test(text);
+    if (typeof matcher === 'string') return text === matcher;
+    matcher.lastIndex = 0;
+    const matches = matcher.test(text);
+    matcher.lastIndex = 0;
+    return matches;
   }
 
   function buildResult(run: TextRun, nodeInfo?: FoundNode): QueryResult {
@@ -105,15 +130,15 @@ export function createQueryEngine(getView: () => VNode, cols: number, rows: numb
     };
   }
 
-  function findNodeForText(text: string, tree: VNode): FoundNode | undefined {
-    return collectNodes(tree).find((n) => {
+  function findNodeForText(text: string, nodes: readonly FoundNode[]): FoundNode | undefined {
+    return nodes.find((n) => {
       const nt = n.textContent.trim();
       return nt === text || nt.includes(text);
     });
   }
 
-  function enrichFocus(result: QueryResult, text: string, tree: VNode): void {
-    const state = findFocusNode(text, tree);
+  function enrichFocus(result: QueryResult, text: string, plan: LayoutPlan): void {
+    const state = findFocusNodeFromPlan(text, plan);
     if (state !== undefined) result.focused = state;
   }
 
@@ -124,7 +149,7 @@ export function createQueryEngine(getView: () => VNode, cols: number, rows: numb
       text: textContent,
       row: run?.row ?? 0,
       col: run?.col ?? 0,
-      width: run?.width ?? textContent.length,
+      width: run?.width ?? visualWidth(textContent),
       height: 1,
       id: found.id,
       classes: found.classes,
@@ -186,8 +211,7 @@ export function createQueryEngine(getView: () => VNode, cols: number, rows: numb
     }
   }
 
-  function matchesSelector(node: FoundNode, selector: Selector): boolean {
-    const segments = parseSelector(selector);
+  function matchesSelector(node: FoundNode, segments: readonly SelectorSegment[]): boolean {
     if (!matchesSelectorInfo(node, segments[segments.length - 1]!)) {
       return false;
     }
@@ -217,42 +241,40 @@ export function createQueryEngine(getView: () => VNode, cols: number, rows: numb
   // ── Query implementations ────────────────────────────────────────
 
   function getByText(matcher: TextMatch): QueryResult {
-    const runs = extractTextRuns(currentGrid());
-    const tree = currentTree();
+    const { runs, nodes, plan } = currentSnapshot();
 
     for (const run of runs) {
       if (matchText(matcher, run.text)) {
-        const r = buildResult(run, findNodeForText(run.text, tree));
-        enrichFocus(r, run.text, tree);
+        const r = buildResult(run, findNodeForText(run.text, nodes));
+        enrichFocus(r, run.text, plan);
         return r;
       }
     }
 
     const fullText = runs.map((r) => r.text).join(' ');
     if (typeof matcher === 'string' && fullText.includes(matcher) && runs[0]) {
-      return buildResult({ text: matcher, row: runs[0].row, col: runs[0].col, width: matcher.length });
+      return buildResult({ text: matcher, row: runs[0].row, col: runs[0].col, width: visualWidth(matcher) });
     }
 
     const avail = runs.map((r) => `'${r.text}'`).join(', ');
-    throw new Error(`Unable to find element with text matching ${fmt(matcher)}. Found: [${avail}]`);
+    throw new QueryNotFoundError(`Unable to find element with text matching ${fmt(matcher)}. Found: [${avail}]`);
   }
 
   function getAllByText(matcher: TextMatch): QueryResult[] {
-    const runs = extractTextRuns(currentGrid());
-    const tree = currentTree();
+    const { runs, nodes, plan } = currentSnapshot();
     const results: QueryResult[] = [];
 
     for (const run of runs) {
-      if (matchText(matcher, run.text) || (typeof matcher !== 'string' && matcher.test(run.text))) {
-        const r = buildResult(run, findNodeForText(run.text, tree));
-        enrichFocus(r, run.text, tree);
+      if (matchText(matcher, run.text)) {
+        const r = buildResult(run, findNodeForText(run.text, nodes));
+        enrichFocus(r, run.text, plan);
         results.push(r);
       }
     }
 
     if (results.length === 0) {
       const avail = runs.map((r) => `'${r.text}'`).join(', ');
-      throw new Error(`Unable to find any elements with text matching ${fmt(matcher)}. Found: [${avail}]`);
+      throw new QueryNotFoundError(`Unable to find any elements with text matching ${fmt(matcher)}. Found: [${avail}]`);
     }
     return results;
   }
@@ -260,7 +282,8 @@ export function createQueryEngine(getView: () => VNode, cols: number, rows: numb
   function queryByText(m: TextMatch): QueryResult | null {
     try {
       return getByText(m);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof QueryNotFoundError)) throw error;
       return null;
     }
   }
@@ -268,54 +291,56 @@ export function createQueryEngine(getView: () => VNode, cols: number, rows: numb
   function queryAllByText(matcher: TextMatch): QueryResult[] {
     try {
       return getAllByText(matcher);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof QueryNotFoundError)) throw error;
       return [];
     }
   }
 
   function getByTestId(id: string): QueryResult {
-    const allNodes = collectNodes(currentTree());
+    const { nodes: allNodes, runs } = currentSnapshot();
     const found = allNodes.find((n) => n.testId === id);
     if (!found) {
       const ids = allNodes.filter((n) => n.testId).map((n) => `'${n.testId}'`);
-      throw new Error(
+      throw new QueryNotFoundError(
         `Unable to find element with test ID '${id}'. ` + (ids.length > 0 ? `Available test IDs: [${ids.join(', ')}]` : 'No elements have test IDs.'),
       );
     }
-    return buildNodeResult(found, extractTextRuns(currentGrid()));
+    return buildNodeResult(found, runs);
   }
 
   function queryByTestId(id: string): QueryResult | null {
     try {
       return getByTestId(id);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof QueryNotFoundError)) throw error;
       return null;
     }
   }
 
   function getAllByTestId(id: string): QueryResult[] {
-    const allNodes = collectNodes(currentTree());
+    const { nodes: allNodes, runs } = currentSnapshot();
     const found = allNodes.filter((n) => n.testId === id);
     if (found.length === 0) {
       const ids = allNodes.filter((n) => n.testId).map((n) => `'${n.testId}'`);
-      throw new Error(
+      throw new QueryNotFoundError(
         `Unable to find any elements with test ID '${id}'. ` + (ids.length > 0 ? `Available test IDs: [${ids.join(', ')}]` : 'No elements have test IDs.'),
       );
     }
-    const runs = extractTextRuns(currentGrid());
     return found.map((node) => buildNodeResult(node, runs));
   }
 
   function queryAllByTestId(id: string): QueryResult[] {
     try {
       return getAllByTestId(id);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof QueryNotFoundError)) throw error;
       return [];
     }
   }
 
   function getByRole(role: AriaRole, options?: RoleQueryOptions): QueryResult {
-    const allNodes = collectNodes(currentTree());
+    const { nodes: allNodes, runs } = currentSnapshot();
     let cands = allNodes.filter((n) => n.a11y?.role === role && isAccessible(n, options?.hidden));
     if (options?.name) {
       cands = cands.filter((n) => n.a11y?.label && matchText(options.name!, n.a11y!.label!));
@@ -323,38 +348,38 @@ export function createQueryEngine(getView: () => VNode, cols: number, rows: numb
     if (cands.length === 0) {
       const roles = [...new Set(allNodes.filter((n) => n.a11y?.role).map((n) => n.a11y!.role!))];
       const suffix = options?.name ? ` and name ${fmt(options.name)}` : '';
-      throw new Error(
+      throw new QueryNotFoundError(
         `Unable to find element with role '${role}'${suffix}. ` +
           (roles.length > 0 ? `Available roles: [${roles.map((r) => `'${r}'`).join(', ')}]` : 'No elements have ARIA roles.'),
       );
     }
-    return buildNodeResult(cands[0]!, extractTextRuns(currentGrid()));
+    return buildNodeResult(cands[0]!, runs);
   }
 
   function getAllByRole(role: AriaRole, options?: RoleQueryOptions): QueryResult[] {
-    const allNodes = collectNodes(currentTree());
+    const { nodes: allNodes, runs } = currentSnapshot();
     let cands = allNodes.filter((n) => n.a11y?.role === role && isAccessible(n, options?.hidden));
     if (options?.name) {
       cands = cands.filter((n) => n.a11y?.label && matchText(options.name!, n.a11y!.label!));
     }
     if (cands.length === 0) {
       const suffix = options?.name ? ` and name ${fmt(options.name)}` : '';
-      throw new Error(`Unable to find any elements with role '${role}'${suffix}.`);
+      throw new QueryNotFoundError(`Unable to find any elements with role '${role}'${suffix}.`);
     }
-    const runs = extractTextRuns(currentGrid());
     return cands.map((c) => buildNodeResult(c, runs));
   }
 
   function queryByRole(role: AriaRole, opts?: RoleQueryOptions): QueryResult | null {
     try {
       return getByRole(role, opts);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof QueryNotFoundError)) throw error;
       return null;
     }
   }
 
   function queryAllByRole(role: AriaRole, options?: RoleQueryOptions): QueryResult[] {
-    const allNodes = collectNodes(currentTree());
+    const { nodes: allNodes, runs } = currentSnapshot();
     let cands = allNodes.filter((n) => n.a11y?.role === role && isAccessible(n, options?.hidden));
     if (options?.name) {
       cands = cands.filter((n) => n.a11y?.label && matchText(options.name!, n.a11y!.label!));
@@ -362,41 +387,40 @@ export function createQueryEngine(getView: () => VNode, cols: number, rows: numb
     if (cands.length === 0) {
       return [];
     }
-    const runs = extractTextRuns(currentGrid());
     return cands.map((c) => buildNodeResult(c, runs));
   }
 
   function getByLabel(matcher: TextMatch, options?: LabelQueryOptions): QueryResult {
-    const allNodes = collectNodes(currentTree());
+    const { nodes: allNodes, runs } = currentSnapshot();
     const found = allNodes.find((n) => isAccessible(n, options?.hidden) && n.a11y?.label && matchText(matcher, n.a11y!.label!));
     if (!found) {
       const labels = allNodes.filter((n) => n.a11y?.label).map((n) => `'${n.a11y!.label}'`);
-      throw new Error(
+      throw new QueryNotFoundError(
         `Unable to find element with label matching ${fmt(matcher)}. ` +
           (labels.length > 0 ? `Available labels: [${labels.join(', ')}]` : 'No elements have ARIA labels.'),
       );
     }
-    return buildNodeResult(found, extractTextRuns(currentGrid()));
+    return buildNodeResult(found, runs);
   }
 
   function getAllByLabel(matcher: TextMatch, options?: LabelQueryOptions): QueryResult[] {
-    const allNodes = collectNodes(currentTree());
+    const { nodes: allNodes, runs } = currentSnapshot();
     const found = allNodes.filter((n) => isAccessible(n, options?.hidden) && n.a11y?.label && matchText(matcher, n.a11y!.label!));
     if (found.length === 0) {
       const labels = allNodes.filter((n) => n.a11y?.label).map((n) => `'${n.a11y!.label}'`);
-      throw new Error(
+      throw new QueryNotFoundError(
         `Unable to find any elements with label matching ${fmt(matcher)}. ` +
           (labels.length > 0 ? `Available labels: [${labels.join(', ')}]` : 'No elements have ARIA labels.'),
       );
     }
-    const runs = extractTextRuns(currentGrid());
     return found.map((node) => buildNodeResult(node, runs));
   }
 
   function queryByLabel(m: TextMatch, options?: LabelQueryOptions): QueryResult | null {
     try {
       return getByLabel(m, options);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof QueryNotFoundError)) throw error;
       return null;
     }
   }
@@ -404,34 +428,39 @@ export function createQueryEngine(getView: () => VNode, cols: number, rows: numb
   function queryAllByLabel(matcher: TextMatch, options?: LabelQueryOptions): QueryResult[] {
     try {
       return getAllByLabel(matcher, options);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof QueryNotFoundError)) throw error;
       return [];
     }
   }
 
   function getBySelector(selector: Selector): QueryResult {
-    const matches = collectNodes(currentTree()).filter((node) => matchesSelector(node, selector));
+    const segments = parseSelector(selector);
+    const { nodes, runs } = currentSnapshot();
+    const matches = nodes.filter((node) => matchesSelector(node, segments));
     if (matches.length === 0) {
-      throw new Error(`Unable to find element matching selector ${fmt(selector)}.`);
+      throw new QueryNotFoundError(`Unable to find element matching selector ${fmt(selector)}.`);
     }
 
-    return buildNodeResult(matches[0]!, extractTextRuns(currentGrid()));
+    return buildNodeResult(matches[0]!, runs);
   }
 
   function getAllBySelector(selector: Selector): QueryResult[] {
-    const matches = collectNodes(currentTree()).filter((node) => matchesSelector(node, selector));
+    const segments = parseSelector(selector);
+    const { nodes, runs } = currentSnapshot();
+    const matches = nodes.filter((node) => matchesSelector(node, segments));
     if (matches.length === 0) {
-      throw new Error(`Unable to find any elements matching selector ${fmt(selector)}.`);
+      throw new QueryNotFoundError(`Unable to find any elements matching selector ${fmt(selector)}.`);
     }
 
-    const runs = extractTextRuns(currentGrid());
     return matches.map((node) => buildNodeResult(node, runs));
   }
 
   function queryBySelector(selector: Selector): QueryResult | null {
     try {
       return getBySelector(selector);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof QueryNotFoundError)) throw error;
       return null;
     }
   }
@@ -439,7 +468,8 @@ export function createQueryEngine(getView: () => VNode, cols: number, rows: numb
   function queryAllBySelector(selector: Selector): QueryResult[] {
     try {
       return getAllBySelector(selector);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof QueryNotFoundError)) throw error;
       return [];
     }
   }

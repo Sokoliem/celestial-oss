@@ -84,4 +84,12 @@ describe('analyzeMessageCoverage', () => {
     expect(report.totalDispatched).toBe(0);
     expect(report.coverage).toBe(1);
   });
+
+  it('deduplicates defined types and falls back from invalid timestamps', () => {
+    const report = analyzeMessageCoverage([{ type: 'A', timestamp: Number.NaN }], ['A', 'B', 'B']);
+
+    expect(report.coverage).toBe(0.5);
+    expect(report.uncovered).toEqual(['B']);
+    expect(report.byType.get('A')).toMatchObject({ firstSeen: 0, lastSeen: 0 });
+  });
 });

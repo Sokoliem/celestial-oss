@@ -16,9 +16,9 @@ import {
   buildAutomationSnapshot,
   type CellGrid,
   layout,
-  Sub,
 } from '@celestial/core/nebula';
 import { fireKey, fireMouse } from './events.js';
+import { gridToPlainLines } from './internal/grid-text.js';
 import { MockTerminal, type MockTerminalOptions } from './mock-terminal.js';
 import { type FetchMockDefinition, installFetchMocks, type SubprocessMockDefinition } from './mocks.js';
 import type { KeyModifiers, MessageCoverage } from './types.js';
@@ -88,14 +88,10 @@ export interface TestAppHandle<Model, M> {
 export interface TestAppOptions extends MockTerminalOptions {
   commandHandlers?: AppOptions['commandHandlers'];
   fetchMocks?: readonly FetchMockDefinition[];
+  /** Allow unmatched requests to reach the previously installed fetch implementation. Defaults to false. */
+  fetchPassthrough?: boolean;
   subprocessMocks?: readonly SubprocessMockDefinition[];
 }
-
-// Sentinel key used by dispatch(). Byte 0x7e produces key '~' with no
-// modifiers in parseKeyInput. We inject Sub.key('~', msg) into the
-// subscription tree so the runtime's own dispatch delivers the message.
-const DISPATCH_SENTINEL_KEY = '~';
-const DISPATCH_SENTINEL_BYTE = Buffer.from([0x7e]);
 
 /**
  * Create a test app instance. Returns a handle with helpers for
@@ -107,18 +103,11 @@ export function createTestApp<Model, M>(config: AppConfig<Model, M>, options?: T
   let renderFrame = 0;
   let expectedRenderFrame: number | null = null;
   const renderWaiters = new Set<{ target: number; resolve: () => void }>();
-  const pendingMessages: M[] = [];
   const announcementLog: Announcement[] = [];
   const focusLog: Array<{ description: string; focusedId: string | null }> = [];
   const coverageCounts = new Map<string, number>();
   let unknownMessages = 0;
-  const restoreFetch = installFetchMocks(options?.fetchMocks);
-
-  // Active sentinel: kept alive for ALL subscriptions() calls during one
-  // input cycle. The runtime may call subscriptions() multiple times (key
-  // handling, reconcileSubscriptions, final matchKeySub), so the sentinel
-  // must survive until the input is fully processed.
-  let activeSentinelSub: ReturnType<typeof Sub.key<M>> | null = null;
+  const restoreFetch = installFetchMocks(options?.fetchMocks, options?.fetchPassthrough);
 
   const proxyConfig: AppConfig<Model, M> = {
     init: () => {
@@ -136,46 +125,36 @@ export function createTestApp<Model, M>(config: AppConfig<Model, M>, options?: T
 
     view: config.view,
 
-    subscriptions: (model: Model) => {
-      const userSubs = config.subscriptions(model);
-
-      // When dispatch() has queued a message, splice a sentinel subscription
-      // into the tree. The sentinel matches the byte we send via simulateInput,
-      // so the runtime's internal dispatch delivers the message through the
-      // normal update -> render -> reconcile cycle.
-      //
-      // We peek (not shift) so the sentinel survives multiple subscriptions()
-      // calls during a single input cycle. The message is only consumed after
-      // simulateInput returns.
-      if (!activeSentinelSub && pendingMessages.length > 0) {
-        activeSentinelSub = Sub.key(DISPATCH_SENTINEL_KEY, pendingMessages[0]!);
-      }
-
-      return activeSentinelSub ? Sub.batch(userSubs, activeSentinelSub) : userSubs;
-    },
+    subscriptions: config.subscriptions,
   };
 
-  const appHandle: AppHandle = app(proxyConfig, {
-    terminal,
-    commandHandlers: createCommandHandlers(options),
-    onRenderFrame() {
-      renderFrame += 1;
-      for (const waiter of renderWaiters) {
-        if (renderFrame >= waiter.target) {
-          renderWaiters.delete(waiter);
-          waiter.resolve();
+  let appHandle: AppHandle & { dispatch(message: M): void };
+  try {
+    appHandle = app(proxyConfig, {
+      terminal,
+      commandHandlers: createCommandHandlers(options),
+      onRenderFrame() {
+        renderFrame += 1;
+        for (const waiter of renderWaiters) {
+          if (renderFrame >= waiter.target) {
+            renderWaiters.delete(waiter);
+            waiter.resolve();
+          }
         }
-      }
-    },
-    accessibility: {
-      onAnnouncements(items) {
-        announcementLog.push(...items);
       },
-      onFocusChange(description, focusedId) {
-        focusLog.push({ description, focusedId });
+      accessibility: {
+        onAnnouncements(items) {
+          announcementLog.push(...items);
+        },
+        onFocusChange(description, focusedId) {
+          focusLog.push({ description, focusedId });
+        },
       },
-    },
-  });
+    }) as AppHandle & { dispatch(message: M): void };
+  } catch (error) {
+    restoreFetch();
+    throw error;
+  }
 
   /**
    * Build a CellGrid from the current model's view, matching what the
@@ -196,23 +175,7 @@ export function createTestApp<Model, M>(config: AppConfig<Model, M>, options?: T
    * whitespace trimmed, trailing empty lines removed).
    */
   function gridToLines(grid: CellGrid): string[] {
-    const lines: string[] = [];
-    for (let r = 0; r < grid.height; r++) {
-      let line = '';
-      const row = grid.cells[r];
-      if (row) {
-        for (let c = 0; c < grid.width; c++) {
-          const cell = row[c];
-          line += cell ? cell.char : ' ';
-        }
-      }
-      lines.push(line.trimEnd());
-    }
-    // Remove trailing empty lines
-    while (lines.length > 0 && lines[lines.length - 1] === '') {
-      lines.pop();
-    }
-    return lines;
+    return gridToPlainLines(grid);
   }
 
   function getLastFrame(): string {
@@ -248,18 +211,7 @@ export function createTestApp<Model, M>(config: AppConfig<Model, M>, options?: T
 
   function dispatch(msg: M): void {
     expectRender();
-    pendingMessages.push(msg);
-    activeSentinelSub = null; // Reset so subscriptions() picks up the new message
-
-    // Send the sentinel byte. handleInput will call subscriptions(model),
-    // which creates a Sub.key sentinel. matchKeySub then finds the '~' key
-    // match and delivers the message. simulateInput is synchronous — by the
-    // time it returns, the input cycle is complete.
-    terminal.simulateInput(DISPATCH_SENTINEL_BYTE);
-
-    // Clean up: consume the dispatched message and clear the sentinel
-    pendingMessages.shift();
-    activeSentinelSub = null;
+    appHandle.dispatch(msg);
   }
 
   async function waitForUpdate(): Promise<void> {
@@ -353,6 +305,8 @@ export function createTestApp<Model, M>(config: AppConfig<Model, M>, options?: T
     },
     scrollAt(col: number, row: number, delta: number): void {
       expectRender();
+      if (!Number.isSafeInteger(delta)) throw new RangeError('Scroll delta must be a finite safe integer.');
+      if (Math.abs(delta) > 10_000) throw new RangeError('Scroll delta exceeds the 10,000-event safety limit.');
       const direction = delta < 0 ? ('up' as const) : ('down' as const);
       const count = Math.abs(delta);
       for (let i = 0; i < count; i++) {

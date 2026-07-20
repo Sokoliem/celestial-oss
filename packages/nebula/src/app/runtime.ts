@@ -30,7 +30,7 @@ function installRuntime<Model, M>(ctx: ReturnType<typeof createRuntimeContext<Mo
 }
 
 /** Run a Nebula application */
-export function app<Model, M>(initialConfig: AppConfig<Model, M>, options?: AppOptions): AppHandle {
+export function app<Model, M>(initialConfig: AppConfig<Model, M>, options?: AppOptions): AppHandle<M> {
   const ctx = createRuntimeContext(initialConfig, options);
   installRuntime(ctx);
 
@@ -86,6 +86,7 @@ export function app<Model, M>(initialConfig: AppConfig<Model, M>, options?: AppO
   }
 
   return {
+    dispatch: ctx.dispatch,
     stop: ctx.shutdown,
     suspend: ctx.suspend,
     resume: ctx.resume,

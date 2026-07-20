@@ -6,6 +6,7 @@
  */
 
 import type { TerminalBackend } from '@celestial/core/nebula';
+import { stripAnsi } from '@celestial/core/corona';
 
 export interface MockTerminalOptions {
   /** Terminal width in columns (default 80) */
@@ -25,8 +26,8 @@ export class MockTerminal implements TerminalBackend {
   private _resizeHandlers: Array<() => void> = [];
 
   constructor(options?: MockTerminalOptions) {
-    this._cols = options?.cols ?? 80;
-    this._rows = options?.rows ?? 24;
+    this._cols = normalizeDimension(options?.cols ?? 80, 'columns');
+    this._rows = normalizeDimension(options?.rows ?? 24, 'rows');
   }
 
   enterRawMode(): void {
@@ -75,16 +76,18 @@ export class MockTerminal implements TerminalBackend {
 
   /** Simulate raw input data being received (as if typed on stdin) */
   simulateInput(data: Buffer): void {
-    for (const handler of this._inputHandlers) {
+    for (const handler of [...this._inputHandlers]) {
       handler(data);
     }
   }
 
   /** Simulate a terminal resize event */
   simulateResize(cols: number, rows: number): void {
-    this._cols = cols;
-    this._rows = rows;
-    for (const handler of this._resizeHandlers) {
+    const nextCols = normalizeDimension(cols, 'columns');
+    const nextRows = normalizeDimension(rows, 'rows');
+    this._cols = nextCols;
+    this._rows = nextRows;
+    for (const handler of [...this._resizeHandlers]) {
       handler();
     }
   }
@@ -105,12 +108,9 @@ export class MockTerminal implements TerminalBackend {
   }
 }
 
-/** Strip ANSI escape sequences (SGR, CSI, OSC) from a string */
-function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str
-    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
-    .replace(/\x1b\[[?][0-9;]*[A-Za-z]/g, '')
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
-    .replace(/\x1b[()][AB012]/g, '');
+function normalizeDimension(value: number, label: string): number {
+  if (!Number.isFinite(value) || value <= 0) throw new RangeError(`Terminal ${label} must be a positive finite number.`);
+  const normalized = Math.floor(value);
+  if (normalized < 1) throw new RangeError(`Terminal ${label} must be at least 1.`);
+  return normalized;
 }

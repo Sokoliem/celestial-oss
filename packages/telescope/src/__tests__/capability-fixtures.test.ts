@@ -43,6 +43,11 @@ describe('CAPABILITY_PRESETS', () => {
   it('windowsTerminal has env with WT_SESSION set', () => {
     expect(CAPABILITY_PRESETS.windowsTerminal.env?.WT_SESSION).toBeTruthy();
   });
+
+  it('freezes shared presets against cross-test mutation', () => {
+    expect(Object.isFrozen(CAPABILITY_PRESETS)).toBe(true);
+    expect(Object.isFrozen(CAPABILITY_PRESETS.kitty.capabilities)).toBe(true);
+  });
 });
 
 describe('createCapabilityFixture', () => {

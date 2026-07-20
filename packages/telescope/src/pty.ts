@@ -24,6 +24,7 @@ export interface PtyOutputOptions {
 
 export interface PtyWaitOptions {
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface PtyExit {
@@ -64,7 +65,12 @@ interface NodePtyModule {
 
 function quoteShellArg(value: string): string {
   if (value.length === 0) return process.platform === 'win32' ? '""' : "''";
-  if (process.platform === 'win32') return `"${value.replaceAll('"', '\\"')}"`;
+  if (process.platform === 'win32') {
+    // Match the Windows C runtime quoting rules used by most executables
+    // launched through cmd.exe. Backslashes immediately before a quote (and
+    // trailing backslashes) must be doubled so the child receives them intact.
+    return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1')}"`;
+  }
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
@@ -90,12 +96,40 @@ function normalizedOutput(value: string, options?: PtyOutputOptions): string {
 function matches(value: string, matcher: string | RegExp): boolean {
   if (typeof matcher === 'string') return value.includes(matcher);
   matcher.lastIndex = 0;
-  return matcher.test(value);
+  const result = matcher.test(value);
+  matcher.lastIndex = 0;
+  return result;
 }
 
 function timeoutError(operation: string, timeoutMs: number, transcript: string): Error {
-  const tail = transcript.slice(-2_000);
+  const tail = utf8Tail(transcript, 2_000);
   return new Error(`${operation} timed out after ${timeoutMs}ms.\nPTY transcript tail:\n${tail}`);
+}
+
+function exitError(operation: string, event: PtyExit, transcript: string): Error {
+  const signal = event.signal === undefined ? '' : ` (signal ${event.signal})`;
+  const tail = utf8Tail(transcript, 2_000);
+  return new Error(`${operation} could not complete because the PTY exited with code ${event.exitCode}${signal}.\nPTY transcript tail:\n${tail}`);
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error('PTY wait aborted.', { cause: signal.reason });
+}
+
+function positiveInteger(value: number, label: string): number {
+  if (!Number.isFinite(value) || value <= 0) throw new RangeError(`${label} must be a positive finite number.`);
+  const normalized = Math.floor(value);
+  if (normalized < 1) throw new RangeError(`${label} must be at least 1.`);
+  return normalized;
+}
+
+function utf8Tail(value: string, maxBytes: number): string {
+  const encoded = Buffer.from(value, 'utf8');
+  if (encoded.byteLength <= maxBytes) return value;
+
+  let start = encoded.byteLength - maxBytes;
+  while (start < encoded.byteLength && (encoded[start]! & 0xc0) === 0x80) start++;
+  return encoded.subarray(start).toString('utf8');
 }
 
 async function loadNodePty(): Promise<NodePtyModule> {
@@ -110,7 +144,16 @@ async function loadNodePty(): Promise<NodePtyModule> {
 }
 
 export async function createPtyHarness(config: PtyHarnessConfig): Promise<PtyHarness> {
-  if (!config.command) throw new Error('createPtyHarness requires a non-empty command.');
+  if (typeof config.command !== 'string' || config.command.trim().length === 0) {
+    throw new Error('createPtyHarness requires a non-empty command.');
+  }
+  if (typeof config.shell === 'string' && config.shell.trim().length === 0) {
+    throw new Error('PTY shell must be a non-empty path when specified as a string.');
+  }
+  const cols = positiveInteger(config.cols ?? DEFAULT_COLUMNS, 'PTY columns');
+  const rows = positiveInteger(config.rows ?? DEFAULT_ROWS, 'PTY rows');
+  const timeoutMs = positiveInteger(config.timeoutMs ?? DEFAULT_TIMEOUT_MS, 'PTY timeout');
+  const maxBufferBytes = positiveInteger(config.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES, 'PTY maxBufferBytes');
   const nodePty = await loadNodePty();
   const spec = spawnSpec(config);
   const environment = Object.fromEntries(
@@ -126,26 +169,25 @@ export async function createPtyHarness(config: PtyHarnessConfig): Promise<PtyHar
   const processHandle = nodePty.spawn(spec.file, spec.args, {
     cwd: config.cwd,
     env: environment,
-    cols: config.cols ?? DEFAULT_COLUMNS,
-    rows: config.rows ?? DEFAULT_ROWS,
+    cols,
+    rows,
   });
 
-  const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const maxBufferBytes = config.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES;
   let transcript = '';
   let exit: PtyExit | undefined;
   let disposed = false;
   const outputListeners = new Set<() => void>();
   const exitListeners = new Set<(event: PtyExit) => void>();
+  const pendingWaitRejectors = new Set<(reason: Error) => void>();
 
   const dataSubscription = processHandle.onData((chunk) => {
-    transcript += chunk;
-    if (Buffer.byteLength(transcript, 'utf8') > maxBufferBytes) transcript = transcript.slice(-maxBufferBytes);
-    for (const listener of outputListeners) listener();
+    transcript = utf8Tail(transcript + chunk, maxBufferBytes);
+    for (const listener of [...outputListeners]) listener();
   });
   const exitSubscription = processHandle.onExit((event) => {
     exit = event;
-    for (const listener of exitListeners) listener(event);
+    for (const listener of [...outputListeners]) listener();
+    for (const listener of [...exitListeners]) listener(event);
     exitListeners.clear();
   });
 
@@ -163,47 +205,96 @@ export async function createPtyHarness(config: PtyHarnessConfig): Promise<PtyHar
     },
     resize(cols, rows) {
       assertActive();
-      if (cols <= 0 || rows <= 0) throw new Error('PTY dimensions must be positive.');
-      processHandle.resize(cols, rows);
+      const nextCols = positiveInteger(cols, 'PTY columns');
+      const nextRows = positiveInteger(rows, 'PTY rows');
+      processHandle.resize(nextCols, nextRows);
     },
     output(options) {
       return normalizedOutput(transcript, options);
     },
     waitForText(match, options) {
       assertActive();
-      const effectiveTimeout = options?.timeoutMs ?? timeoutMs;
+      const effectiveTimeout = positiveInteger(options?.timeoutMs ?? timeoutMs, 'PTY wait timeout');
+      const signal = options?.signal;
+      if (signal?.aborted) return Promise.reject(abortError(signal));
       const current = normalizedOutput(transcript);
       if (matches(current, match)) return Promise.resolve(current);
+      if (exit) return Promise.reject(exitError(`waitForText(${String(match)})`, exit, current));
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          outputListeners.delete(check);
-          reject(timeoutError(`waitForText(${String(match)})`, effectiveTimeout, normalizedOutput(transcript)));
-        }, effectiveTimeout);
-        const check = () => {
-          const next = normalizedOutput(transcript);
-          if (!matches(next, match)) return;
+        let settled = false;
+        const cleanup = (): void => {
           clearTimeout(timer);
           outputListeners.delete(check);
-          resolve(next);
+          exitListeners.delete(onExit);
+          pendingWaitRejectors.delete(cancel);
+          signal?.removeEventListener('abort', onAbort);
         };
+        const succeed = (value: string): void => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(value);
+        };
+        const cancel = (reason: Error): void => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(reason);
+        };
+        const check = (): boolean => {
+          const next = normalizedOutput(transcript);
+          if (!matches(next, match)) return false;
+          succeed(next);
+          return true;
+        };
+        const onExit = (event: PtyExit): void => {
+          if (!check()) cancel(exitError(`waitForText(${String(match)})`, event, normalizedOutput(transcript)));
+        };
+        const onAbort = (): void => cancel(signal ? abortError(signal) : new Error('PTY wait aborted.'));
+        const timer = setTimeout(() => {
+          cancel(timeoutError(`waitForText(${String(match)})`, effectiveTimeout, normalizedOutput(transcript)));
+        }, effectiveTimeout);
         outputListeners.add(check);
+        exitListeners.add(onExit);
+        pendingWaitRejectors.add(cancel);
+        signal?.addEventListener('abort', onAbort, { once: true });
+        if (signal?.aborted) onAbort();
       });
     },
     waitForExit(options) {
       assertActive();
       if (exit) return Promise.resolve(exit);
-      const effectiveTimeout = options?.timeoutMs ?? timeoutMs;
+      const effectiveTimeout = positiveInteger(options?.timeoutMs ?? timeoutMs, 'PTY wait timeout');
+      const signal = options?.signal;
+      if (signal?.aborted) return Promise.reject(abortError(signal));
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          exitListeners.delete(onExit);
-          reject(timeoutError('waitForExit', effectiveTimeout, normalizedOutput(transcript)));
-        }, effectiveTimeout);
-        const onExit = (event: PtyExit) => {
+        let settled = false;
+        const cleanup = (): void => {
           clearTimeout(timer);
           exitListeners.delete(onExit);
+          pendingWaitRejectors.delete(cancel);
+          signal?.removeEventListener('abort', onAbort);
+        };
+        const cancel = (reason: Error): void => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(reason);
+        };
+        const onAbort = (): void => cancel(signal ? abortError(signal) : new Error('PTY wait aborted.'));
+        const timer = setTimeout(() => {
+          cancel(timeoutError('waitForExit', effectiveTimeout, normalizedOutput(transcript)));
+        }, effectiveTimeout);
+        const onExit = (event: PtyExit) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
           resolve(event);
         };
         exitListeners.add(onExit);
+        pendingWaitRejectors.add(cancel);
+        signal?.addEventListener('abort', onAbort, { once: true });
+        if (signal?.aborted) onAbort();
       });
     },
     kill(signal) {
@@ -213,6 +304,9 @@ export async function createPtyHarness(config: PtyHarnessConfig): Promise<PtyHar
     dispose() {
       if (disposed) return;
       disposed = true;
+      const disposalError = new Error('PTY harness was disposed before the wait completed.');
+      for (const rejectWait of [...pendingWaitRejectors]) rejectWait(disposalError);
+      pendingWaitRejectors.clear();
       // node-pty 1.x can retain its ConPTY output worker after the child has
       // already emitted exit. Killing an exited PTY starts a console-list
       // helper that races the vanished process, so close the retained worker
