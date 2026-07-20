@@ -12,6 +12,7 @@ packages:
   - "packages/spectrum"
   - "packages/mirage"
   - "packages/nova"
+  - "packages/stellar"
   - "packages/telescope"
   - "packages/horizon"
   - "examples/task-console"
