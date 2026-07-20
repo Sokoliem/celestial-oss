@@ -1,5 +1,7 @@
 /** Minimal ANSI-to-HTML adapter used by Stellar's static export pipeline. */
 
+import { sanitizeTerminalText } from '@celestial/corona';
+
 export interface CssStyle {
   color?: string;
   backgroundColor?: string;
@@ -101,6 +103,7 @@ function applySgr(current: CssStyle, rawParams: string): CssStyle {
 }
 
 export function parseAnsiString(input: string): StyledSegment[] {
+  input = sanitizeTerminalText(input, { allowSgr: true, allowHyperlinks: false, controlPolicy: 'strip' });
   const segments: StyledSegment[] = [];
   let style: CssStyle = {};
   let pending = '';

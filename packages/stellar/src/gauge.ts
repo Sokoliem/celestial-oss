@@ -5,10 +5,11 @@
  * to show a single value within a range.
  */
 import type { Color } from '@celestial/corona';
-import { color as coronaColor } from '@celestial/corona';
+import { cellWidth, color as coronaColor, sanitizeTerminalText, sliceCells, stripAnsi } from '@celestial/corona';
 import type { VNode } from '@celestial/nebula';
 import { column, text as textNode } from '@celestial/nebula';
 import { type CanvasMode, canvas } from './canvas.js';
+import { boundedPositiveInteger, chartSize, finiteNumber, rangeRatio } from './validation.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -82,12 +83,12 @@ export interface GaugeResult {
  * @returns A GaugeResult with render methods and normalized value.
  */
 export function arcGauge(opts: ArcGaugeOpts): GaugeResult {
-  const width = opts.width ?? 20;
-  const height = opts.height ?? 6;
-  const minVal = opts.min ?? 0;
-  const maxVal = opts.max ?? 100;
-  const range = maxVal - minVal || 1;
-  const normalized = Math.max(0, Math.min(1, (opts.value - minVal) / range));
+  const { width, height } = chartSize(opts.width, opts.height, 20, 6);
+  let minVal = finiteNumber(opts.min, 0);
+  let maxVal = finiteNumber(opts.max, 100);
+  if (minVal > maxVal) [minVal, maxVal] = [maxVal, minVal];
+  const value = finiteNumber(opts.value, minVal);
+  const normalized = Math.max(0, Math.min(1, rangeRatio(value, minVal, maxVal)));
 
   const c = canvas(width, height, opts.mode);
   const pxW = c.pixelWidth;
@@ -102,7 +103,7 @@ export function arcGauge(opts: ArcGaugeOpts): GaugeResult {
   const valueAngle = Math.PI * (1 - normalized); // π = left, 0 = right
 
   // Draw background arc (unfilled region only: 0 to valueAngle)
-  if (opts.bgColor) {
+  if (outerR > 0 && opts.bgColor) {
     c.setColor(opts.bgColor);
     drawArcFill(c, cx, cy, innerR, outerR, 0, valueAngle, aspect);
   }
@@ -110,14 +111,14 @@ export function arcGauge(opts: ArcGaugeOpts): GaugeResult {
   // Draw filled arc (valueAngle to PI)
   const fillColor = opts.color ?? coronaColor.green;
   c.setColor(fillColor);
-  drawArcFill(c, cx, cy, innerR, outerR, valueAngle, Math.PI, aspect);
+  if (outerR > 0) drawArcFill(c, cx, cy, innerR, outerR, valueAngle, Math.PI, aspect);
 
   let result = c.render();
 
   // Value label
   if (opts.showValue !== false) {
     const fmt = opts.format ?? defaultFormat;
-    const label = fmt(opts.value);
+    const label = safeLabel(fmt(value));
     result += '\n' + centerText(label, width);
   }
 
@@ -140,17 +141,22 @@ export function arcGauge(opts: ArcGaugeOpts): GaugeResult {
  * @returns A GaugeResult with render methods and normalized value.
  */
 export function barGauge(opts: BarGaugeOpts): GaugeResult {
-  const width = opts.width ?? 30;
-  const minVal = opts.min ?? 0;
-  const maxVal = opts.max ?? 100;
-  const range = maxVal - minVal || 1;
-  const normalized = Math.max(0, Math.min(1, (opts.value - minVal) / range));
+  const width = boundedPositiveInteger(opts.width, 30, 1_000_000);
+  let minVal = finiteNumber(opts.min, 0);
+  let maxVal = finiteNumber(opts.max, 100);
+  if (minVal > maxVal) [minVal, maxVal] = [maxVal, minVal];
+  const value = finiteNumber(opts.value, minVal);
+  const normalized = Math.max(0, Math.min(1, rangeRatio(value, minVal, maxVal)));
 
   const RESET = '\x1b[0m';
   const FULL = '\u2588';
   const EMPTY = '\u2591';
 
-  const barWidth = Math.max(1, width - (opts.showValue !== false ? 8 : 0));
+  const showLabel = opts.showValue !== false && width >= 3;
+  const fmt = opts.format ?? defaultFormat;
+  const rawLabel = showLabel ? safeLabel(fmt(value)) : '';
+  const label = showLabel ? sliceCells(rawLabel, width - 2, { trusted: true })[0] : '';
+  const barWidth = Math.max(1, width - (label ? cellWidth(label) + 1 : 0));
   const filledCount = Math.round(normalized * barWidth);
   const emptyCount = barWidth - filledCount;
 
@@ -160,10 +166,7 @@ export function barGauge(opts: BarGaugeOpts): GaugeResult {
   let bar = fillColor.fg() + FULL.repeat(filledCount) + RESET;
   bar += bgCol.fg() + EMPTY.repeat(emptyCount) + RESET;
 
-  if (opts.showValue !== false) {
-    const fmt = opts.format ?? defaultFormat;
-    bar += ' ' + fmt(opts.value);
-  }
+  if (label) bar += ' ' + label;
 
   return {
     toString: () => bar,
@@ -234,6 +237,11 @@ function defaultFormat(v: number): string {
 }
 
 function centerText(text: string, width: number): string {
-  const pad = Math.max(0, Math.floor((width - text.length) / 2));
-  return ' '.repeat(pad) + text;
+  const clipped = sliceCells(text, width, { trusted: true })[0];
+  const pad = Math.max(0, Math.floor((width - cellWidth(clipped)) / 2));
+  return ' '.repeat(pad) + clipped;
+}
+
+function safeLabel(value: string): string {
+  return stripAnsi(sanitizeTerminalText(value, { allowSgr: false, allowHyperlinks: false, controlPolicy: 'strip' })).replace(/[\r\n]/g, ' ');
 }

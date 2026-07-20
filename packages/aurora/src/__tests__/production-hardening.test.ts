@@ -67,6 +67,29 @@ describe('production validation', () => {
     expect(() => staggerGrid(0, 1, { delay: 10 })).toThrow(RangeError);
   });
 
+  it('rejects invalid clocks, easing output, and interpolated values', () => {
+    const animation = tween({ from: 0, to: 1, duration: 100 });
+    expect(() => animation.tick(Number.NaN)).toThrow(TypeError);
+
+    const invalidEasing = tween({ from: 0, to: 1, duration: 100, easing: () => Number.NaN });
+    expect(() => invalidEasing.tick(1000)).toThrow(TypeError);
+
+    const invalidInterpolation = tween({ from: 0, to: 1, duration: 100, interpolate: () => Number.POSITIVE_INFINITY });
+    expect(() => invalidInterpolation.tick(1000)).toThrow(TypeError);
+  });
+
+  it('ignores stale external clock frames instead of moving backward', () => {
+    const animation = tween({ from: 0, to: 100, duration: 100 });
+    animation.tick(1000);
+    animation.tick(1050);
+    expect(animation.value()).toBe(50);
+
+    animation.tick(1025);
+    expect(animation.value()).toBe(50);
+    animation.tick(1075);
+    expect(animation.value()).toBe(75);
+  });
+
   it('rejects incompatible spring value shapes', () => {
     expect(() =>
       spring(
@@ -106,6 +129,17 @@ describe('duration metadata', () => {
 
     expect(animationDuration(forever)).toBe(Infinity);
     expect(parent.duration?.()).toBe(Infinity);
+  });
+
+  it('rejects corrupt duration metadata while preserving explicit unbounded durations', () => {
+    const invalid = manualAnimation();
+    invalid.duration = () => Number.NaN;
+    expect(() => animationDuration(invalid)).toThrow(RangeError);
+
+    invalid.duration = () => Number.NEGATIVE_INFINITY;
+    expect(() => animationDuration(invalid)).toThrow(RangeError);
+    invalid.duration = () => Number.POSITIVE_INFINITY;
+    expect(animationDuration(invalid)).toBe(Number.POSITIVE_INFINITY);
   });
 
   it('uses known durations when seeking through a sequence', () => {

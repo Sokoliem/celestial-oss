@@ -6,6 +6,7 @@
  */
 
 import type { AnimationEffect, StyleEffect, TransitionEffect, ValueEffect } from './effects.js';
+import { finiteNumber, nonNegativeNumber } from './validation.js';
 
 // ---------------------------------------------------------------------------
 // ComposedAnimation interface
@@ -88,8 +89,9 @@ export function composeParallel(...effects: AnimationEffect[]): ComposedAnimatio
 
   return {
     tick(now: number): void {
+      const time = finiteNumber(now, 'now');
       for (const e of effects) {
-        e.tick(now);
+        e.tick(time);
       }
     },
 
@@ -131,12 +133,13 @@ export function composeSequence(...effects: AnimationEffect[]): ComposedAnimatio
 
   return {
     tick(now: number): void {
+      const time = finiteNumber(now, 'now');
       if (effects.length === 0) return;
 
       const current = currentEffect();
       if (!current) return;
 
-      current.tick(now);
+      current.tick(time);
 
       // Advance to next when current is done (unless it's the last).
       // The initialization tick sets the next effect's startTime so its
@@ -145,7 +148,7 @@ export function composeSequence(...effects: AnimationEffect[]): ComposedAnimatio
         currentIndex++;
         const next = currentEffect();
         if (next) {
-          next.tick(now);
+          next.tick(time);
         }
       }
     },
@@ -204,21 +207,25 @@ export function composeSequence(...effects: AnimationEffect[]): ComposedAnimatio
 // ---------------------------------------------------------------------------
 
 export function composeStagger(effects: AnimationEffect[], delayMs: number): ComposedAnimation {
+  const staggerDelay = nonNegativeNumber(delayMs, 'delayMs');
   let startTime: number | null = null;
+  let lastTime: number | null = null;
   const started: boolean[] = effects.map(() => false);
 
   return {
     tick(now: number): void {
+      const time = Math.max(finiteNumber(now, 'now'), lastTime ?? Number.NEGATIVE_INFINITY);
       if (effects.length === 0) return;
 
       if (startTime === null) {
-        startTime = now;
+        startTime = time;
       }
+      lastTime = time;
 
-      const elapsed = now - startTime;
+      const elapsed = time - startTime;
 
       for (let i = 0; i < effects.length; i++) {
-        const effectDelay = i * delayMs;
+        const effectDelay = i * staggerDelay;
         if (elapsed >= effectDelay) {
           const virtualTime = elapsed - effectDelay;
           if (!started[i]) {
@@ -239,6 +246,7 @@ export function composeStagger(effects: AnimationEffect[], delayMs: number): Com
 
     reset(): void {
       startTime = null;
+      lastTime = null;
       for (let i = 0; i < effects.length; i++) {
         started[i] = false;
         effects[i]!.reset();
@@ -288,15 +296,20 @@ function seededDelay(index: number, maxDelayMs: number, seed: number): number {
 }
 
 export function composeRandom(effects: AnimationEffect[], maxDelayMs: number, seed = 42): ComposedAnimation {
+  const delayLimit = nonNegativeNumber(maxDelayMs, 'maxDelayMs');
+  const randomSeed = finiteNumber(seed, 'seed');
   let startTime: number | null = null;
-  const delays = effects.map((_, i) => seededDelay(i, maxDelayMs, seed));
+  let lastTime: number | null = null;
+  const delays = effects.map((_, i) => seededDelay(i, delayLimit, randomSeed));
   const started: boolean[] = effects.map(() => false);
 
   return {
     tick(now: number): void {
+      const time = Math.max(finiteNumber(now, 'now'), lastTime ?? Number.NEGATIVE_INFINITY);
       if (effects.length === 0) return;
-      if (startTime === null) startTime = now;
-      const elapsed = now - startTime;
+      if (startTime === null) startTime = time;
+      lastTime = time;
+      const elapsed = time - startTime;
       for (let i = 0; i < effects.length; i++) {
         if (elapsed < delays[i]!) continue;
         const virtualTime = elapsed - delays[i]!;
@@ -315,6 +328,7 @@ export function composeRandom(effects: AnimationEffect[], maxDelayMs: number, se
 
     reset(): void {
       startTime = null;
+      lastTime = null;
       for (let i = 0; i < effects.length; i++) {
         started[i] = false;
         effects[i]!.reset();
@@ -345,13 +359,14 @@ export function composeConditional(predicate: (now: number) => boolean, thenAnim
 
   return {
     tick(now: number): void {
-      const { active, tag } = selectBranch(now);
+      const time = finiteNumber(now, 'now');
+      const { active, tag } = selectBranch(time);
       if (lastBranch !== null && lastBranch !== tag) {
         // Branch flipped — reset the newly-active branch to start fresh.
         active.reset();
       }
       lastBranch = tag;
-      active.tick(now);
+      active.tick(time);
     },
 
     done(): boolean {
@@ -397,7 +412,7 @@ export function composeNested(animation: ComposedAnimation): TransitionEffect {
   return {
     kind: 'transition' as const,
     tick(now: number): void {
-      animation.tick(now);
+      animation.tick(finiteNumber(now, 'now'));
     },
     // ComposedAnimation has no progress() method — surface a binary value
     // (1 when done, 0 otherwise). Consumers that need finer-grained progress

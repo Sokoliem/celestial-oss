@@ -50,7 +50,8 @@ describe('InkLayer lifecycle', () => {
     const mark = pen({ from: { x: 0, y: 0 }, to: { x: 5, y: 0 }, color: [255, 0, 0] });
     layer.draw(mark);
     expect(layer.count()).toBe(1);
-    expect(layer.marks()[0]).toBe(mark);
+    expect(layer.marks()[0]).toEqual(mark);
+    expect(layer.marks()[0]).not.toBe(mark);
   });
 
   it('marks() returns all marks in order', () => {
@@ -80,7 +81,8 @@ describe('InkLayer lifecycle', () => {
     layer.draw(m1);
     layer.draw(m2);
     const undone = layer.undo();
-    expect(undone).toBe(m2);
+    expect(undone).toEqual(m2);
+    expect(undone).not.toBe(m2);
     expect(layer.count()).toBe(1);
     expect(layer.marks()).toEqual([m1]);
   });
@@ -551,5 +553,30 @@ describe('Convenience functions', () => {
       expect(mark.radius).toBe(5);
       expect(mark.color).toEqual([255, 0, 255]);
     }
+  });
+});
+
+describe('ink boundary hardening', () => {
+  it('rejects non-finite and unbounded geometry before rasterization', () => {
+    const layer = new InkLayer();
+    expect(() => layer.draw(pen({ from: { x: Number.NaN, y: 0 }, to: { x: 1, y: 0 }, color: [255, 0, 0] }))).toThrow(/finite/);
+    expect(() => layer.draw(rect({ rect: { x: 0, y: 0, width: 1_000_000, height: 2 }, color: [255, 0, 0], fill: true }))).toThrow(/cell limit/);
+  });
+
+  it('sanitizes annotation text and isolates mark ownership', () => {
+    const layer = new InkLayer();
+    const mark = annotation({ pos: { x: 0, y: 0 }, text: 'A\x1b[2JB', color: [1, 2, 3] });
+    layer.draw(mark);
+    if (mark.type === 'annotation') mark.pos.x = 9;
+    const shader = layer.shader();
+    expect(shader.fn(0, 0, makeCell(), makeUniforms(), noNeighbors)?.char).toBe('A');
+    expect(layer.marks()[0]).toEqual(annotation({ pos: { x: 0, y: 0 }, text: 'AB', color: [1, 2, 3] }));
+  });
+
+  it('applies per-highlight opacity', () => {
+    const layer = new InkLayer();
+    layer.draw(highlight({ rect: { x: 0, y: 0, width: 1, height: 1 }, color: [200, 0, 0], opacity: 0.5 }));
+    const result = layer.shader().fn(0, 0, makeCell({ bg: [0, 0, 0] }), makeUniforms(), noNeighbors);
+    expect(result?.bg?.[0]).toBe(100);
   });
 });

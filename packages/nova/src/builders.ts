@@ -3,6 +3,8 @@ import { applyStrategy } from './strategies/dispatch.js';
 import type { FlipAxis } from './strategies/flip.js';
 import type { GlitchOpts } from './strategies/glitch.js';
 import type { RippleOrigin } from './strategies/ripple.js';
+import { safeContent } from './strategies/text.js';
+import { clampUnit, easedProgress, finiteNumber, nonNegativeNumber } from './validation.js';
 
 export type TransitionBuilderType =
   | 'slide'
@@ -21,6 +23,8 @@ export type TransitionBuilderType =
 
 export interface TransitionState {
   startTime: number;
+  /** Last accepted clock value; protects controllers from stale frames. */
+  lastTime?: number;
   progress: number;
   complete: boolean;
 }
@@ -47,10 +51,6 @@ export interface TransitionController {
   render(oldContent: string, newContent: string, state: TransitionState): string;
 }
 
-function clamp(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
-
 interface NormalizedTransitionConfig {
   type: TransitionBuilderType;
   direction: 'left' | 'right' | 'up' | 'down';
@@ -75,7 +75,7 @@ function normalizeConfig(config: TransitionConfig | TransitionPairConfig): Norma
   return {
     type: source.type ?? 'crossfade',
     direction: source.direction ?? 'left',
-    duration: source.duration ?? 6,
+    duration: nonNegativeNumber(source.duration ?? 6, 'duration'),
     easing: source.easing ?? ((t: number) => t),
     rippleOrigin: source.rippleOrigin ?? { x: 0.5, y: 0.5 },
     flipAxis: source.flipAxis ?? 'horizontal',
@@ -90,23 +90,29 @@ export function createTransition(config: TransitionConfig | TransitionPairConfig
 
   return {
     start(startTime: number): TransitionState {
-      return { startTime, progress: normalized.reduceMotion ? 1 : 0, complete: normalized.reduceMotion };
+      const time = finiteNumber(startTime, 'startTime');
+      return { startTime: time, lastTime: time, progress: normalized.reduceMotion ? 1 : 0, complete: normalized.reduceMotion };
     },
 
     tick(state: TransitionState, now: number): TransitionState {
-      if (normalized.reduceMotion) return { startTime: state.startTime, progress: 1, complete: true };
-      const rawProgress = normalized.duration <= 0 ? 1 : clamp((now - state.startTime) / normalized.duration);
-      const easedProgress = clamp(normalized.easing(rawProgress));
+      const startTime = finiteNumber(state.startTime, 'state.startTime');
+      const time = Math.max(finiteNumber(now, 'now'), state.lastTime ?? startTime);
+      if (normalized.reduceMotion) return { startTime, lastTime: time, progress: 1, complete: true };
+      const rawProgress = normalized.duration === 0 ? 1 : clampUnit((time - startTime) / normalized.duration);
+      const progress = easedProgress(normalized.easing, rawProgress);
       return {
-        startTime: state.startTime,
-        progress: easedProgress,
-        complete: rawProgress >= 1 || easedProgress >= 1,
+        startTime,
+        lastTime: time,
+        progress,
+        complete: rawProgress >= 1 || progress >= 1,
       };
     },
 
     render(oldContent: string, newContent: string, state: TransitionState): string {
-      if (normalized.reduceMotion) return newContent;
-      return applyStrategy(normalized.type, oldContent, newContent, clamp(state.progress), {
+      const safeOldContent = safeContent(oldContent);
+      const safeNewContent = safeContent(newContent);
+      if (normalized.reduceMotion) return safeNewContent;
+      return applyStrategy(normalized.type, safeOldContent, safeNewContent, clampUnit(state.progress, 'state.progress'), {
         direction: normalized.direction,
         rippleOrigin: normalized.rippleOrigin,
         flipAxis: normalized.flipAxis,

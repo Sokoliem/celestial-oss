@@ -4,9 +4,13 @@ import type { MeasurementContext, MeasurementSpace, VNode } from './types.js';
 const DEFAULT_SPACE: MeasurementSpace = { cols: 80, rows: 24 };
 
 function normalizeSpace(space: Partial<MeasurementSpace> | undefined, fallback: MeasurementSpace): MeasurementSpace {
+  const normalize = (value: number | undefined, fallbackValue: number): number => {
+    const resolved = value === undefined || !Number.isFinite(value) ? fallbackValue : value;
+    return Math.max(0, Math.floor(resolved));
+  };
   return {
-    cols: space?.cols ?? fallback.cols,
-    rows: space?.rows ?? fallback.rows,
+    cols: normalize(space?.cols, fallback.cols),
+    rows: normalize(space?.rows, fallback.rows),
   };
 }
 

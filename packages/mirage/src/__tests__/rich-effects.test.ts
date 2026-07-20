@@ -17,9 +17,11 @@ function makeColor(r: number, g: number, b: number) {
   };
 }
 
-vi.mock('@celestial/corona', () => {
+vi.mock('@celestial/corona', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@celestial/corona')>();
   const rgb = (r: number, g: number, b: number) => makeColor(r, g, b);
   return {
+    ...actual,
     charWidth: () => 1,
     reduceMotion: () => false,
     color: {

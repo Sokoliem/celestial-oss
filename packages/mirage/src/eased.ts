@@ -3,7 +3,13 @@ import { easing as easingLib } from '@celestial/aurora';
 import { type Color, color as coronaColor, highlightColor as defaultHighlightColor } from '@celestial/corona';
 import { colorToHSL, interpolateColor } from './interpolate.js';
 import { type MotionEffectOpts, motionTick } from './motion.js';
-import { graphemes, RESET, stripAnsi } from './utils.js';
+import { positionedGraphemes, RESET, stripAnsi, visualWidth } from './utils.js';
+import { clamp, easedProgress, finiteNumber, positiveNumber, wrap } from './validation.js';
+
+function cellRatio(column: number, glyphWidth: number, totalWidth: number): number {
+  if (totalWidth <= glyphWidth) return 0;
+  return (column + (glyphWidth - 1) / 2) / (totalWidth - 1);
+}
 
 export interface EasedShimmerOpts extends MotionEffectOpts {
   tick: number;
@@ -48,15 +54,15 @@ export interface AnimatedGradientOpts extends MotionEffectOpts {
  */
 export function easedShimmer(text: string, opts: EasedShimmerOpts): string {
   const visible = stripAnsi(text);
-  const chars = graphemes(visible);
-  const visibleLen = chars.length;
+  const glyphs = positionedGraphemes(visible);
+  const visibleLen = visualWidth(visible);
   if (visibleLen === 0) return '';
 
-  const speed = opts.speed ?? 1;
-  const cycleTicks = opts.cycleTicks ?? 60;
+  const speed = finiteNumber(opts.speed, 1);
+  const cycleTicks = positiveNumber(opts.cycleTicks, 60);
   const easeFn = opts.easing ?? easingLib.easeInOut;
   const highlightColor = opts.color ?? defaultHighlightColor;
-  const width = opts.width ?? 3;
+  const width = positiveNumber(opts.width, 3);
   const halfWidth = width / 2;
 
   const [hh, sh, lh] = colorToHSL(highlightColor);
@@ -72,13 +78,18 @@ export function easedShimmer(text: string, opts: EasedShimmerOpts): string {
   }
 
   // Compute eased position along the text
-  const t = ((motionTick(opts) * speed) % cycleTicks) / cycleTicks;
-  const easedT = easeFn(t);
+  const t = wrap(motionTick(opts) * speed, cycleTicks) / cycleTicks;
+  const easedT = easedProgress(easeFn, t);
   const pos = easedT * visibleLen;
 
   let result = '';
-  for (let i = 0; i < visibleLen; i++) {
-    const dist = Math.abs(i - pos);
+  for (const glyph of glyphs) {
+    if (glyph.value === '\n') {
+      result += '\n';
+      continue;
+    }
+    const center = glyph.column + (glyph.width - 1) / 2;
+    const dist = Math.abs(center - pos);
     const wrappedDist = Math.min(dist, visibleLen - dist);
 
     if (wrappedDist <= halfWidth) {
@@ -87,10 +98,10 @@ export function easedShimmer(text: string, opts: EasedShimmerOpts): string {
       const s = baseS + (sh - baseS) * blend;
       const h = hh;
       const c = coronaColor.hsl(h, s, l);
-      result += c.fg() + chars[i];
+      result += c.fg() + glyph.value;
     } else {
       const c = coronaColor.hsl(baseH, baseS, baseLightness);
-      result += c.fg() + chars[i];
+      result += c.fg() + glyph.value;
     }
   }
 
@@ -109,15 +120,15 @@ export function easedBreathe(text: string, opts: EasedBreatheOpts): string {
   const visible = stripAnsi(text);
   if (visible.length === 0) return '';
 
-  const speed = opts.speed ?? 1;
-  const cycleTicks = opts.cycleTicks ?? 120;
+  const speed = finiteNumber(opts.speed, 1);
+  const cycleTicks = positiveNumber(opts.cycleTicks, 120);
   const easeFn = opts.easing ?? easingLib.easeInOut;
 
   // Compute linear progress through cycle
-  const t = ((motionTick(opts) * speed) % cycleTicks) / cycleTicks;
+  const t = wrap(motionTick(opts) * speed, cycleTicks) / cycleTicks;
   // Ping-pong: ramp up in first half, ramp down in second half
   const pp = t < 0.5 ? t * 2 : (1 - t) * 2;
-  const easedPP = easeFn(pp);
+  const easedPP = easedProgress(easeFn, pp);
 
   const c = interpolateColor(opts.from, opts.to, easedPP);
   return c.fg() + visible + RESET;
@@ -132,22 +143,27 @@ export function easedBreathe(text: string, opts: EasedBreatheOpts): string {
  */
 export function easedColorCycle(text: string, opts: EasedColorCycleOpts): string {
   const visible = stripAnsi(text);
-  const chars = graphemes(visible);
-  if (chars.length === 0) return '';
+  const glyphs = positionedGraphemes(visible);
+  const width = visualWidth(visible);
+  if (width === 0) return '';
 
-  const speed = opts.speed ?? 1;
-  const saturation = opts.saturation ?? 80;
-  const lightness = opts.lightness ?? 60;
+  const speed = finiteNumber(opts.speed, 1);
+  const saturation = clamp(opts.saturation, 0, 100, 80);
+  const lightness = clamp(opts.lightness, 0, 100, 60);
   const easeFn = opts.easing ?? easingLib.easeInOut;
-  const n = chars.length;
+  const tick = motionTick(opts);
 
   let result = '';
-  for (let i = 0; i < n; i++) {
-    const charT = n === 1 ? 0 : i / (n - 1);
-    const easedCharT = easeFn(charT);
-    const hue = (easedCharT * 360 + motionTick(opts) * speed * 10) % 360;
+  for (const glyph of glyphs) {
+    if (glyph.value === '\n') {
+      result += '\n';
+      continue;
+    }
+    const charT = cellRatio(glyph.column, glyph.width, width);
+    const easedCharT = easedProgress(easeFn, charT);
+    const hue = wrap(easedCharT * 360 + tick * speed * 10, 360);
     const c = coronaColor.hsl(hue, saturation, lightness);
-    result += c.fg() + chars[i];
+    result += c.fg() + glyph.value;
   }
 
   result += RESET;
@@ -168,15 +184,15 @@ export function animatedGradient(text: string, opts: AnimatedGradientOpts): stri
     throw new Error('animatedGradient requires at least 2 colors');
   }
 
-  const speed = opts.speed ?? 1;
+  const speed = finiteNumber(opts.speed, 1);
   const direction = opts.direction ?? 'horizontal';
-  const offset = (motionTick(opts) * speed * 0.01) % 1;
+  const offset = wrap(motionTick(opts) * speed * 0.01, 1);
 
   // Create a shifted color lookup: for a given ratio (0-1), sample the
   // gradient at (ratio + offset) mod 1 to create the scrolling effect.
   function shiftedInterpolate(stops: Color[], ratio: number): Color {
     const segments = stops.length - 1;
-    const shifted = (ratio + offset) % 1;
+    const shifted = wrap(ratio + offset, 1);
     const scaledRatio = shifted * segments;
     const segmentIndex = Math.min(Math.floor(scaledRatio), segments - 1);
     const localRatio = scaledRatio - segmentIndex;
@@ -201,7 +217,7 @@ export function animatedGradient(text: string, opts: AnimatedGradientOpts): stri
   if (direction === 'diagonal') {
     const lines = text.split('\n');
     const lineCount = lines.length;
-    const cols = Math.max(...lines.map((l) => graphemes(stripAnsi(l)).length));
+    const cols = Math.max(...lines.map((line) => visualWidth(line)));
     if (cols === 0) return '';
 
     return lines
@@ -209,14 +225,14 @@ export function animatedGradient(text: string, opts: AnimatedGradientOpts): stri
         const stripped = stripAnsi(line);
         if (stripped.length === 0) return line;
 
-        const chars = graphemes(stripped);
+        const glyphs = positionedGraphemes(stripped);
         let lineResult = '';
-        for (let i = 0; i < chars.length; i++) {
-          const colRatio = cols === 1 ? 0 : i / (cols - 1);
+        for (const glyph of glyphs) {
+          const colRatio = cellRatio(glyph.column, glyph.width, cols);
           const rowRatio = lineCount === 1 ? 0 : j / (lineCount - 1);
           const ratio = (colRatio + rowRatio) / 2;
           const c = shiftedInterpolate(colors, ratio);
-          lineResult += c.fg() + chars[i];
+          lineResult += c.fg() + glyph.value;
         }
         lineResult += RESET;
         return lineResult;
@@ -226,15 +242,19 @@ export function animatedGradient(text: string, opts: AnimatedGradientOpts): stri
 
   // Default: horizontal
   const visible = stripAnsi(text);
-  const chars = graphemes(visible);
-  const charCount = chars.length;
-  if (charCount === 0) return '';
+  const glyphs = positionedGraphemes(visible);
+  const width = visualWidth(visible);
+  if (width === 0) return '';
 
   let result = '';
-  for (let i = 0; i < charCount; i++) {
-    const ratio = charCount === 1 ? 0 : i / (charCount - 1);
+  for (const glyph of glyphs) {
+    if (glyph.value === '\n') {
+      result += '\n';
+      continue;
+    }
+    const ratio = cellRatio(glyph.column, glyph.width, width);
     const c = shiftedInterpolate(colors, ratio);
-    result += c.fg() + chars[i];
+    result += c.fg() + glyph.value;
   }
 
   result += RESET;

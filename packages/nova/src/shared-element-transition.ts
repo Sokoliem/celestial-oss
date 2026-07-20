@@ -32,6 +32,7 @@ import {
   endTransition,
   getInterpolatedRect,
   getTransitionProgress,
+  interpolateRectAlongCurve,
   isTransitioning,
   type LayoutRect,
   type SharedElementState,
@@ -39,7 +40,9 @@ import {
 import { applyStrategy } from './strategies/dispatch.js';
 import type { FlipAxis } from './strategies/flip.js';
 import type { RippleOrigin } from './strategies/ripple.js';
+import { safeContent } from './strategies/text.js';
 import type { ZoomMode, ZoomOrigin } from './strategies/zoom.js';
+import { easedProgress, finiteNumber, nonNegativeNumber } from './validation.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -110,7 +113,7 @@ export function createSharedElementTransition(config: SharedElementTransitionCon
   const {
     strategy = 'crossfade',
     direction = 'left',
-    duration = 8,
+    duration: requestedDuration = 8,
     easing,
     zoomMode,
     zoomOrigin,
@@ -120,6 +123,7 @@ export function createSharedElementTransition(config: SharedElementTransitionCon
     typewriterCursor = '▌',
     onComplete,
   } = config;
+  const duration = nonNegativeNumber(requestedDuration, 'duration');
   const reducedMotion = shouldReduceMotion(config);
 
   function makeInitState(): SharedElementTransitionState {
@@ -143,55 +147,58 @@ export function createSharedElementTransition(config: SharedElementTransitionCon
   }
 
   function begin(state: SharedElementTransitionState, currentTick: number): SharedElementTransitionState {
+    const tick = finiteNumber(currentTick, 'currentTick');
     if (reducedMotion) {
       onComplete?.();
       return {
         ...state,
         sharedElements: endTransition(state.sharedElements),
-        tick: currentTick,
+        tick,
         active: false,
         completed: true,
       };
     }
     return {
       ...state,
-      sharedElements: beginTransition(state.sharedElements, currentTick, duration),
-      tick: currentTick,
+      sharedElements: beginTransition(state.sharedElements, tick, duration),
+      tick,
       active: true,
       completed: false,
     };
   }
 
   function tickFn(state: SharedElementTransitionState, currentTick: number): SharedElementTransitionState {
-    if (!state.active) return { ...state, tick: currentTick };
+    const tick = Math.max(finiteNumber(currentTick, 'currentTick'), finiteNumber(state.tick, 'state.tick'));
+    if (!state.active) return { ...state, tick };
 
-    const rawProgress = getTransitionProgress(state.sharedElements, currentTick);
+    const rawProgress = getTransitionProgress(state.sharedElements, tick);
 
     if (rawProgress >= 1 && !state.completed) {
       onComplete?.();
       return {
         ...state,
         sharedElements: endTransition(state.sharedElements),
-        tick: currentTick,
+        tick,
         active: false,
         completed: true,
       };
     }
 
-    return { ...state, tick: currentTick };
+    return { ...state, tick };
   }
 
   function computeProgress(state: SharedElementTransitionState): number {
     const raw = getTransitionProgress(state.sharedElements, state.tick);
-    return easing ? easing(raw) : raw;
+    return easedProgress(easing, raw);
   }
 
   function renderBackground(state: SharedElementTransitionState, oldContent: string, newContent: string): string {
-    if (!state.active && state.completed) return newContent;
-    if (!state.active && !state.completed) return newContent;
+    const safeOldContent = safeContent(oldContent);
+    const safeNewContent = safeContent(newContent);
+    if (!state.active) return safeNewContent;
 
     const p = computeProgress(state);
-    return applyStrategy(strategy, oldContent, newContent, p, {
+    return applyStrategy(strategy, safeOldContent, safeNewContent, p, {
       direction,
       zoomMode,
       zoomOrigin,
@@ -203,7 +210,7 @@ export function createSharedElementTransition(config: SharedElementTransitionCon
   }
 
   function getElementRect(state: SharedElementTransitionState, elementId: string, targetRect: LayoutRect): LayoutRect {
-    if (!state.active) return targetRect;
+    if (!state.active) return interpolateRectAlongCurve(targetRect, targetRect, 1);
 
     return getInterpolatedRect(state.sharedElements, elementId, targetRect, state.tick, easing);
   }

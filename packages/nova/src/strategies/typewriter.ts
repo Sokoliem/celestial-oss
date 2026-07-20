@@ -1,11 +1,8 @@
 import { fadeChar } from '../fade.js';
-import { padGraphemes, visibleLength } from './text.js';
+import { clampUnit } from '../validation.js';
+import { padCells, renderCells, safeContent, type TerminalCell, visibleLength } from './text.js';
 
 const RESET = '\x1b[0m';
-
-function clamp(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
 
 function splitLines(content: string): string[] {
   if (content === '') return [''];
@@ -13,13 +10,15 @@ function splitLines(content: string): string[] {
 }
 
 export function typewriterReveal(oldContent: string, newContent: string, progress: number, cursor: string = '▌'): string {
-  const p = clamp(progress);
+  const safeOldContent = safeContent(oldContent);
+  const safeNewContent = safeContent(newContent);
+  const p = clampUnit(progress);
 
-  if (p <= 0) return oldContent;
-  if (p >= 1) return newContent;
+  if (p <= 0) return safeOldContent;
+  if (p >= 1) return safeNewContent;
 
-  const oldLines = splitLines(oldContent);
-  const newLines = splitLines(newContent);
+  const oldLines = splitLines(safeOldContent);
+  const newLines = splitLines(safeNewContent);
   const lineCount = Math.max(oldLines.length, newLines.length);
 
   let width = 0;
@@ -29,34 +28,39 @@ export function typewriterReveal(oldContent: string, newContent: string, progres
 
   const totalCells = width * lineCount;
   if (totalCells === 0) {
-    return oldContent;
+    return safeOldContent;
   }
 
   const revealCount = Math.floor(p * totalCells);
   const cursorIndex = revealCount < totalCells ? revealCount : -1;
+  const cursorCell = padCells(cursor, 1)[0]!;
   const resultLines: string[] = [];
 
   for (let row = 0; row < lineCount; row++) {
-    const oldPadded = padGraphemes(oldLines[row] ?? '', width);
-    const newPadded = padGraphemes(newLines[row] ?? '', width);
-    let line = '';
+    const oldPadded = padCells(oldLines[row] ?? '', width);
+    const newPadded = padCells(newLines[row] ?? '', width);
+    const selected: TerminalCell[] = [];
+    const faded: boolean[] = [];
 
     for (let col = 0; col < width; col++) {
       const index = row * width + col;
       if (index < revealCount) {
-        line += newPadded[col] ?? ' ';
+        selected.push(newPadded[col]!);
+        faded.push(false);
         continue;
       }
 
       if (index === cursorIndex) {
-        line += cursor;
+        selected.push(cursorCell);
+        faded.push(false);
         continue;
       }
 
-      line += fadeChar(oldPadded[col] ?? ' ', 0.35);
+      selected.push(oldPadded[col]!);
+      faded.push(true);
     }
 
-    resultLines.push(line + RESET);
+    resultLines.push(`${renderCells(selected, (text, column) => (faded[column] ? fadeChar(text, 0.35) : text))}${RESET}`);
   }
 
   return resultLines.join('\n');

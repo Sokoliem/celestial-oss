@@ -40,8 +40,23 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function normalizeCellSize(value: number | undefined, fallback = 0): number {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value!)) : fallback;
+}
+
+function itemBounds(item: WeightedStackItem, minItemSize: number): { min: number; max: number } {
+  const min = normalizeCellSize(item.minSize, minItemSize);
+  const max =
+    item.maxSize === undefined || item.maxSize === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : Math.max(min, normalizeCellSize(item.maxSize, min));
+  return { min, max };
+}
+
+function itemWeight(item: WeightedStackItem): number {
+  return Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 0;
+}
+
 function distributeWeightedSizes<TId extends string>(items: readonly WeightedStackItem<TId>[], available: number, minItemSize: number): number[] {
-  const collapsedSizes = items.map((item) => (item.collapsed ? Math.max(0, item.collapsedSize ?? 0) : 0));
+  const collapsedSizes = items.map((item) => (item.collapsed ? normalizeCellSize(item.collapsedSize) : 0));
   const fixedCollapsed = collapsedSizes.reduce((sum, size) => sum + size, 0);
   const expandable = items.map((item, index) => ({ item, index })).filter(({ item }) => !item.collapsed);
   const remaining = Math.max(0, available - fixedCollapsed);
@@ -50,16 +65,15 @@ function distributeWeightedSizes<TId extends string>(items: readonly WeightedSta
     return collapsedSizes;
   }
 
-  const totalWeight = expandable.reduce((sum, { item }) => sum + (Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 0), 0);
+  const totalWeight = expandable.reduce((sum, { item }) => sum + itemWeight(item), 0);
   const even = totalWeight <= 0 ? 1 / expandable.length : 0;
   const sizes = [...collapsedSizes];
   let assigned = 0;
 
   for (const { item, index } of expandable) {
-    const share = totalWeight <= 0 ? even : item.weight / totalWeight;
+    const share = totalWeight <= 0 ? even : itemWeight(item) / totalWeight;
     const raw = Math.floor(remaining * share);
-    const min = Math.max(0, item.minSize ?? minItemSize);
-    const max = item.maxSize ?? Number.POSITIVE_INFINITY;
+    const { min, max } = itemBounds(item, minItemSize);
     const size = clamp(raw, min, max);
     sizes[index] = size;
     assigned += size;
@@ -71,8 +85,7 @@ function distributeWeightedSizes<TId extends string>(items: readonly WeightedSta
     for (const { item, index } of expandable) {
       if (delta === 0) break;
       const current = sizes[index] ?? 0;
-      const min = Math.max(0, item.minSize ?? minItemSize);
-      const max = item.maxSize ?? Number.POSITIVE_INFINITY;
+      const { min, max } = itemBounds(item, minItemSize);
       if (delta > 0 && current < max) {
         sizes[index] = current + 1;
         delta -= 1;
@@ -126,11 +139,11 @@ function localizeVisibleEntries<TId extends string>(entries: readonly WeightedSt
 }
 
 export function resolveWeightedStack<TId extends string = string>(options: WeightedStackOptions<TId>): WeightedStackResult<TId> {
-  const size = Math.max(0, options.size);
-  const gap = Math.max(0, options.gap ?? 0);
+  const size = normalizeCellSize(options.size);
+  const gap = normalizeCellSize(options.gap);
   const totalGap = gap * Math.max(0, options.items.length - 1);
   const available = Math.max(0, size - totalGap);
-  const sizes = distributeWeightedSizes(options.items, available, Math.max(0, options.minItemSize ?? 1));
+  const sizes = distributeWeightedSizes(options.items, available, normalizeCellSize(options.minItemSize, 1));
 
   let cursor = 0;
   const entries = options.items.map((item, index): WeightedStackEntry<TId> => {
@@ -146,7 +159,7 @@ export function resolveWeightedStack<TId extends string = string>(options: Weigh
   });
 
   const maxScrollOffset = maxReachableScrollOffset(entries, size, gap);
-  const scrollOffset = clamp(Math.floor(options.scrollOffset ?? 0), 0, maxScrollOffset);
+  const scrollOffset = clamp(normalizeCellSize(options.scrollOffset), 0, maxScrollOffset);
   const visibleCount = countVisible(entries, scrollOffset, size, gap);
   const visibleEntries = localizeVisibleEntries(entries.slice(scrollOffset, scrollOffset + visibleCount), gap);
   const hiddenAbove = entries.slice(0, scrollOffset).map((entry) => entry.id);

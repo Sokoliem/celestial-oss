@@ -5,9 +5,10 @@
  * These utilities compose with the canvas API and existing chart
  * renderers to add production-ready chart chrome.
  */
-import type { Color } from '@celestial/corona';
-import { type LocaleLike, measureTextWidth, resolveLocale, truncateText } from '@celestial/rosetta';
+import { type Color, cellWidth, sanitizeTerminalText, sliceCells, stripAnsi } from '@celestial/corona';
+import { type LocaleLike, resolveLocale, segmentGraphemes } from '@celestial/rosetta';
 import type { BrailleCanvas } from './canvas.js';
+import { boundedPositiveInteger, clamp, finiteNumber, nonNegativeInteger, positiveInteger, positiveNumber, rangeRatio } from './validation.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -87,11 +88,16 @@ export interface ChartChrome {
  * @returns Array of tick values.
  */
 export function computeTicks(min: number, max: number, count: number = 5): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  const tickCount = boundedPositiveInteger(count, 5, 1_000);
   if (count <= 0) return [];
+  if (min > max) [min, max] = [max, min];
   if (min === max) return [min];
 
   const range = max - min;
-  const rawStep = range / Math.max(count - 1, 1);
+  if (!Number.isFinite(range)) return [min, max];
+  const rawStep = range / Math.max(tickCount - 1, 1);
+  if (!Number.isFinite(rawStep) || rawStep <= 0) return [min, max];
 
   // Round step to a nice number (1, 2, 5 multiples of 10^n)
   const magnitude = 10 ** Math.floor(Math.log10(rawStep));
@@ -102,13 +108,17 @@ export function computeTicks(min: number, max: number, count: number = 5): numbe
   else if (normalized <= 3.5) niceStep = 2 * magnitude;
   else if (normalized <= 7.5) niceStep = 5 * magnitude;
   else niceStep = 10 * magnitude;
+  if (!Number.isFinite(niceStep) || niceStep <= 0) return [min, max];
 
   const niceMin = Math.floor(min / niceStep) * niceStep;
+  if (!Number.isFinite(niceMin)) return [min, max];
   const ticks: number[] = [];
   let val = niceMin;
-  while (val <= max + niceStep * 0.5) {
+  for (let index = 0; index < tickCount + 4 && val <= max + niceStep * 0.5; index++) {
     ticks.push(Math.round(val * 1e10) / 1e10); // avoid fp errors
-    val += niceStep;
+    const next = val + niceStep;
+    if (next === val) break;
+    val = next;
   }
 
   // Filter out ticks outside the [min, max] range to prevent labels
@@ -162,18 +172,24 @@ export function drawGrid(
   // Step based on grid style: solid=1, dashed=2, dotted=3
   const step = config.style === 'solid' ? 1 : config.style === 'dashed' ? 2 : 3;
 
+  const rawStartX = Math.floor(finiteNumber(plotX, 0));
+  const rawStartY = Math.floor(finiteNumber(plotY, 0));
+  const startX = Math.max(0, rawStartX);
+  const startY = Math.max(0, rawStartY);
+  const endX = Math.min(c.pixelWidth, rawStartX + nonNegativeInteger(plotW, 0));
+  const endY = Math.min(c.pixelHeight, rawStartY + nonNegativeInteger(plotH, 0));
   if (config.horizontal) {
     for (const yt of yTicks) {
-      const py = plotY + Math.round((1 - yt) * (plotH - 1));
-      for (let px = plotX; px < plotX + plotW; px += step) {
+      const py = startY + Math.round((1 - clamp(yt, 0, 1, 0)) * Math.max(0, endY - startY - 1));
+      for (let px = startX; px < endX; px += step) {
         c.set(px, py);
       }
     }
   }
   if (config.vertical) {
     for (const xt of xTicks) {
-      const px = plotX + Math.round(xt * (plotW - 1));
-      for (let py = plotY; py < plotY + plotH; py += step) {
+      const px = startX + Math.round(clamp(xt, 0, 1, 0) * Math.max(0, endX - startX - 1));
+      for (let py = startY; py < endY; py += step) {
         c.set(px, py);
       }
     }
@@ -211,18 +227,25 @@ export function renderTitle(config: TitleConfig, width: number): string[] {
  * @returns A single line of positioned tick labels.
  */
 export function renderXTickLabels(ticks: number[], min: number, max: number, width: number, format: TickFormatter = defaultFormat): string {
-  const range = max - min || 1;
-  const line = new Array(width).fill(' ');
+  const safeWidth = positiveInteger(width, 1);
+  const safeMin = finiteNumber(min, 0);
+  const safeMax = finiteNumber(max, safeMin + 1);
+  const line = new Array<string>(safeWidth).fill(' ');
 
   for (const tick of ticks) {
-    const pos = Math.round(((tick - min) / range) * (width - 1));
-    const label = fitTextWidth(format(tick), width);
-    const labelWidth = measureTextWidth(label);
+    if (!Number.isFinite(tick)) continue;
+    const pos = Math.round(clamp(rangeRatio(tick, safeMin, safeMax), 0, 1, 0) * (safeWidth - 1));
+    const label = fitTextWidth(format(tick), safeWidth);
+    const labelWidth = cellWidth(label);
     // Shift label left if it would overflow the right edge
     const idealStart = pos - Math.floor(labelWidth / 2);
-    const start = Math.max(0, Math.min(idealStart, width - labelWidth));
-    for (let i = 0; i < label.length && start + i < width; i++) {
-      line[start + i] = label[i];
+    let column = Math.max(0, Math.min(idealStart, safeWidth - labelWidth));
+    for (const glyph of segmentGraphemes(label)) {
+      const glyphWidth = cellWidth(glyph);
+      if (glyphWidth <= 0 || column + glyphWidth > safeWidth) continue;
+      line[column] = glyph;
+      for (let offset = 1; offset < glyphWidth; offset++) line[column + offset] = '';
+      column += glyphWidth;
     }
   }
 
@@ -246,12 +269,15 @@ export function renderYTickLabels(
   height: number,
   format: TickFormatter = defaultFormat,
 ): { row: number; label: string }[] {
-  const range = max - min || 1;
+  const safeHeight = positiveInteger(height, 1);
+  const safeMin = finiteNumber(min, 0);
+  const safeMax = finiteNumber(max, safeMin + 1);
   const labels: { row: number; label: string }[] = [];
 
   for (const tick of ticks) {
-    const row = height - 1 - Math.round(((tick - min) / range) * (height - 1));
-    labels.push({ row, label: format(tick) });
+    if (!Number.isFinite(tick)) continue;
+    const row = safeHeight - 1 - Math.round(clamp(rangeRatio(tick, safeMin, safeMax), 0, 1, 0) * (safeHeight - 1));
+    labels.push({ row, label: safePlainText(format(tick)) });
   }
 
   return labels;
@@ -266,7 +292,7 @@ export function renderYTickLabels(
 export function renderLegend(config: LegendConfig): string {
   const RESET = '\x1b[0m';
   const BLOCK = '\u2588';
-  return config.entries.map((e) => `${e.color.fg()}${BLOCK}${BLOCK}${RESET} ${e.label}`).join('  ');
+  return config.entries.map((e) => `${e.color.fg()}${BLOCK}${BLOCK}${RESET} ${safePlainText(e.label)}`).join('  ');
 }
 
 // ── Responsive Sizing ────────────────────────────────────────────────────
@@ -280,11 +306,12 @@ export function renderLegend(config: LegendConfig): string {
  * @returns Computed width and height.
  */
 export function responsiveSize(availableWidth: number, availableHeight: number, aspectRatio: number = 2.5): { width: number; height: number } {
-  const maxW = Math.max(10, availableWidth);
-  const maxH = Math.max(5, availableHeight);
-  const idealH = Math.round(maxW / aspectRatio);
+  const maxW = Math.max(10, positiveInteger(availableWidth, 10));
+  const maxH = Math.max(5, positiveInteger(availableHeight, 5));
+  const ratio = positiveNumber(aspectRatio, 2.5);
+  const idealH = Math.max(1, Math.round(maxW / ratio));
   const height = Math.min(idealH, maxH);
-  const width = Math.min(maxW, Math.round(height * aspectRatio));
+  const width = Math.max(1, Math.min(maxW, Math.round(height * ratio)));
   return { width, height };
 }
 
@@ -310,26 +337,31 @@ export function composeChartChrome(
     maxY?: number;
   },
 ): string {
+  const width = positiveInteger(opts.width, 1);
+  const minX = finiteNumber(opts.minX, 0);
+  const maxX = finiteNumber(opts.maxX, 1);
+  const minY = finiteNumber(opts.minY, 0);
+  const maxY = finiteNumber(opts.maxY, 1);
   const lines: string[] = [];
 
   // Title
   if (chrome.title) {
-    lines.push(...renderTitle(chrome.title, opts.width));
+    lines.push(...renderTitle(chrome.title, width));
   }
 
   // Y-axis labels + chart body
-  const bodyLines = chartBody.split('\n');
+  const bodyLines = sanitizeTerminalText(chartBody, { allowSgr: true, allowHyperlinks: false, controlPolicy: 'strip' }).split('\n');
   const yLabels = chrome.axis
     ? renderYTickLabels(
-        computeTicks(opts.minY ?? 0, opts.maxY ?? 1, chrome.axis.tickCount),
-        opts.minY ?? 0,
-        opts.maxY ?? 1,
+        computeTicks(minY, maxY, chrome.axis.tickCount),
+        minY,
+        maxY,
         bodyLines.length,
         createTickFormatter(chrome.axis.yFormat, chrome.axis.locale),
       )
     : [];
 
-  const yLabelWidth = yLabels.reduce((max, l) => Math.max(max, measureTextWidth(l.label)), 0);
+  const yLabelWidth = yLabels.reduce((max, l) => Math.max(max, cellWidth(l.label)), 0);
   const pad = yLabelWidth > 0 ? yLabelWidth + 1 : 0;
 
   for (let i = 0; i < bodyLines.length; i++) {
@@ -341,19 +373,19 @@ export function composeChartChrome(
   // X-axis label
   if (chrome.axis?.xLabel) {
     const xTickLine = renderXTickLabels(
-      computeTicks(opts.minX ?? 0, opts.maxX ?? 1, chrome.axis.tickCount),
-      opts.minX ?? 0,
-      opts.maxX ?? 1,
-      opts.width,
+      computeTicks(minX, maxX, chrome.axis.tickCount),
+      minX,
+      maxX,
+      width,
       createTickFormatter(chrome.axis.xFormat, chrome.axis.locale),
     );
     lines.push(' '.repeat(pad) + xTickLine);
-    lines.push(centerText(chrome.axis.xLabel, opts.width + pad));
+    lines.push(centerText(chrome.axis.xLabel, width + pad));
   }
 
   if (chrome.axis?.yLabel) {
     // Prepend rotated Y label hint
-    lines[0] = chrome.axis.yLabel + ' ' + (lines[0] ?? '');
+    lines[0] = safePlainText(chrome.axis.yLabel) + ' ' + (lines[0] ?? '');
   }
 
   // Legend
@@ -363,11 +395,11 @@ export function composeChartChrome(
 
     if (pos === 'top') {
       // Prepend legend line before chart body (after title lines, before body lines)
-      const titleLineCount = chrome.title ? renderTitle(chrome.title, opts.width).length : 0;
+      const titleLineCount = chrome.title ? renderTitle(chrome.title, width).length : 0;
       lines.splice(titleLineCount, 0, legendStr, '');
     } else if (pos === 'right') {
       // Append legend to the right of the first chart body line
-      const titleLineCount = chrome.title ? renderTitle(chrome.title, opts.width).length : 0;
+      const titleLineCount = chrome.title ? renderTitle(chrome.title, width).length : 0;
       if (titleLineCount < lines.length) {
         lines[titleLineCount] = lines[titleLineCount] + '  ' + legendStr;
       } else {
@@ -387,7 +419,7 @@ export function composeChartChrome(
 
 function centerText(text: string, width: number): string {
   const clipped = fitTextWidth(text, width);
-  const pad = Math.max(0, Math.floor((width - measureTextWidth(clipped)) / 2));
+  const pad = Math.max(0, Math.floor((positiveInteger(width, 1) - cellWidth(clipped)) / 2));
   return ' '.repeat(pad) + clipped;
 }
 
@@ -400,9 +432,13 @@ function createTickFormatter(format?: TickFormatter, locale?: LocaleLike): TickF
 }
 
 function fitTextWidth(text: string, width: number): string {
-  return truncateText(text, width, '');
+  return sliceCells(safePlainText(text), positiveInteger(width, 1), { trusted: true })[0];
 }
 
 function padStartWidth(text: string, width: number): string {
-  return `${' '.repeat(Math.max(0, width - measureTextWidth(text)))}${text}`;
+  return `${' '.repeat(Math.max(0, width - cellWidth(text)))}${text}`;
+}
+
+function safePlainText(text: string): string {
+  return stripAnsi(sanitizeTerminalText(text, { allowSgr: false, allowHyperlinks: false, controlPolicy: 'strip' })).replace(/[\r\n]/g, ' ');
 }

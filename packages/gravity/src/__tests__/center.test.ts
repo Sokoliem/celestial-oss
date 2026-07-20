@@ -120,10 +120,13 @@ describe('center', () => {
     const innerComponent = middleBox.children![0] as { kind: 'component'; render: () => VNode };
     const innerRow = innerComponent.render() as RowNode;
 
-    // Left and right spacers should have equal width (both grow: 1)
+    // Odd remainders are consumed while keeping the two sides within one cell.
     const leftSpacer = innerRow.children[0] as BoxNode;
     const rightSpacer = innerRow.children[2] as BoxNode;
-    expect(leftSpacer.width).toBe(rightSpacer.width);
+    const leftWidth = leftSpacer.width as number;
+    const rightWidth = rightSpacer.width as number;
+    expect(Math.abs(leftWidth - rightWidth)).toBeLessThanOrEqual(1);
+    expect(leftWidth + rightWidth + 1).toBe(80);
   });
 
   it('grow spacers take equal space in the column', () => {

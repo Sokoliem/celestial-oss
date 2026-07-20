@@ -33,6 +33,24 @@ describe('drawLine', () => {
   });
 });
 
+describe('drawing boundary hardening', () => {
+  it('clips extreme finite lines to the canvas', () => {
+    const c = canvas(2, 1);
+    drawLine(c, -1_000_000_000, 0, 1_000_000_000, 0);
+    expect(c.get(0, 0)).toBe(true);
+    expect(c.get(c.pixelWidth - 1, 0)).toBe(true);
+  });
+
+  it('treats non-finite geometry as a no-op', () => {
+    const c = canvas(2, 2);
+    drawRect(c, Number.NaN, 0, 2, 2);
+    fillRect(c, 0, 0, Number.POSITIVE_INFINITY, 2);
+    drawCircle(c, 0, 0, Number.NaN);
+    fillCircle(c, 0, 0, Number.NEGATIVE_INFINITY);
+    expect(c.render()).toBe('\u2800\u2800\n\u2800\u2800');
+  });
+});
+
 describe('drawRect', () => {
   it('rect draws 4 edges', () => {
     const c = canvas(10, 5);

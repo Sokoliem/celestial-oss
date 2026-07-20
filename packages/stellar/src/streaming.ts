@@ -9,6 +9,7 @@
 import type { Color } from '@celestial/corona';
 import type { CanvasMode } from './canvas.js';
 import { type ChartResult, chart } from './chart.js';
+import { boundedPositiveInteger, chartSize, finiteValues, nonNegativeNumber } from './validation.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,10 @@ export interface StreamingChartOpts {
   filled?: boolean;
   /** Minimum update interval in ms (throttle renders, default: 0). */
   minInterval?: number;
+  /** Injectable monotonic clock for deterministic hosts and tests. */
+  now?: () => number;
+  /** Reports one callback failure without preventing sibling callbacks. */
+  onSubscriberError?: (error: unknown) => void;
 }
 
 /** A streaming chart controller. */
@@ -73,18 +78,20 @@ export type StreamingUpdateCallback = (data: number[], chart: ChartResult) => vo
  * @returns A StreamingChart controller.
  */
 export function createStreamingChart(opts: StreamingChartOpts = {}): StreamingChart {
-  const maxPoints = opts.maxPoints ?? 100;
+  const maxPoints = boundedPositiveInteger(opts.maxPoints, 100, 1_000_000);
   const chartType = opts.type ?? 'line';
-  const width = opts.width ?? 60;
-  const height = opts.height ?? 10;
+  const { width, height } = chartSize(opts.width, opts.height, 60, 10);
   const color = opts.color;
   const mode = opts.mode;
   const filled = opts.filled;
-  const minInterval = opts.minInterval ?? 0;
+  const minInterval = nonNegativeNumber(opts.minInterval, 0);
+  const clock = opts.now;
+  const onSubscriberError = opts.onSubscriberError;
 
   let data: number[] = [];
   let total = 0;
-  let lastRenderTime = 0;
+  let lastClockTime = 0;
+  let lastRenderTime: number | undefined;
   const callbacks: Set<StreamingUpdateCallback> = new Set();
 
   function enforceWindow(): void {
@@ -101,26 +108,45 @@ export function createStreamingChart(opts: StreamingChartOpts = {}): StreamingCh
   }
 
   function notifyCallbacks(): void {
-    const now = Date.now();
-    if (minInterval > 0 && now - lastRenderTime < minInterval) return;
+    let candidate = Date.now();
+    try {
+      candidate = clock?.() ?? candidate;
+    } catch (error) {
+      try {
+        onSubscriberError?.(error);
+      } catch {
+        // Error reporting is isolated too.
+      }
+    }
+    if (Number.isFinite(candidate)) lastClockTime = Math.max(lastClockTime, candidate);
+    const now = lastClockTime;
+    if (minInterval > 0 && lastRenderTime !== undefined && now - lastRenderTime < minInterval) return;
     lastRenderTime = now;
 
     const result = renderChart();
-    for (const cb of callbacks) {
-      cb([...data], result);
+    for (const cb of [...callbacks]) {
+      try {
+        cb([...data], result);
+      } catch (error) {
+        try {
+          onSubscriberError?.(error);
+        } catch {
+          // Error reporting is isolated too, so remaining listeners still run.
+        }
+      }
     }
   }
 
   return {
     push(...values: number[]): void {
-      data.push(...values);
-      total += values.length;
+      for (const value of finiteValues(values)) data.push(value);
+      total = Math.min(Number.MAX_SAFE_INTEGER, total + values.length);
       enforceWindow();
       notifyCallbacks();
     },
 
     setData(newData: number[]): void {
-      data = [...newData];
+      data = finiteValues(newData);
       total = newData.length;
       enforceWindow();
       notifyCallbacks();
@@ -149,6 +175,7 @@ export function createStreamingChart(opts: StreamingChartOpts = {}): StreamingCh
     },
 
     onUpdate(callback: StreamingUpdateCallback): void {
+      if (typeof callback !== 'function') throw new TypeError('streaming update callback must be a function');
       callbacks.add(callback);
     },
 

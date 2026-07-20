@@ -9,6 +9,7 @@ import type { VNode } from '@celestial/nebula';
 import { column, text as textNode } from '@celestial/nebula';
 import { type CanvasMode, canvas } from './canvas.js';
 import { safeMax, safeMin } from './math-utils.js';
+import { chartSize, finiteValues, rangeRatio } from './validation.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -58,13 +59,12 @@ export interface SparklineResult {
  * @returns A SparklineResult with render methods and data range info.
  */
 export function sparkline(opts: SparklineOpts): SparklineResult {
-  const data = opts.data;
+  const data = finiteValues(opts.data);
   if (data.length === 0) {
     return { toString: () => '', toVNode: () => textNode(''), min: 0, max: 0 };
   }
 
-  const width = opts.width ?? Math.max(data.length, 1);
-  const height = opts.height ?? 1;
+  const { width, height } = chartSize(opts.width, opts.height, Math.max(data.length, 1), 1);
   const c = canvas(width, height, opts.mode);
 
   if (opts.color) c.setColor(opts.color);
@@ -74,7 +74,6 @@ export function sparkline(opts: SparklineOpts): SparklineResult {
 
   const min = safeMin(data);
   const max = safeMax(data);
-  const range = max - min || 1;
 
   if (opts.filled) {
     // Fill area under the curve
@@ -83,7 +82,7 @@ export function sparkline(opts: SparklineOpts): SparklineResult {
       const idx = Math.min(Math.floor(dataProgress), data.length - 1);
       const frac = dataProgress - idx;
       const val = idx + 1 < data.length ? data[idx]! * (1 - frac) + data[idx + 1]! * frac : data[idx]!;
-      const y = pxH - 1 - Math.round(((val - min) / range) * (pxH - 1));
+      const y = pxH - 1 - Math.round(rangeRatio(val, min, max, 0.5) * (pxH - 1));
       for (let py = y; py < pxH; py++) {
         c.set(px, py);
       }
@@ -99,8 +98,8 @@ export function sparkline(opts: SparklineOpts): SparklineResult {
       const i2 = Math.min(Math.floor(prog2), data.length - 1);
       const f2 = prog2 - i2;
       const v2 = i2 + 1 < data.length ? data[i2]! * (1 - f2) + data[i2 + 1]! * f2 : data[i2]!;
-      const y1 = pxH - 1 - Math.round(((v1 - min) / range) * (pxH - 1));
-      const y2 = pxH - 1 - Math.round(((v2 - min) / range) * (pxH - 1));
+      const y1 = pxH - 1 - Math.round(rangeRatio(v1, min, max, 0.5) * (pxH - 1));
+      const y2 = pxH - 1 - Math.round(rangeRatio(v2, min, max, 0.5) * (pxH - 1));
       c.line(px, y1, px + 1, y2);
     }
 

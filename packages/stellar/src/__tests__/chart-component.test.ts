@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type ChartModel, chartAppConfig, type EmbedChartConfig, embedChart, isChartMsg } from '../chart-component.js';
 import type { ChartGestureMsg } from '../chart-gestures.js';
 import { gridLayer, lineDataLayer, titleLayer } from '../layers.js';
@@ -172,7 +172,7 @@ describe('update', () => {
     expect(updated).toBe(model);
   });
 
-  it('handles chart:gesture by calling onGesture callback', () => {
+  it('handles chart:gesture by describing the onGesture callback as a command', async () => {
     const gestures: ChartGestureMsg[] = [];
     const chart = embedChart(
       basicConfig({
@@ -187,7 +187,13 @@ describe('update', () => {
       dataX: 2.5,
       dataY: 50,
     };
-    chart.update({ type: 'chart:gesture', gesture: gestureMsg }, model);
+    const [, cmd] = chart.update({ type: 'chart:gesture', gesture: gestureMsg }, model);
+    expect(gestures).toHaveLength(0);
+    expect(cmd._kind.kind).toBe('perform');
+    if (cmd._kind.kind === 'perform') {
+      await cmd._kind.task(new AbortController().signal);
+      expect(cmd._kind.toMsg(undefined)).toEqual({ type: 'chart:gestureHandled' });
+    }
     expect(gestures).toHaveLength(1);
     expect(gestures[0]!.type).toBe('chart:click');
   });
@@ -387,5 +393,41 @@ describe('animation lifecycle', () => {
     expect(model.animation!.active).toBe(true);
     expect(model.animation!.tick).toBe(0);
     expect(model.animation!.duration).toBe(10);
+  });
+});
+
+describe('embedded chart ownership and effect hardening', () => {
+  it('snapshots initial and replacement array data', () => {
+    const initial = [1, 2, 3];
+    const chart = embedChart(basicConfig({ initialData: initial }));
+    let [model] = chart.init();
+    initial[0] = 99;
+    expect(model.data).toEqual([1, 2, 3]);
+
+    const replacement = [4, 5];
+    [model] = chart.update({ type: 'chart:setData', data: replacement }, model);
+    replacement[0] = 99;
+    expect(model.data).toEqual([4, 5]);
+  });
+
+  it('contains gesture callback failures in the command boundary', async () => {
+    const onGestureError = vi.fn();
+    const chart = embedChart(
+      basicConfig({
+        onGesture: () => {
+          throw new Error('gesture callback');
+        },
+        onGestureError,
+      }),
+    );
+    const [model] = chart.init();
+    const [, cmd] = chart.update({ type: 'chart:gesture', gesture: { type: 'chart:click', col: 0, row: 0, dataX: 0, dataY: 0 } }, model);
+    if (cmd._kind.kind !== 'perform') throw new Error('expected gesture command');
+    await expect(cmd._kind.task(new AbortController().signal)).resolves.toBeUndefined();
+    expect(onGestureError).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects empty layout identifiers', () => {
+    expect(() => embedChart(basicConfig({ id: '  ' }))).toThrow(/id/);
   });
 });

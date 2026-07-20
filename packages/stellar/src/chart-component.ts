@@ -67,6 +67,7 @@ import {
   createCoordinateMap,
 } from './chart-gestures.js';
 import type { HitRegion } from './interactive.js';
+import { chartSize, easedProgress, nonNegativeInteger, positiveNumber } from './validation.js';
 
 // ── Chart Model ──────────────────────────────────────────────────────────
 
@@ -116,7 +117,8 @@ export type ChartMsg<D = number[]> =
   | { readonly type: 'chart:setData'; readonly data: D }
   | { readonly type: 'chart:resize'; readonly size: ChartSize }
   | { readonly type: 'chart:startAnimation'; readonly duration?: number; readonly easing?: EasingFn }
-  | { readonly type: 'chart:gesture'; readonly gesture: ChartGestureMsg };
+  | { readonly type: 'chart:gesture'; readonly gesture: ChartGestureMsg }
+  | { readonly type: 'chart:gestureHandled' };
 
 // ── Chart Configuration ──────────────────────────────────────────────────
 
@@ -160,6 +162,14 @@ export interface EmbedChartConfig<D = number[]> {
   mode?: CanvasMode;
   /** Callback for gesture messages (for parent app integration). */
   onGesture?: (msg: ChartGestureMsg) => void;
+  /** Injectable monotonic clock for deterministic gesture tests and hosts. */
+  now?: () => number;
+  /** Reports gesture callback failures without taking down the app loop. */
+  onGestureError?: (error: unknown) => void;
+}
+
+function cloneData<D>(data: D): D {
+  return (Array.isArray(data) ? [...data] : data) as D;
 }
 
 /** Result of embedding a chart — provides Elm Architecture integration functions. */
@@ -174,6 +184,8 @@ export interface EmbeddedChart<D = number[]> {
   subscriptions: (model: ChartModel<D>) => Sub<ChartMsg<D>>;
   /** Get shaders for AppConfig.shaders. */
   shaders: (model: ChartModel<D>) => CellShader[];
+  /** Derive the current interactive hit regions without mutating the model. */
+  hitRegions: (model: ChartModel<D>) => HitRegion[];
 }
 
 // ── embedChart ───────────────────────────────────────────────────────────
@@ -196,8 +208,11 @@ export function embedChart<D = number[]>(config: EmbedChartConfig<D>): EmbeddedC
     animationEasing = easingLib.easeOut,
     mode = 'braille',
   } = config;
+  if (id.trim() === '') throw new TypeError('embedded chart id must not be empty');
 
   const interactiveConfig = interactive !== false ? interactive : null;
+  const normalizedInitialSize = chartSize(initialSize.width, initialSize.height, 60, 10);
+  const normalizedAnimationDuration = positiveNumber(animationDuration, 30);
 
   // ── init ───────────────────────────────────────────────────────────
 
@@ -218,14 +233,14 @@ export function embedChart<D = number[]>(config: EmbedChartConfig<D>): EmbeddedC
 
     const model: ChartModel<D> = {
       id,
-      data: initialData,
-      size: { ...initialSize },
+      data: cloneData(initialData),
+      size: normalizedInitialSize,
       gesture,
       animation: animateOnInit
         ? {
             active: true,
             tick: 0,
-            duration: animationDuration,
+            duration: normalizedAnimationDuration,
             easing: animationEasing,
             progress: 0,
           }
@@ -243,15 +258,15 @@ export function embedChart<D = number[]>(config: EmbedChartConfig<D>): EmbeddedC
   function update(msg: ChartMsg<D>, model: ChartModel<D>): [ChartModel<D>, Cmd<ChartMsg<D>>] {
     switch (msg.type) {
       case 'chart:setData':
-        return [{ ...model, data: msg.data }, CmdNS.none()];
+        return [{ ...model, data: cloneData(msg.data) }, CmdNS.none()];
 
       case 'chart:resize':
-        return [{ ...model, size: msg.size }, CmdNS.none()];
+        return [{ ...model, size: chartSize(msg.size.width, msg.size.height, model.size.width, model.size.height) }, CmdNS.none()];
 
       case 'chart:layout': {
         const rect = msg.rects.rects.get(id);
         if (rect) {
-          return [{ ...model, size: { width: rect.width, height: rect.height } }, CmdNS.none()];
+          return [{ ...model, size: chartSize(rect.width, rect.height, model.size.width, model.size.height) }, CmdNS.none()];
         }
         return [model, CmdNS.none()];
       }
@@ -260,29 +275,31 @@ export function embedChart<D = number[]>(config: EmbedChartConfig<D>): EmbeddedC
         if (!model.gesture) {
           return [model, CmdNS.none()];
         }
-        const result = chartGestureUpdate(model.gesture, msg.event, Date.now());
+        let timestamp = Date.now();
+        try {
+          const candidate = config.now?.();
+          if (candidate !== undefined && Number.isFinite(candidate)) timestamp = candidate;
+        } catch {
+          // A faulty injected clock falls back to the platform clock.
+        }
+        const result = chartGestureUpdate(model.gesture, msg.event, timestamp);
         const newModel = {
           ...model,
           gesture: result.state,
         };
 
-        // Dispatch gesture messages to parent via config callback
-        if (config.onGesture && result.messages.length > 0) {
-          for (const gMsg of result.messages) {
-            config.onGesture(gMsg);
-          }
-        }
-
-        return [newModel, CmdNS.none()];
+        const cmds = result.messages.map((gesture) => CmdNS.msg<ChartMsg<D>>({ type: 'chart:gesture', gesture }));
+        return [newModel, cmds.length > 0 ? CmdNS.batch(...cmds) : CmdNS.none()];
       }
 
       case 'chart:animFrame': {
         if (!model.animation?.active) {
           return [model, CmdNS.none()];
         }
-        const nextTick = model.animation.tick + 1;
-        const t = Math.min(1, nextTick / model.animation.duration);
-        const progress = model.animation.easing(t);
+        const duration = positiveNumber(model.animation.duration, 1);
+        const nextTick = Math.min(duration, nonNegativeInteger(model.animation.tick, 0) + 1);
+        const t = Math.min(1, nextTick / duration);
+        const progress = easedProgress(model.animation.easing, t);
         const active = t < 1;
 
         return [
@@ -310,7 +327,7 @@ export function embedChart<D = number[]>(config: EmbedChartConfig<D>): EmbeddedC
             animation: {
               active: true,
               tick: 0,
-              duration: msg.duration ?? animationDuration,
+              duration: positiveNumber(msg.duration, normalizedAnimationDuration),
               easing: msg.easing ?? animationEasing,
               progress: 0,
             },
@@ -320,31 +337,35 @@ export function embedChart<D = number[]>(config: EmbedChartConfig<D>): EmbeddedC
       }
 
       case 'chart:gesture': {
-        // Gesture messages bubble up from the gesture system.
-        // The parent app handles these via config.onGesture.
-        if (config.onGesture) {
-          config.onGesture(msg.gesture);
-        }
-        return [model, CmdNS.none()];
+        if (!config.onGesture) return [model, CmdNS.none()];
+        return [
+          model,
+          CmdNS.perform(
+            async () => {
+              try {
+                await config.onGesture?.(msg.gesture);
+              } catch (error) {
+                try {
+                  config.onGestureError?.(error);
+                } catch {
+                  // Error reporting is isolated from the app command loop.
+                }
+              }
+            },
+            (): ChartMsg<D> => ({ type: 'chart:gestureHandled' }),
+          ),
+        ];
       }
+
+      case 'chart:gestureHandled':
+        return [model, CmdNS.none()];
     }
   }
 
   // ── view ───────────────────────────────────────────────────────────
 
   function view(model: ChartModel<D>): VNode {
-    const userLayers = layerFactory(model);
-    const composed = composeChart(model.size.width, model.size.height, userLayers, {
-      mode: model.mode,
-    });
-
-    // Store hit regions and shaders on the model for later access.
-    // This is a controlled side-effect — the view function populates
-    // these for the parent to read via model.hitRegions / model.shaders.
-    (model as { hitRegions: HitRegion[] }).hitRegions = composed.hitRegions;
-    (model as { shaders: CellShader[] }).shaders = composed.shaders;
-
-    return composed.toVNode();
+    return composeModel(model).toVNode();
   }
 
   // ── subscriptions ──────────────────────────────────────────────────
@@ -386,10 +407,19 @@ export function embedChart<D = number[]>(config: EmbedChartConfig<D>): EmbeddedC
   // ── shaders ────────────────────────────────────────────────────────
 
   function shaders(model: ChartModel<D>): CellShader[] {
-    return model.shaders;
+    return composeModel(model).shaders;
   }
 
-  return { init, update, view, subscriptions, shaders };
+  function hitRegions(model: ChartModel<D>): HitRegion[] {
+    return composeModel(model).hitRegions;
+  }
+
+  function composeModel(model: ChartModel<D>) {
+    const size = chartSize(model.size.width, model.size.height, 60, 10);
+    return composeChart(size.width, size.height, layerFactory(model), { mode: model.mode });
+  }
+
+  return { init, update, view, subscriptions, shaders, hitRegions };
 }
 
 // ── Helper: check if a value is a ChartMsg ───────────────────────────────

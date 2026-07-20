@@ -21,6 +21,8 @@
  */
 
 import { applyStrategy, type StrategyKey, type StrategyOptions } from './strategies/dispatch.js';
+import { safeContent } from './strategies/text.js';
+import { easedProgress, finiteNumber, nonNegativeNumber } from './validation.js';
 
 export type ChainedTransitionStrategy = Exclude<StrategyKey, 'none'>;
 
@@ -52,9 +54,10 @@ interface StageBoundary {
 function computeBoundaries(stages: readonly ChainedTransitionStage[]): StageBoundary[] {
   const out: StageBoundary[] = [];
   let cursor = 0;
-  for (const stage of stages) {
-    const end = cursor + Math.max(0, stage.duration);
-    out.push({ stage, startOffset: cursor, endOffset: end });
+  for (const [index, stage] of stages.entries()) {
+    const normalizedStage = { ...stage, duration: nonNegativeNumber(stage.duration, `stages[${index}].duration`) };
+    const end = cursor + normalizedStage.duration;
+    out.push({ stage: normalizedStage, startOffset: cursor, endOffset: end });
     cursor = end;
   }
   return out;
@@ -71,7 +74,7 @@ export function createChainedTransition(stages: readonly ChainedTransitionStage[
   let startTick = 0;
 
   function elapsedAt(tick: number): number {
-    return started ? tick - startTick : 0;
+    return started ? Math.max(0, finiteNumber(tick, 'tick') - startTick) : 0;
   }
 
   function activeIndex(tick: number): number {
@@ -87,7 +90,7 @@ export function createChainedTransition(stages: readonly ChainedTransitionStage[
   return {
     start(s: number): void {
       started = true;
-      startTick = s;
+      startTick = finiteNumber(s, 'startTick');
     },
 
     done(tick: number): boolean {
@@ -100,27 +103,29 @@ export function createChainedTransition(stages: readonly ChainedTransitionStage[
     },
 
     render(oldContent: string, newContent: string, tick: number): string {
-      if (!started) return oldContent;
+      const safeOldContent = safeContent(oldContent);
+      const safeNewContent = safeContent(newContent);
+      if (!started) return safeOldContent;
       const elapsed = elapsedAt(tick);
-      if (elapsed >= total) return newContent;
+      if (elapsed >= total) return safeNewContent;
 
       const idx = activeIndex(tick);
       const boundary = boundaries[idx]!;
       const localElapsed = elapsed - boundary.startOffset;
       const stage = boundary.stage;
       const rawProgress = stage.duration <= 0 ? 1 : Math.min(1, localElapsed / stage.duration);
-      const easedProgress = stage.easing ? stage.easing(rawProgress) : rawProgress;
-      let stageOldContent = oldContent;
+      const progress = easedProgress(stage.easing, rawProgress);
+      let stageOldContent = safeOldContent;
 
       for (let i = 0; i < idx; i += 1) {
         const priorStage = boundaries[i]!.stage;
-        stageOldContent = applyStrategy(priorStage.strategy, stageOldContent, newContent, 1, {
+        stageOldContent = applyStrategy(priorStage.strategy, stageOldContent, safeNewContent, 1, {
           ...priorStage.options,
           clampProgress: true,
         });
       }
 
-      return applyStrategy(stage.strategy, stageOldContent, newContent, easedProgress, {
+      return applyStrategy(stage.strategy, stageOldContent, safeNewContent, progress, {
         ...stage.options,
         clampProgress: true,
       });

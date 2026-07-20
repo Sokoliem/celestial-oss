@@ -352,3 +352,26 @@ describe('layout modes', () => {
     expect(called).toBe(true);
   });
 });
+
+describe('dashboard boundary hardening', () => {
+  it('keeps navigation stable for an empty dashboard', () => {
+    const app = dashboardAppConfig({ panels: [] });
+    const [model] = app.init();
+    expect(app.update({ type: 'dashboard:nextPanel' }, model)[0]).toBe(model);
+    expect(app.update({ type: 'dashboard:prevPanel' }, model)[0]).toBe(model);
+    expect(app.update({ type: 'dashboard:focusPanel', index: Number.NaN }, model)[0]).toBe(model);
+  });
+
+  it('rejects ambiguous panel identifiers', () => {
+    expect(() =>
+      dashboardAppConfig({
+        panels: [staticPanel({ id: 'same', content: textNode('A') }), staticPanel({ id: 'same', content: textNode('B') })],
+      }),
+    ).toThrow(/duplicate/);
+  });
+
+  it('normalizes unbounded layout dimensions', () => {
+    expect(() => dashboardGrid([{ view: textNode('A') }], { columns: Number.POSITIVE_INFINITY, gap: Number.NaN })).not.toThrow();
+    expect(() => dashboardStack([{ view: textNode('A') }, { view: textNode('B') }], { gap: Number.POSITIVE_INFINITY })).not.toThrow();
+  });
+});

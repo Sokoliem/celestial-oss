@@ -15,6 +15,15 @@ import { ColorMap } from './color-map.js';
 import { drawCircle, drawCircleCorrect, drawLine, drawRect, drawText, fillCircle, fillCircleCorrect, fillRect } from './draw.js';
 import { type CanvasModeOrAuto, type ModeCapabilities, resolveCanvasMode } from './resolve-mode.js';
 
+const MAX_CANVAS_CELLS = 16_777_216;
+
+function validateDimension(value: number, name: 'width' | 'height'): number {
+  if (!Number.isSafeInteger(value)) throw new TypeError(`canvas ${name} must be a finite safe integer`);
+  if (value < 0) throw new RangeError(`canvas ${name} must be >= 0`);
+  if (value > MAX_CANVAS_CELLS) throw new RangeError(`canvas ${name} exceeds the ${MAX_CANVAS_CELLS.toLocaleString('en-US')} cell dimension limit`);
+  return value;
+}
+
 export type { CanvasMode } from './codec.js';
 export type { CanvasModeOrAuto, ModeCapabilities } from './resolve-mode.js';
 
@@ -70,8 +79,11 @@ class CanvasImpl implements BrailleCanvas {
 
   constructor(width: number, height: number, mode: CanvasMode) {
     this.codec = getCodec(mode);
-    this.width = width;
-    this.height = height;
+    this.width = validateDimension(width, 'width');
+    this.height = validateDimension(height, 'height');
+    if (this.width !== 0 && this.height > Math.floor(MAX_CANVAS_CELLS / this.width)) {
+      throw new RangeError(`canvas exceeds the ${MAX_CANVAS_CELLS.toLocaleString('en-US')} cell allocation limit`);
+    }
     this.pixelWidth = width * this.codec.subCols;
     this.pixelHeight = height * this.codec.subRows;
     this.pixelAspect = this.codec.pixelAspect;
@@ -80,7 +92,7 @@ class CanvasImpl implements BrailleCanvas {
   }
 
   private inBounds(px: number, py: number): boolean {
-    return px >= 0 && px < this.pixelWidth && py >= 0 && py < this.pixelHeight;
+    return Number.isInteger(px) && Number.isInteger(py) && px >= 0 && px < this.pixelWidth && py >= 0 && py < this.pixelHeight;
   }
 
   private cellIndex(px: number, py: number): { col: number; row: number; dx: number; dy: number } {
@@ -226,12 +238,12 @@ class CanvasImpl implements BrailleCanvas {
   }
 
   getCellBitmask(row: number, col: number): number {
-    if (row < 0 || row >= this.height || col < 0 || col >= this.width) return 0;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= this.height || col < 0 || col >= this.width) return 0;
     return this.cells[row * this.width + col]!;
   }
 
   getCellColor(row: number, col: number): import('./color-map.js').CellColor | undefined {
-    if (row < 0 || row >= this.height || col < 0 || col >= this.width) return undefined;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= this.height || col < 0 || col >= this.width) return undefined;
     return this.colorMap.get(row, col);
   }
 

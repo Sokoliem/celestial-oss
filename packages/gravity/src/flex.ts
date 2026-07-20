@@ -41,20 +41,22 @@ function isVNode(value: unknown): value is VNode {
 }
 
 function normalizeGap(gap: number | Gap | undefined, direction: 'row' | 'column'): number {
+  const normalize = (value: number): number => (Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0);
   if (typeof gap === 'number' || gap === undefined) {
-    return gap ?? 0;
+    return normalize(gap ?? 0);
   }
-  return direction === 'row' ? (gap.col ?? gap.row ?? 0) : (gap.row ?? gap.col ?? 0);
+  return normalize(direction === 'row' ? (gap.col ?? gap.row ?? 0) : (gap.row ?? gap.col ?? 0));
 }
 
 function normalizeGaps(gap: number | Gap | undefined, direction: 'row' | 'column'): { main: number; cross: number } {
+  const normalize = (value: number): number => (Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0);
   if (typeof gap === 'number' || gap === undefined) {
-    const value = gap ?? 0;
+    const value = normalize(gap ?? 0);
     return { main: value, cross: value };
   }
   return direction === 'row'
-    ? { main: gap.col ?? gap.row ?? 0, cross: gap.row ?? gap.col ?? 0 }
-    : { main: gap.row ?? gap.col ?? 0, cross: gap.col ?? gap.row ?? 0 };
+    ? { main: normalize(gap.col ?? gap.row ?? 0), cross: normalize(gap.row ?? gap.col ?? 0) }
+    : { main: normalize(gap.row ?? gap.col ?? 0), cross: normalize(gap.col ?? gap.row ?? 0) };
 }
 
 function isReverseDirection(direction: FlexDirection): boolean {
@@ -85,15 +87,28 @@ interface ResolvedFlexItem {
 
 function normalizeMargin(margin: Margin | undefined): SafeAreaInsets {
   if (typeof margin === 'number') {
-    const size = Math.max(0, Math.floor(margin));
+    const size = normalizeCellSize(margin);
     return { top: size, right: size, bottom: size, left: size };
   }
   return {
-    top: Math.max(0, Math.floor(margin?.top ?? 0)),
-    right: Math.max(0, Math.floor(margin?.right ?? 0)),
-    bottom: Math.max(0, Math.floor(margin?.bottom ?? 0)),
-    left: Math.max(0, Math.floor(margin?.left ?? 0)),
+    top: normalizeCellSize(margin?.top),
+    right: normalizeCellSize(margin?.right),
+    bottom: normalizeCellSize(margin?.bottom),
+    left: normalizeCellSize(margin?.left),
   };
+}
+
+function normalizeCellSize(value: number | undefined, fallback = 0): number {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value!)) : fallback;
+}
+
+function normalizeWeight(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) ? Math.max(0, value!) : fallback;
+}
+
+function normalizeMaxSize(value: number | undefined, min: number): number | undefined {
+  if (value === undefined || value === Number.POSITIVE_INFINITY) return undefined;
+  return Math.max(min, normalizeCellSize(value, min));
 }
 
 function mainMargin(margin: SafeAreaInsets, axisDirection: 'row' | 'column'): number {
@@ -240,6 +255,8 @@ function wrapFlexLines(
   wrap: FlexWrap,
   gaps: { main: number; cross: number },
   available: number,
+  context: MeasurementContext,
+  alignItems?: AlignItems,
 ): VNode {
   const lines = createWrappedLines(items, available, gaps.main).map((line) => resolveFlexLine(line, available, gaps.main));
   if (wrap === 'wrap-reverse') {
@@ -247,7 +264,8 @@ function wrapFlexLines(
   }
 
   const lineNodes = lines.map((line) => {
-    const children = line.map((item) => resolveItemSize(item, axisDirection, resolveRuntimeMeasurementContext()));
+    snapItemSizes(line);
+    const children = line.map((item) => resolveItemSize(item, axisDirection, context, alignItems));
     return axisDirection === 'row'
       ? ({ kind: 'row', gap: gaps.main, children } satisfies VNode)
       : ({ kind: 'column', gap: gaps.main, children } satisfies VNode);
@@ -264,6 +282,19 @@ function wrapFlexLines(
         gap: gaps.cross,
         children: lineNodes,
       };
+}
+
+/** Preserve every allocatable terminal cell after fractional flex distribution. */
+function snapItemSizes(items: ResolvedFlexItem[]): void {
+  const target = Math.round(items.reduce((sum, item) => sum + item.size, 0));
+  const ranked = items
+    .map((item, index) => ({ item, index, floor: Math.floor(item.size), fraction: item.size - Math.floor(item.size) }))
+    .sort((left, right) => right.fraction - left.fraction || left.index - right.index);
+  let remaining = target - ranked.reduce((sum, entry) => sum + entry.floor, 0);
+  for (const entry of ranked) {
+    entry.item.size = entry.floor + (remaining > 0 ? 1 : 0);
+    if (remaining > 0) remaining -= 1;
+  }
 }
 
 function justifyFlexChildren(
@@ -409,7 +440,7 @@ export function flex(props: FlexProps | Omit<FlexProps, 'children'>, ...children
       if (typeof normalizedProps.direction === 'string') {
         direction = normalizedProps.direction;
       } else {
-        direction = resolveConditional(normalizedProps.direction as WhenConditional<FlexDirection>);
+        direction = resolveConditional(normalizedProps.direction as WhenConditional<FlexDirection>, measurementContext.terminal.cols);
       }
 
       const axisDirection = toAxisDirection(direction);
@@ -424,7 +455,7 @@ export function flex(props: FlexProps | Omit<FlexProps, 'children'>, ...children
           if (hide === true) return false;
           if (hide === false || hide === undefined) return true;
           if (isWhenCondition(hide)) {
-            return !resolveWhen(hide);
+            return !resolveWhen(hide, measurementContext.terminal.cols);
           }
           return true;
         })
@@ -452,22 +483,26 @@ export function flex(props: FlexProps | Omit<FlexProps, 'children'>, ...children
         const opts = child.options;
         let basis: number;
         if (typeof opts.basis === 'number') {
-          basis = opts.basis;
+          basis = normalizeCellSize(opts.basis);
         } else {
           const measured = measureNodeWithContext(child.node, measurementContext);
           basis = axisDirection === 'row' ? measured.width : measured.height;
         }
         const margin = normalizeMargin(opts.margin);
+        const minSize = normalizeCellSize(opts.minMainSize ?? opts.minSize);
+        const maxSize = normalizeMaxSize(opts.maxMainSize ?? opts.maxSize, minSize);
+        const minCrossSize = normalizeCellSize(opts.minCrossSize);
+        const maxCrossSize = normalizeMaxSize(opts.maxCrossSize, minCrossSize);
 
         return {
           child,
-          grow: opts.grow ?? 0,
-          shrink: opts.shrink ?? 1,
+          grow: normalizeWeight(opts.grow, 0),
+          shrink: normalizeWeight(opts.shrink, 1),
           basis: basis + mainMargin(margin, axisDirection),
-          minSize: opts.minMainSize ?? opts.minSize,
-          maxSize: opts.maxMainSize ?? opts.maxSize,
-          minCrossSize: opts.minCrossSize,
-          maxCrossSize: opts.maxCrossSize,
+          minSize,
+          maxSize,
+          minCrossSize,
+          maxCrossSize,
           alignSelf: opts.alignSelf,
           margin,
           size: basis + mainMargin(margin, axisDirection),
@@ -475,7 +510,11 @@ export function flex(props: FlexProps | Omit<FlexProps, 'children'>, ...children
       });
 
       if (wrap !== 'nowrap') {
-        return wrapOverflow(wrapFlexLines(items, axisDirection, wrap, gaps, Math.max(1, containerMain)), normalizedProps, measurementContext);
+        return wrapOverflow(
+          wrapFlexLines(items, axisDirection, wrap, gaps, containerMain, measurementContext, normalizedProps.alignItems),
+          normalizedProps,
+          measurementContext,
+        );
       }
 
       const totalBasis = items.reduce((sum, item) => sum + item.basis, 0);
@@ -485,6 +524,7 @@ export function flex(props: FlexProps | Omit<FlexProps, 'children'>, ...children
       } else if (totalBasis > available) {
         distributeShrink(items, available);
       }
+      snapItemSizes(items);
 
       const resolvedChildren: VNode[] = items.map((item) => resolveItemSize(item, axisDirection, measurementContext, normalizedProps.alignItems));
       const usedMain = items.reduce((sum, item) => sum + Math.max(0, Math.floor(item.size)), 0) + gap * Math.max(0, items.length - 1);

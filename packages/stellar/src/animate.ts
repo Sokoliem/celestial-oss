@@ -9,6 +9,7 @@ import type { EasingFn } from '@celestial/aurora';
 import { easing as easingLib } from '@celestial/aurora';
 import type { BarChartOpts, ChartResult, LineChartOpts } from './chart.js';
 import { chart } from './chart.js';
+import { easedProgress, finiteNumber, finiteValues, nonNegativeNumber } from './validation.js';
 
 // ── animateData ──────────────────────────────────────────────────────────
 
@@ -24,11 +25,13 @@ import { chart } from './chart.js';
  */
 export function animateData(data: number[], tick: number, duration: number, easingFn: EasingFn = easingLib.easeOut): number[] {
   if (data.length === 0) return [];
-  if (duration <= 0) return [...data];
-  const t = Math.min(1, tick / duration);
-  if (t >= 1) return [...data];
-  const easedT = easingFn(t);
-  return data.map((v) => v * easedT);
+  const values = finiteValues(data);
+  const safeDuration = finiteNumber(duration, 0);
+  if (safeDuration <= 0) return values;
+  const t = Math.min(1, nonNegativeNumber(tick, 0) / safeDuration);
+  if (t >= 1) return values;
+  const easedT = easedProgress(easingFn, t);
+  return values.map((v) => v * easedT);
 }
 
 // ── animateBarChart ──────────────────────────────────────────────────────
@@ -73,13 +76,15 @@ export interface AnimateLineChartConfig extends LineChartOpts {
 export function animateLineChart(config: AnimateLineChartConfig): ChartResult {
   const { tick, duration, easing: easingFn = easingLib.easeOut, data, ...rest } = config;
 
-  if (data.length === 0) return chart.line({ ...rest, data });
-  if (duration <= 0) return chart.line({ ...rest, data });
+  const values = finiteValues(data);
+  if (values.length === 0) return chart.line({ ...rest, data: values });
+  const safeDuration = finiteNumber(duration, 0);
+  if (safeDuration <= 0) return chart.line({ ...rest, data: values });
 
-  const t = Math.min(1, tick / duration);
-  const easedT = easingFn(t);
+  const t = Math.min(1, nonNegativeNumber(tick, 0) / safeDuration);
+  const easedT = easedProgress(easingFn, t);
 
-  const visibleCount = Math.ceil(data.length * easedT);
+  const visibleCount = Math.min(values.length, Math.ceil(values.length * easedT));
 
   // When no points are visible yet (tick=0), return an empty data array
   // so the chart renders as a blank canvas. This avoids the misleading
@@ -88,10 +93,10 @@ export function animateLineChart(config: AnimateLineChartConfig): ChartResult {
     return chart.line({ ...rest, data: [] });
   }
 
-  const animatedData = data.map((v, i) => {
+  const animatedData = values.map((v, i) => {
     if (i < visibleCount) return v;
     // Fill hidden portion with last visible value for smooth reveal
-    return data[visibleCount - 1]!;
+    return values[visibleCount - 1]!;
   });
 
   return chart.line({ ...rest, data: animatedData });

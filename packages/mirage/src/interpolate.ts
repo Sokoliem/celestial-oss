@@ -1,4 +1,5 @@
 import { type Color, color as coronaColor } from '@celestial/corona';
+import { clamp, finiteNumber } from './validation.js';
 
 /**
  * Convert a Color to HSL values.
@@ -47,8 +48,14 @@ export function colorToHSL(c: Color): [number, number, number] {
  * ratio is clamped to 0-1.
  */
 export function interpolateOKLAB(l1: number, a1: number, b1: number, l2: number, a2: number, b2: number, ratio: number): [number, number, number] {
-  ratio = Math.max(0, Math.min(1, ratio));
-  return [l1 + (l2 - l1) * ratio, a1 + (a2 - a1) * ratio, b1 + (b2 - b1) * ratio];
+  ratio = clamp(ratio, 0, 1, 0);
+  const fromL = finiteNumber(l1, 0);
+  const fromA = finiteNumber(a1, 0);
+  const fromB = finiteNumber(b1, 0);
+  const toL = finiteNumber(l2, fromL);
+  const toA = finiteNumber(a2, fromA);
+  const toB = finiteNumber(b2, fromB);
+  return [fromL + (toL - fromL) * ratio, fromA + (toA - fromA) * ratio, fromB + (toB - fromB) * ratio];
 }
 
 /**
@@ -56,7 +63,13 @@ export function interpolateOKLAB(l1: number, a1: number, b1: number, l2: number,
  * ratio is clamped to 0-1.
  */
 export function interpolateOKLCH(l1: number, c1: number, h1: number, l2: number, c2: number, h2: number, ratio: number): [number, number, number] {
-  ratio = Math.max(0, Math.min(1, ratio));
+  ratio = clamp(ratio, 0, 1, 0);
+  l1 = finiteNumber(l1, 0);
+  c1 = finiteNumber(c1, 0);
+  h1 = finiteNumber(h1, 0);
+  l2 = finiteNumber(l2, l1);
+  c2 = finiteNumber(c2, c1);
+  h2 = finiteNumber(h2, h1);
 
   // Shortest path for hue interpolation
   let dh = h2 - h1;
@@ -80,5 +93,5 @@ export function interpolateOKLCH(l1: number, c1: number, h1: number, l2: number,
  * Delegates to `color.lerp` from @celestial/corona.
  */
 export function interpolateColor(from: Color, to: Color, ratio: number): Color {
-  return coronaColor.lerp(from, to, ratio);
+  return coronaColor.lerp(from, to, clamp(ratio, 0, 1, 0));
 }

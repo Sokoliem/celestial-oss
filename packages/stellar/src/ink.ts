@@ -6,7 +6,131 @@
  * Marks persist until explicitly cleared.
  */
 
+import { cellWidth, sanitizeTerminalText, sliceCells, stripAnsi } from '@celestial/corona';
 import type { CellShader, NeighborFn, RGB, ShaderCell, ShaderOutput, ShaderUniforms } from '@celestial/nebula';
+import { segmentGraphemes } from '@celestial/rosetta';
+import { clamp, finiteNumber } from './validation.js';
+
+const MAX_INK_COORDINATE = 1_000_000_000;
+const MAX_INK_CELLS = 1_000_000;
+const MAX_INK_MARKS = 10_000;
+
+function normalizeCoordinate(value: number, name: string): number {
+  if (!Number.isFinite(value)) throw new TypeError(`${name} must be finite`);
+  if (Math.abs(value) > MAX_INK_COORDINATE) throw new RangeError(`${name} exceeds the ink coordinate limit`);
+  return Math.round(value);
+}
+
+function normalizePoint(value: Point, name: string): Point {
+  return { x: normalizeCoordinate(value.x, `${name}.x`), y: normalizeCoordinate(value.y, `${name}.y`) };
+}
+
+function normalizeColor(value: RGB, name: string): RGB {
+  if (!Array.isArray(value) || value.length !== 3 || !value.every(Number.isFinite)) throw new TypeError(`${name} must be a finite RGB tuple`);
+  return value.map((channel) => Math.round(clamp(channel, 0, 255, 0))) as RGB;
+}
+
+function normalizeExtent(value: number, name: string): number {
+  if (!Number.isFinite(value)) throw new TypeError(`${name} must be finite`);
+  const extent = Math.floor(value);
+  if (extent <= 0) throw new RangeError(`${name} must be > 0`);
+  if (extent > MAX_INK_CELLS) throw new RangeError(`${name} exceeds the ink extent limit`);
+  return extent;
+}
+
+function normalizeGlyph(value: string | undefined, fallback: string): string {
+  const safe = stripAnsi(sanitizeTerminalText(value ?? fallback, { allowSgr: false, allowHyperlinks: false, controlPolicy: 'strip' }));
+  const glyph = segmentGraphemes(safe).find((entry) => cellWidth(entry) === 1);
+  return glyph ?? fallback;
+}
+
+function normalizeText(value: string): string {
+  const safe = stripAnsi(sanitizeTerminalText(value, { allowSgr: false, allowHyperlinks: false, controlPolicy: 'strip' })).replace(/[\r\n]/g, ' ');
+  return sliceCells(safe, MAX_INK_CELLS)[0];
+}
+
+function markCost(mark: InkMark): number {
+  switch (mark.type) {
+    case 'pen':
+    case 'arrow':
+      return Math.max(Math.abs(mark.to.x - mark.from.x), Math.abs(mark.to.y - mark.from.y)) + 1;
+    case 'highlight':
+      return mark.rect.width * mark.rect.height;
+    case 'annotation':
+      return segmentGraphemes(mark.text).length;
+    case 'rect':
+      return mark.fill ? mark.rect.width * mark.rect.height : Math.max(1, 2 * mark.rect.width + 2 * mark.rect.height - 4);
+    case 'circle':
+      return Math.max(1, mark.radius * 8);
+  }
+}
+
+function normalizeRect(value: { x: number; y: number; width: number; height: number }, name: string): { x: number; y: number; width: number; height: number } {
+  const rect = {
+    x: normalizeCoordinate(value.x, `${name}.x`),
+    y: normalizeCoordinate(value.y, `${name}.y`),
+    width: normalizeExtent(value.width, `${name}.width`),
+    height: normalizeExtent(value.height, `${name}.height`),
+  };
+  if (rect.width > Math.floor(MAX_INK_CELLS / rect.height)) throw new RangeError(`${name} exceeds the ink cell limit`);
+  return rect;
+}
+
+function normalizeMark(mark: InkMark): InkMark {
+  switch (mark.type) {
+    case 'pen':
+      return {
+        type: 'pen',
+        from: normalizePoint(mark.from, 'pen.from'),
+        to: normalizePoint(mark.to, 'pen.to'),
+        color: normalizeColor(mark.color, 'pen.color'),
+        ...(mark.char === undefined ? {} : { char: normalizeGlyph(mark.char, '*') }),
+      };
+    case 'highlight':
+      return {
+        type: 'highlight',
+        rect: normalizeRect(mark.rect, 'highlight.rect'),
+        color: normalizeColor(mark.color, 'highlight.color'),
+        ...(mark.opacity === undefined ? {} : { opacity: clamp(mark.opacity, 0, 1, 1) }),
+      };
+    case 'arrow':
+      return {
+        type: 'arrow',
+        from: normalizePoint(mark.from, 'arrow.from'),
+        to: normalizePoint(mark.to, 'arrow.to'),
+        color: normalizeColor(mark.color, 'arrow.color'),
+      };
+    case 'annotation':
+      return {
+        type: 'annotation',
+        pos: normalizePoint(mark.pos, 'annotation.pos'),
+        text: normalizeText(mark.text),
+        color: normalizeColor(mark.color, 'annotation.color'),
+      };
+    case 'rect':
+      return {
+        type: 'rect',
+        rect: normalizeRect(mark.rect, 'rect.rect'),
+        color: normalizeColor(mark.color, 'rect.color'),
+        ...(mark.fill === undefined ? {} : { fill: mark.fill }),
+      };
+    case 'circle': {
+      const radius = Math.floor(finiteNumber(mark.radius, Number.NaN));
+      if (!Number.isFinite(radius)) throw new TypeError('circle.radius must be finite');
+      if (radius < 0) throw new RangeError('circle.radius must be >= 0');
+      if (Math.max(1, radius * 8) > MAX_INK_CELLS) throw new RangeError('circle.radius exceeds the ink cell limit');
+      return { type: 'circle', center: normalizePoint(mark.center, 'circle.center'), radius, color: normalizeColor(mark.color, 'circle.color') };
+    }
+  }
+}
+
+function normalizeOptions(options?: InkOptions): InkOptions {
+  const blend = options?.blend;
+  return {
+    blend: blend === 'underlay' || blend === 'replace' ? blend : 'overlay',
+    opacity: clamp(options?.opacity, 0, 1, 1),
+  };
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +175,7 @@ interface InkCell {
   char?: string;
   fg?: RGB;
   bg?: RGB;
+  opacity?: number;
 }
 
 // ── Rasterization helpers ────────────────────────────────────────────────────
@@ -163,6 +288,7 @@ function rasterizeMarks(marks: readonly InkMark[]): Map<string, InkCell> {
         char: cell.char ?? existing.char,
         fg: cell.fg ?? existing.fg,
         bg: cell.bg ?? existing.bg,
+        opacity: cell.opacity ?? existing.opacity,
       });
     } else {
       grid.set(key, { ...cell });
@@ -183,7 +309,7 @@ function rasterizeMarks(marks: readonly InkMark[]): Map<string, InkCell> {
         const { x, y, width, height } = mark.rect;
         for (let py = y; py < y + height; py++) {
           for (let px = x; px < x + width; px++) {
-            setCell(px, py, { bg: mark.color });
+            setCell(px, py, { bg: mark.color, opacity: mark.opacity });
           }
         }
         break;
@@ -206,11 +332,14 @@ function rasterizeMarks(marks: readonly InkMark[]): Map<string, InkCell> {
       }
 
       case 'annotation': {
-        for (let i = 0; i < mark.text.length; i++) {
-          setCell(mark.pos.x + i, mark.pos.y, {
-            char: mark.text[i],
+        let offset = 0;
+        for (const rawGlyph of segmentGraphemes(mark.text)) {
+          const glyph = cellWidth(rawGlyph) === 1 ? rawGlyph : '?';
+          setCell(mark.pos.x + offset, mark.pos.y, {
+            char: glyph,
             fg: mark.color,
           });
+          offset++;
         }
         break;
       }
@@ -270,14 +399,20 @@ export class InkLayer {
   private _options: InkOptions;
   private _grid: Map<string, InkCell> | null = null;
   private _dirty = true;
+  private _cost = 0;
 
   constructor(options?: InkOptions) {
-    this._options = { blend: 'overlay', opacity: 1.0, ...options };
+    this._options = normalizeOptions(options);
   }
 
   /** Add a drawing mark */
   draw(mark: InkMark): void {
-    this._marks.push(mark);
+    if (this._marks.length >= MAX_INK_MARKS) throw new RangeError(`ink layer supports at most ${MAX_INK_MARKS.toLocaleString('en-US')} marks`);
+    const normalized = normalizeMark(mark);
+    const cost = markCost(normalized);
+    if (cost > MAX_INK_CELLS - this._cost) throw new RangeError(`ink layer exceeds the ${MAX_INK_CELLS.toLocaleString('en-US')} cell complexity limit`);
+    this._marks.push(normalized);
+    this._cost += cost;
     this._dirty = true;
     this._grid = null;
   }
@@ -286,22 +421,24 @@ export class InkLayer {
   undo(): InkMark | undefined {
     const mark = this._marks.pop();
     if (mark !== undefined) {
+      this._cost -= markCost(mark);
       this._dirty = true;
       this._grid = null;
     }
-    return mark;
+    return mark === undefined ? undefined : normalizeMark(mark);
   }
 
   /** Clear all marks */
   clear(): void {
     this._marks = [];
+    this._cost = 0;
     this._dirty = true;
     this._grid = null;
   }
 
   /** Get all current marks */
   marks(): readonly InkMark[] {
-    return this._marks;
+    return this._marks.map((mark) => normalizeMark(mark));
   }
 
   /** Get mark count */
@@ -320,9 +457,6 @@ export class InkLayer {
 
   /** Get a CellShader that composites this ink layer onto the render */
   shader(): CellShader {
-    const blend = this._options.blend ?? 'overlay';
-    const opacity = this._options.opacity ?? 1.0;
-
     return {
       name: 'ink',
       fn: (x: number, y: number, cell: ShaderCell, _uniforms: ShaderUniforms, _neighbors: NeighborFn): ShaderOutput | null => {
@@ -331,6 +465,8 @@ export class InkLayer {
         const inkCell = grid.get(key);
 
         if (!inkCell) return null;
+        const blend = this._options.blend ?? 'overlay';
+        const opacity = clamp((this._options.opacity ?? 1) * (inkCell.opacity ?? 1), 0, 1, 1);
 
         switch (blend) {
           case 'overlay': {
@@ -379,12 +515,12 @@ export class InkLayer {
             }
 
             if (inkCell.fg !== undefined && !cell.fg) {
-              out.fg = inkCell.fg;
+              out.fg = opacity < 1 ? mixRgb([0, 0, 0], inkCell.fg, opacity) : inkCell.fg;
               hasChange = true;
             }
 
             if (inkCell.bg !== undefined && !cell.bg) {
-              out.bg = inkCell.bg;
+              out.bg = opacity < 1 ? mixRgb([0, 0, 0], inkCell.bg, opacity) : inkCell.bg;
               hasChange = true;
             }
 
@@ -400,11 +536,11 @@ export class InkLayer {
               hasChange = true;
             }
             if (inkCell.fg !== undefined) {
-              out.fg = inkCell.fg;
+              out.fg = opacity < 1 ? mixRgb(cell.fg ?? [0, 0, 0], inkCell.fg, opacity) : inkCell.fg;
               hasChange = true;
             }
             if (inkCell.bg !== undefined) {
-              out.bg = inkCell.bg;
+              out.bg = opacity < 1 ? mixRgb(cell.bg ?? [0, 0, 0], inkCell.bg, opacity) : inkCell.bg;
               hasChange = true;
             }
 
@@ -421,15 +557,26 @@ export class InkLayer {
   /** Serialize to JSON-compatible object */
   save(): InkState {
     return {
-      marks: [...this._marks],
+      marks: this._marks.map((mark) => normalizeMark(mark)),
       options: { ...this._options },
     };
   }
 
   /** Load from serialized state */
   load(state: InkState): void {
-    this._marks = [...state.marks];
-    this._options = { ...state.options };
+    if (!state || !Array.isArray(state.marks)) throw new TypeError('ink state must contain a marks array');
+    if (state.marks.length > MAX_INK_MARKS) throw new RangeError(`ink layer supports at most ${MAX_INK_MARKS.toLocaleString('en-US')} marks`);
+    const marks: InkMark[] = [];
+    let cost = 0;
+    for (const mark of state.marks) {
+      const normalized = normalizeMark(mark);
+      cost += markCost(normalized);
+      if (cost > MAX_INK_CELLS) throw new RangeError(`ink layer exceeds the ${MAX_INK_CELLS.toLocaleString('en-US')} cell complexity limit`);
+      marks.push(normalized);
+    }
+    this._marks = marks;
+    this._cost = cost;
+    this._options = normalizeOptions(state.options);
     this._dirty = true;
     this._grid = null;
   }

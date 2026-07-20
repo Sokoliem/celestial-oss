@@ -1,6 +1,7 @@
 import { type Color, color as coronaColor } from '@celestial/corona';
 import { type MotionEffectOpts, motionTick } from './motion.js';
 import { RESET, stripAnsi } from './utils.js';
+import { finiteNumber, positiveInteger } from './validation.js';
 
 export interface NeonSignOpts extends MotionEffectOpts {
   color: Color;
@@ -17,8 +18,8 @@ export function neonSign(text: string, opts: NeonSignOpts): string {
   if (!rgb) return visible;
 
   const [r, g, b] = rgb;
-  const speed = opts.speed ?? 0.8;
-  const layers = Math.max(1, opts.intensity ?? 3);
+  const speed = finiteNumber(opts.speed, 0.8);
+  const layers = positiveInteger(opts.intensity, 3);
 
   const breatheRatio = (Math.sin(motionTick(opts) * speed * 0.15) + 1) / 2;
   const brightness = 0.35 + breatheRatio * 0.65;

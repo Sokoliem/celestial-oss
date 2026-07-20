@@ -7,6 +7,7 @@ import {
   endTransition,
   getInterpolatedRect,
   getTransitionProgress,
+  interpolateRectAlongCurve,
   isTransitioning,
   type LayoutRect,
   type SharedElementState,
@@ -234,6 +235,19 @@ describe('shared-element', () => {
       const ended = endTransition(state);
       expect(ended).not.toBe(state);
       expect(state.transitioning).toBe(true);
+    });
+  });
+
+  describe('validation', () => {
+    it('rejects invalid timing, geometry, and easing results', () => {
+      const state = createSharedElementState();
+      expect(() => beginTransition(state, Number.NaN, 10)).toThrow(TypeError);
+      expect(() => beginTransition(state, 0, -1)).toThrow(RangeError);
+      expect(() => interpolateRectAlongCurve({ x: 0, y: 0, width: -1, height: 1 }, { x: 1, y: 1, width: 1, height: 1 }, 0.5)).toThrow(RangeError);
+
+      const captured = captureElements(state, new Map([['hero', { rect: { x: 0, y: 0, width: 1, height: 1 }, content: 'x' }]]));
+      const active = beginTransition(captured, 0, 10);
+      expect(() => getInterpolatedRect(active, 'hero', { x: 1, y: 1, width: 1, height: 1 }, 5, () => Number.NaN)).toThrow(TypeError);
     });
   });
 });

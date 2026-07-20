@@ -26,8 +26,10 @@
  * morph animation rather than being replaced with grayscale.
  */
 
-import { measureTextWidth } from '@celestial/rosetta';
+import { cellWidth } from '@celestial/corona';
 import { fadeStyledChar, parseStyledChars, type StyledChar } from './fade.js';
+import { safeContent } from './strategies/text.js';
+import { clampUnit, easedProgress, finiteNumber, nonNegativeNumber } from './validation.js';
 
 const RESET = '\x1b[0m';
 
@@ -280,22 +282,22 @@ function resolvePositions(ops: MorphOp[], oldChars: StyledChar[], newChars: Styl
   for (const op of ops) {
     switch (op.type) {
       case 'keep': {
-        const cellWidth = Math.max(1, measureTextWidth(newChars[op.newIdx]!.plain));
+        const glyphWidth = Math.max(1, cellWidth(newChars[op.newIdx]!.plain));
         slots.push({
           sc: newChars[op.newIdx]!,
           col: cursor,
-          width: cellWidth,
+          width: glyphWidth,
           opacity: 1,
         });
-        cursor += cellWidth;
+        cursor += glyphWidth;
         break;
       }
 
       case 'remove': {
         const opacity = removeOpacity(progress);
-        const cellWidth = Math.max(1, measureTextWidth(oldChars[op.oldIdx]!.plain));
+        const glyphWidth = Math.max(1, cellWidth(oldChars[op.oldIdx]!.plain));
         // Width shrinks linearly: 1 at progress=0, 0 at progress=1
-        const width = cellWidth * (1.0 - progress);
+        const width = glyphWidth * (1.0 - progress);
         if (opacity > 0) {
           slots.push({
             sc: oldChars[op.oldIdx]!,
@@ -310,9 +312,9 @@ function resolvePositions(ops: MorphOp[], oldChars: StyledChar[], newChars: Styl
 
       case 'add': {
         const opacity = addOpacity(progress);
-        const cellWidth = Math.max(1, measureTextWidth(newChars[op.newIdx]!.plain));
+        const glyphWidth = Math.max(1, cellWidth(newChars[op.newIdx]!.plain));
         // Width grows linearly: 0 at progress=0, 1 at progress=1
-        const width = cellWidth * progress;
+        const width = glyphWidth * progress;
         if (opacity > 0) {
           slots.push({
             sc: newChars[op.newIdx]!,
@@ -346,14 +348,14 @@ function renderSlots(slots: LayoutSlot[], totalWidth: number): string {
   for (const slot of slots) {
     // Round to nearest integer column, clamped to buffer bounds
     const col = Math.round(slot.col);
-    if (col < 0 || col >= totalWidth) continue;
+    const glyphWidth = Math.max(1, cellWidth(slot.sc.plain));
+    if (col < 0 || col + glyphWidth > totalWidth) continue;
 
     // Only place if this character has higher or equal opacity
     if (slot.opacity > priority[col]!) {
       buffer[col] = fadeStyledChar(slot.sc, slot.opacity);
       priority[col] = slot.opacity;
-      const cellWidth = Math.max(1, measureTextWidth(slot.sc.plain));
-      for (let offset = 1; offset < cellWidth && col + offset < totalWidth; offset += 1) {
+      for (let offset = 1; offset < glyphWidth; offset += 1) {
         if (slot.opacity > priority[col + offset]!) {
           buffer[col + offset] = '';
           priority[col + offset] = slot.opacity;
@@ -377,36 +379,38 @@ function renderSlots(slots: LayoutSlot[], totalWidth: number): string {
  * Handles multi-line text by morphing each line independently.
  */
 export function morph(oldText: string, newText: string, opts: MorphOpts): string {
+  const safeOldText = safeContent(oldText);
+  const safeNewText = safeContent(newText);
   // Fast path: identical text needs no transition
-  if (oldText === newText) {
-    return oldText;
+  if (safeOldText === safeNewText) {
+    return safeOldText;
   }
 
   const { tick, duration, startTick = 0, easing, granularity = 'char' } = opts;
 
   // Compute raw progress and clamp to [0, 1]
-  const rawProgress = duration === 0 ? 1 : (tick - startTick) / duration;
-  const clampedProgress = Math.max(0, Math.min(1, rawProgress));
-  const progress = easing ? easing(clampedProgress) : clampedProgress;
+  const durationTicks = nonNegativeNumber(duration, 'duration');
+  const rawProgress = durationTicks === 0 ? 1 : (finiteNumber(tick, 'tick') - finiteNumber(startTick, 'startTick')) / durationTicks;
+  const progress = easedProgress(easing, clampUnit(rawProgress));
 
   // Boundary fast paths
   if (progress <= 0) {
-    return oldText;
+    return safeOldText;
   }
   if (progress >= 1) {
-    return newText;
+    return safeNewText;
   }
 
   // Handle multi-line text: morph each line independently
-  const oldLines = oldText.split('\n');
-  const newLines = newText.split('\n');
+  const oldLines = safeOldText.split('\n');
+  const newLines = safeNewText.split('\n');
 
   if (oldLines.length > 1 || newLines.length > 1) {
     return morphMultiLine(oldLines, newLines, progress, granularity);
   }
 
   // Single-line morph
-  return morphLine(oldText, newText, progress, granularity);
+  return morphLine(safeOldText, safeNewText, progress, granularity);
 }
 
 /**
@@ -419,8 +423,8 @@ function morphLine(oldText: string, newText: string, progress: number, granulari
 
   // Compute the total output width at this progress.
   // It interpolates smoothly from oldLen to newLen.
-  const oldWidth = oldChars.reduce((sum, char) => sum + Math.max(1, measureTextWidth(char.plain)), 0);
-  const newWidth = newChars.reduce((sum, char) => sum + Math.max(1, measureTextWidth(char.plain)), 0);
+  const oldWidth = oldChars.reduce((sum, char) => sum + Math.max(1, cellWidth(char.plain)), 0);
+  const newWidth = newChars.reduce((sum, char) => sum + Math.max(1, cellWidth(char.plain)), 0);
   const totalWidth = Math.round(oldWidth + (newWidth - oldWidth) * progress);
 
   // Build spatially-resolved slots

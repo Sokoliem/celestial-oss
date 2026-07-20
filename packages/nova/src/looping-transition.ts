@@ -20,7 +20,9 @@ import { applyStrategy, type StrategyKey } from './strategies/dispatch.js';
 import type { FlipAxis } from './strategies/flip.js';
 import type { GlitchOpts } from './strategies/glitch.js';
 import type { RippleOrigin } from './strategies/ripple.js';
+import { safeContent } from './strategies/text.js';
 import type { ZoomMode, ZoomOrigin } from './strategies/zoom.js';
+import { easedProgress, finiteNumber, nonNegativeNumber } from './validation.js';
 
 export type LoopingTransitionStrategy = Exclude<StrategyKey, 'none'>;
 
@@ -71,6 +73,7 @@ export interface LoopingTransitionController {
 function computeHalfProgress(elapsed: number, halfDuration: number, pauseTicks: number, mode: LoopingMode): { progress: number; halfIndex: 0 | 1 } {
   const halfPlusPause = halfDuration + pauseTicks;
   const cycleLength = halfPlusPause * 2;
+  if (cycleLength === 0) return { progress: mode === 'reverse' ? 0 : 1, halfIndex: 0 };
   const inCycle = ((elapsed % cycleLength) + cycleLength) % cycleLength;
 
   let halfIndex: 0 | 1;
@@ -103,10 +106,10 @@ function computeHalfProgress(elapsed: number, halfDuration: number, pauseTicks: 
 
 export function createLoopingTransition(config: LoopingTransitionConfig = {}): LoopingTransitionController {
   const strategy = config.strategy ?? 'crossfade';
-  const duration = config.duration ?? 60;
+  const duration = nonNegativeNumber(config.duration ?? 60, 'duration');
   const mode = config.mode ?? 'pingpong';
   const easing = config.easing;
-  const pauseTicks = Math.max(0, config.pauseTicks ?? 0);
+  const pauseTicks = nonNegativeNumber(config.pauseTicks ?? 0, 'pauseTicks');
   // Forward/reverse spend the whole duration on one direction; pingpong splits.
   const halfDuration = mode === 'pingpong' ? Math.max(0, Math.floor(duration / 2 - pauseTicks)) : Math.max(0, duration - pauseTicks);
   const reducedMotion = shouldReduceMotion(config);
@@ -116,11 +119,14 @@ export function createLoopingTransition(config: LoopingTransitionConfig = {}): L
   let stopped = false;
   let lastProgress = 0;
   let stoppedProgress = 0;
+  let lastTick = 0;
 
   function rawProgressAt(tick: number): number {
     if (!started) return 0;
     if (stopped) return stoppedProgress;
-    const elapsed = tick - startTick;
+    const currentTick = Math.max(finiteNumber(tick, 'tick'), lastTick);
+    lastTick = currentTick;
+    const elapsed = currentTick - startTick;
     const { progress } = computeHalfProgress(elapsed, halfDuration, pauseTicks, mode);
     lastProgress = progress;
     return progress;
@@ -128,9 +134,11 @@ export function createLoopingTransition(config: LoopingTransitionConfig = {}): L
 
   return {
     start(s: number): void {
+      const tick = finiteNumber(s, 'startTick');
       started = true;
       stopped = false;
-      startTick = s;
+      startTick = tick;
+      lastTick = tick;
       lastProgress = 0;
       stoppedProgress = 0;
     },
@@ -150,11 +158,13 @@ export function createLoopingTransition(config: LoopingTransitionConfig = {}): L
     },
 
     render(oldContent: string, newContent: string, tick: number): string {
-      if (!started) return oldContent;
-      if (reducedMotion) return newContent;
+      const safeOldContent = safeContent(oldContent);
+      const safeNewContent = safeContent(newContent);
+      if (!started) return safeOldContent;
+      if (reducedMotion) return safeNewContent;
       const raw = rawProgressAt(tick);
-      const eased = easing ? easing(raw) : raw;
-      return applyStrategy(strategy, oldContent, newContent, eased, {
+      const eased = easedProgress(easing, raw);
+      return applyStrategy(strategy, safeOldContent, safeNewContent, eased, {
         direction: config.direction,
         zoomMode: config.zoomMode,
         zoomOrigin: config.zoomOrigin,

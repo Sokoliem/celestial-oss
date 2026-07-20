@@ -7,6 +7,7 @@ import {
   assertPositiveNumber,
   normalizeProgress,
   normalizeSpeed,
+  resolveTimestamp,
 } from './validation.js';
 
 export interface SpringAnimation<T extends PhysicalAnimatable = number> extends MotionAnimation<T> {
@@ -370,7 +371,7 @@ export function spring<T extends PhysicalAnimatable = number>(target: T, config:
       usesExternalClock = true;
     }
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now, lastTime);
 
     if (pausedTime !== null && lastTime !== null) {
       lastTime += time - pausedTime;

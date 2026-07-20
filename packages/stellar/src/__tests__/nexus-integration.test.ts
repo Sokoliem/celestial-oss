@@ -50,7 +50,8 @@ describe('Nexus HitMap integration', () => {
     });
     const hit = ic.nexusHitMap.hitTest(5, 2);
     expect(hit).not.toBeNull();
-    expect(hit!.onClick).toBe(regions[0]);
+    expect(hit!.onClick).toEqual(regions[0]);
+    expect(hit!.onClick).not.toBe(regions[0]);
   });
 
   it('nexusHitMap.hitTest returns null for misses', () => {

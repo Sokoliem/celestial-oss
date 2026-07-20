@@ -1,5 +1,6 @@
 import { fadeChar } from '../fade.js';
-import { padGraphemes, visibleLength } from './text.js';
+import { clampUnit } from '../validation.js';
+import { padCells, renderCells, safeContent, type TerminalCell, visibleLength } from './text.js';
 
 const RESET = '\x1b[0m';
 const FEATHER = 2;
@@ -7,10 +8,6 @@ const FEATHER = 2;
 export interface RippleOrigin {
   x?: number;
   y?: number;
-}
-
-function clamp(value: number): number {
-  return Math.max(0, Math.min(1, value));
 }
 
 function splitLines(content: string): string[] {
@@ -23,13 +20,15 @@ function distance(ax: number, ay: number, bx: number, by: number): number {
 }
 
 export function ripple(oldContent: string, newContent: string, progress: number, originX: number = 0.5, originY: number = 0.5): string {
-  const p = clamp(progress);
+  const safeOldContent = safeContent(oldContent);
+  const safeNewContent = safeContent(newContent);
+  const p = clampUnit(progress);
 
-  if (p <= 0) return oldContent;
-  if (p >= 1) return newContent;
+  if (p <= 0) return safeOldContent;
+  if (p >= 1) return safeNewContent;
 
-  const oldLines = splitLines(oldContent);
-  const newLines = splitLines(newContent);
+  const oldLines = splitLines(safeOldContent);
+  const newLines = splitLines(safeNewContent);
   const lineCount = Math.max(oldLines.length, newLines.length);
 
   let maxWidth = 0;
@@ -38,11 +37,11 @@ export function ripple(oldContent: string, newContent: string, progress: number,
   }
 
   if (maxWidth === 0) {
-    return newContent;
+    return safeNewContent;
   }
 
-  const cx = clamp(originX) * (maxWidth - 1);
-  const cy = clamp(originY) * (lineCount - 1);
+  const cx = clampUnit(originX, 'originX') * (maxWidth - 1);
+  const cy = clampUnit(originY, 'originY') * (lineCount - 1);
   const maxDistance = Math.max(
     distance(cx, cy, 0, 0),
     distance(cx, cy, maxWidth - 1, 0),
@@ -54,31 +53,33 @@ export function ripple(oldContent: string, newContent: string, progress: number,
   const resultLines: string[] = [];
 
   for (let row = 0; row < lineCount; row++) {
-    const oldPadded = padGraphemes(oldLines[row] ?? '', maxWidth);
-    const newPadded = padGraphemes(newLines[row] ?? '', maxWidth);
-
-    let line = '';
+    const oldPadded = padCells(oldLines[row] ?? '', maxWidth);
+    const newPadded = padCells(newLines[row] ?? '', maxWidth);
+    const selected: TerminalCell[] = [];
+    const opacity: number[] = [];
     for (let col = 0; col < maxWidth; col++) {
-      const oldChar = oldPadded[col] ?? ' ';
-      const newChar = newPadded[col] ?? ' ';
       const currentDistance = distance(cx, cy, col, row);
       const delta = revealRadius - currentDistance;
 
       if (delta >= FEATHER) {
-        line += fadeChar(newChar, 1);
+        selected.push(newPadded[col]!);
+        opacity.push(1);
       } else if (delta <= 0) {
-        line += fadeChar(oldChar, 1);
+        selected.push(oldPadded[col]!);
+        opacity.push(1);
       } else {
         const blend = delta / FEATHER;
         if (blend >= 0.5) {
-          line += fadeChar(newChar, blend);
+          selected.push(newPadded[col]!);
+          opacity.push(blend);
         } else {
-          line += fadeChar(oldChar, 1 - blend);
+          selected.push(oldPadded[col]!);
+          opacity.push(1 - blend);
         }
       }
     }
 
-    resultLines.push(line + RESET);
+    resultLines.push(`${renderCells(selected, (text, column) => fadeChar(text, opacity[column] ?? 1))}${RESET}`);
   }
 
   return resultLines.join('\n');

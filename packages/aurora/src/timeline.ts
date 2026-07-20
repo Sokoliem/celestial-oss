@@ -1,5 +1,5 @@
 import type { Animation } from './types.js';
-import { assertFiniteNumber, assertNonEmptyString, assertNonNegativeNumber, normalizeProgress } from './validation.js';
+import { assertFiniteNumber, assertNonEmptyString, assertNonNegativeNumber, normalizeProgress, resolveTimestamp } from './validation.js';
 
 export interface TimelineTrack {
   readonly id: string;
@@ -173,7 +173,7 @@ export function createTimeline(): Timeline {
   function tick(now?: number): void {
     if (!isPlaying) return;
 
-    const time = now === undefined ? Date.now() : assertFiniteNumber(now, 'now');
+    const time = resolveTimestamp(now, lastTickTime);
     if (lastTickTime === null) {
       lastTickTime = time;
       syncAllTracks();

@@ -89,6 +89,20 @@ describe('seriesColor', () => {
   });
 });
 
+describe('chart accessibility boundary hardening', () => {
+  it('supports negative series indices and rejects empty palettes', () => {
+    expect(seriesColor(VIVID_PALETTE, -1)).toBe(VIVID_PALETTE[VIVID_PALETTE.length - 1]);
+    expect(() => seriesColor([], 0)).toThrow(/at least one/);
+  });
+
+  it('sanitizes untrusted text in screen-reader descriptions', () => {
+    const description = describeChart({ title: 'safe\x1b[2Jtitle', summary: 'line1\nline2' });
+    expect(description).toContain('safetitle');
+    expect(description).toContain('line1 line2');
+    expect(description).not.toContain('\x1b');
+  });
+});
+
 // ── Theme Integration ────────────────────────────────────────────────────
 
 describe('chartThemeFromSemantic', () => {

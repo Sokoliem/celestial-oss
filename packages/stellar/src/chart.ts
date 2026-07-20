@@ -8,6 +8,7 @@ import type { Color } from '@celestial/corona';
 import type { VNode } from '@celestial/nebula';
 import { type CanvasMode, canvas } from './canvas.js';
 import { safeMax, safeMin } from './math-utils.js';
+import { boundedPositiveInteger, chartSize, finiteNumber, finiteValues, nonNegativeInteger, rangeRatio } from './validation.js';
 
 export interface ChartResult {
   toString(): string;
@@ -68,19 +69,18 @@ export interface ScatterChartOpts {
 
 function normalizeBarData(data: number[] | { label: string; value: number }[]): number[] {
   if (data.length === 0) return [];
-  if (typeof data[0] === 'number') return data as number[];
-  return (data as { label: string; value: number }[]).map((d) => d.value);
+  if (typeof data[0] === 'number') return finiteValues(data as number[]);
+  return (data as { label: string; value: number }[]).map((d) => finiteNumber(d.value, 0));
 }
 
 export const chart = {
   line(opts: LineChartOpts): ChartResult {
-    const width = opts.width ?? 40;
-    const height = opts.height ?? 10;
+    const { width, height } = chartSize(opts.width, opts.height, 40, 10);
     const c = canvas(width, height, opts.mode);
 
     if (opts.color) c.setColor(opts.color);
 
-    const data = opts.data;
+    const data = finiteValues(opts.data);
     if (data.length === 0) return makeChartResult(c);
 
     const pxW = c.pixelWidth;
@@ -88,7 +88,6 @@ export const chart = {
 
     const min = safeMin(data);
     const max = safeMax(data);
-    const range = max - min || 1;
 
     const filled = opts.filled !== false; // default true
 
@@ -99,7 +98,7 @@ export const chart = {
         const i = Math.min(Math.floor(dataProgress), data.length - 1);
         const frac = dataProgress - i;
         const val = i + 1 < data.length ? data[i]! * (1 - frac) + data[i + 1]! * frac : data[i]!;
-        const y = pxH - 1 - Math.round(((val - min) / range) * (pxH - 1));
+        const y = pxH - 1 - Math.round(rangeRatio(val, min, max) * (pxH - 1));
         for (let py = y; py < pxH; py++) {
           c.set(px, py);
         }
@@ -108,9 +107,9 @@ export const chart = {
       // Line-only mode: draw connected Bresenham lines
       for (let i = 0; i < data.length - 1; i++) {
         const x1 = Math.round((i / Math.max(data.length - 1, 1)) * (pxW - 1));
-        const y1 = pxH - 1 - Math.round(((data[i]! - min) / range) * (pxH - 1));
+        const y1 = pxH - 1 - Math.round(rangeRatio(data[i]!, min, max) * (pxH - 1));
         const x2 = Math.round(((i + 1) / Math.max(data.length - 1, 1)) * (pxW - 1));
-        const y2 = pxH - 1 - Math.round(((data[i + 1]! - min) / range) * (pxH - 1));
+        const y2 = pxH - 1 - Math.round(rangeRatio(data[i + 1]!, min, max) * (pxH - 1));
         c.line(x1, y1, x2, y2);
       }
 
@@ -123,8 +122,7 @@ export const chart = {
   },
 
   bar(opts: BarChartOpts): ChartResult {
-    const width = opts.width ?? 40;
-    const height = opts.height ?? 10;
+    const { width, height } = chartSize(opts.width, opts.height, 40, 10);
     const c = canvas(width, height, opts.mode);
 
     const values = normalizeBarData(opts.data);
@@ -144,8 +142,8 @@ export const chart = {
     // Compute zero line position for mixed positive/negative values
     const effectiveMin = Math.min(min, 0);
     const effectiveMax = Math.max(max, 0);
-    const range = effectiveMax - effectiveMin || 1;
-    const zeroY = Math.round(((effectiveMax - 0) / range) * (pxH - 1));
+    const zeroProgress = rangeRatio(0, effectiveMin, effectiveMax);
+    const zeroY = Math.round((1 - zeroProgress) * (pxH - 1));
 
     for (let i = 0; i < values.length; i++) {
       // Per-bar color or fallback to single color
@@ -157,7 +155,7 @@ export const chart = {
 
       if (val >= 0) {
         // Positive bar: draw upward from zero line
-        const barHeight = Math.round((val / range) * (pxH - 1));
+        const barHeight = Math.round(Math.abs(rangeRatio(val, effectiveMin, effectiveMax) - zeroProgress) * (pxH - 1));
         const y = zeroY - barHeight;
         for (let py = Math.max(0, y); py <= zeroY && py < pxH; py++) {
           for (let px = x; px < x + effectiveBarWidth; px++) {
@@ -168,7 +166,7 @@ export const chart = {
         }
       } else {
         // Negative bar: draw downward from zero line
-        const barHeight = Math.round((Math.abs(val) / range) * (pxH - 1));
+        const barHeight = Math.round(Math.abs(rangeRatio(val, effectiveMin, effectiveMax) - zeroProgress) * (pxH - 1));
         const yEnd = zeroY + barHeight;
         for (let py = zeroY; py <= Math.min(yEnd, pxH - 1); py++) {
           for (let px = x; px < x + effectiveBarWidth; px++) {
@@ -184,13 +182,12 @@ export const chart = {
   },
 
   scatter(opts: ScatterChartOpts): ChartResult {
-    const width = opts.width ?? 40;
-    const height = opts.height ?? 10;
+    const { width, height } = chartSize(opts.width, opts.height, 40, 10);
     const c = canvas(width, height, opts.mode);
 
     if (opts.color) c.setColor(opts.color);
 
-    const data = opts.data;
+    const data = opts.data.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
     if (data.length === 0) return makeChartResult(c);
 
     const pxW = c.pixelWidth;
@@ -202,13 +199,11 @@ export const chart = {
     const maxX = safeMax(xs);
     const minY = safeMin(ys);
     const maxY = safeMax(ys);
-    const rangeX = maxX - minX || 1;
-    const rangeY = maxY - minY || 1;
 
     for (const [dx, dy] of data) {
-      const px = Math.round(((dx - minX) / rangeX) * (pxW - 1));
-      const py = pxH - 1 - Math.round(((dy - minY) / rangeY) * (pxH - 1));
-      const r = opts.dotRadius ?? 1;
+      const px = Math.round(rangeRatio(dx, minX, maxX) * (pxW - 1));
+      const py = pxH - 1 - Math.round(rangeRatio(dy, minY, maxY) * (pxH - 1));
+      const r = nonNegativeInteger(opts.dotRadius, 1);
       if (r <= 0) {
         c.set(px, py);
       } else {
@@ -229,8 +224,7 @@ export const chart = {
    * @returns A ChartResult with render methods.
    */
   stackedBar(opts: StackedBarChartOpts): ChartResult {
-    const width = opts.width ?? 40;
-    const height = opts.height ?? 10;
+    const { width, height } = chartSize(opts.width, opts.height, 40, 10);
     const c = canvas(width, height, opts.mode);
     const series = opts.series;
 
@@ -242,12 +236,19 @@ export const chart = {
     const pxW = c.pixelWidth;
     const pxH = c.pixelHeight;
 
-    // Compute per-bar totals for scaling
+    // Compute per-bar totals relative to the largest segment. Scaling before
+    // summing avoids overflow for otherwise-valid values near Number.MAX_VALUE.
+    let valueScale = 0;
+    for (const item of series) {
+      for (const rawValue of item.data) valueScale = Math.max(valueScale, Math.max(0, finiteNumber(rawValue, 0)));
+    }
+    if (valueScale === 0) return makeChartResult(c);
+
     const totals: number[] = [];
     for (let i = 0; i < barCount; i++) {
       let sum = 0;
       for (const s of series) {
-        sum += Math.max(0, s.data[i] ?? 0);
+        sum += Math.max(0, finiteNumber(s.data[i], 0)) / valueScale;
       }
       totals.push(sum);
     }
@@ -263,14 +264,14 @@ export const chart = {
       let cumHeight = 0;
 
       // Collect non-zero segments for this bar position
-      const segments: { series: (typeof series)[0]; val: number }[] = [];
+      const segments: { series: (typeof series)[0]; val: number; scaledValue: number }[] = [];
       for (const s of series) {
-        const val = Math.max(0, s.data[i] ?? 0);
-        if (val > 0) segments.push({ series: s, val });
+        const val = Math.max(0, finiteNumber(s.data[i], 0));
+        if (val > 0) segments.push({ series: s, val, scaledValue: val / valueScale });
       }
 
       for (let si = 0; si < segments.length; si++) {
-        const { series: s, val } = segments[si]!;
+        const { series: s, val, scaledValue } = segments[si]!;
 
         // Use Math.floor for all segments except the last.
         // Compute the last segment's height as the remaining space
@@ -284,7 +285,7 @@ export const chart = {
           // invisible despite having a non-zero value.
           if (segHeight <= 0 && val > 0) segHeight = 1;
         } else {
-          segHeight = Math.floor((val / maxTotal) * (pxH - 1));
+          segHeight = Math.floor((scaledValue / maxTotal) * (pxH - 1));
         }
 
         if (segHeight <= 0) continue;
@@ -314,16 +315,16 @@ export const chart = {
     if (data.length === 0) return '';
 
     const BLOCKS = [' ', '\u2581', '\u2582', '\u2583', '\u2584', '\u2585', '\u2586', '\u2587', '\u2588'];
-    const w = width ?? data.length;
-    const min = safeMin(data);
-    const max = safeMax(data);
-    const range = max - min || 1;
+    const values = finiteValues(data);
+    const w = boundedPositiveInteger(width, values.length, 1_000_000);
+    const min = safeMin(values);
+    const max = safeMax(values);
 
     let result = '';
     for (let i = 0; i < w; i++) {
-      const dataIdx = Math.round((i / Math.max(w - 1, 1)) * (data.length - 1));
-      const value = data[dataIdx]!;
-      const normalized = (value - min) / range;
+      const dataIdx = Math.round((i / Math.max(w - 1, 1)) * (values.length - 1));
+      const value = values[dataIdx]!;
+      const normalized = rangeRatio(value, min, max);
       const blockIdx = Math.min(8, Math.round(normalized * 8));
       result += BLOCKS[blockIdx]!;
     }

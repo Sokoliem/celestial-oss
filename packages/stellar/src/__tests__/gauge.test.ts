@@ -146,3 +146,16 @@ describe('barGauge', () => {
     expect(result.toString().length).toBeGreaterThan(0);
   });
 });
+
+describe('gauge numeric hardening', () => {
+  it('normalizes values across the full finite range', () => {
+    expect(arcGauge({ value: 0, min: -Number.MAX_VALUE, max: Number.MAX_VALUE }).normalized).toBeCloseTo(0.5);
+    expect(barGauge({ value: 0, min: -Number.MAX_VALUE, max: Number.MAX_VALUE }).normalized).toBeCloseTo(0.5);
+  });
+
+  it('strips formatter controls and preserves terminal-cell width', () => {
+    const output = barGauge({ value: 1, width: 8, format: () => '界\x1b[2J' }).toString();
+    expect(output).toContain('界');
+    expect(output).not.toContain('\x1b[2J');
+  });
+});

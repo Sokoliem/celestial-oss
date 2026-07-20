@@ -1,5 +1,5 @@
 import type { DecayConfig, MotionAnimation } from './types.js';
-import { assertFiniteNumber, assertPositiveNumber, normalizeClamp, normalizeProgress, normalizeSpeed } from './validation.js';
+import { assertFiniteNumber, assertPositiveNumber, normalizeClamp, normalizeProgress, normalizeSpeed, resolveTimestamp } from './validation.js';
 
 export interface DecayAnimation extends MotionAnimation<number> {}
 
@@ -121,7 +121,7 @@ export function decay(from: number, config: DecayConfig): DecayAnimation {
     if (now !== undefined) {
       usesExternalClock = true;
     }
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now, lastTime);
     if (pausedTime !== null && lastTime !== null) {
       lastTime += time - pausedTime;
       pausedTime = null;

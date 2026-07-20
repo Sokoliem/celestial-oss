@@ -13,7 +13,8 @@
  */
 
 import { fadeChar } from '../fade.js';
-import { padGraphemes, visibleLength } from './text.js';
+import { clampUnit, finiteNumber } from '../validation.js';
+import { padCells, renderCells, safeContent, type TerminalCell, visibleLength } from './text.js';
 
 const RESET = '\x1b[0m';
 
@@ -39,15 +40,17 @@ function splitLines(content: string): string[] {
 }
 
 export function dissolve(oldContent: string, newContent: string, progress: number, seed?: number): string {
-  const p = Math.max(0, Math.min(1, progress));
+  const safeOldContent = safeContent(oldContent);
+  const safeNewContent = safeContent(newContent);
+  const p = clampUnit(progress);
 
-  if (p <= 0) return oldContent;
-  if (p >= 1) return newContent;
+  if (p <= 0) return safeOldContent;
+  if (p >= 1) return safeNewContent;
 
-  const s = seed ?? 42;
+  const s = finiteNumber(seed ?? 42, 'seed');
 
-  const oldLines = splitLines(oldContent);
-  const newLines = splitLines(newContent);
+  const oldLines = splitLines(safeOldContent);
+  const newLines = splitLines(safeNewContent);
   const lineCount = Math.max(oldLines.length, newLines.length);
 
   const resultLines: string[] = [];
@@ -56,14 +59,12 @@ export function dissolve(oldContent: string, newContent: string, progress: numbe
     const oldLine = oldLines[row] ?? '';
     const newLine = newLines[row] ?? '';
     const width = Math.max(visibleLength(oldLine), visibleLength(newLine));
-    const oldPadded = padGraphemes(oldLine, width);
-    const newPadded = padGraphemes(newLine, width);
-
-    let line = '';
+    const oldPadded = padCells(oldLine, width);
+    const newPadded = padCells(newLine, width);
+    const selected: TerminalCell[] = [];
+    const opacity: number[] = [];
     for (let col = 0; col < width; col++) {
       const threshold = positionThreshold(row, col, s);
-      const oldCh = oldPadded[col] ?? ' ';
-      const newCh = newPadded[col] ?? ' ';
 
       if (p >= threshold) {
         // This position has flipped to new content.
@@ -71,17 +72,19 @@ export function dissolve(oldContent: string, newContent: string, progress: numbe
         const distFromFlip = Math.abs(p - threshold);
         if (distFromFlip < 0.05) {
           // Sparkle: briefly brighter at the moment of flip
-          line += fadeChar(newCh, Math.min(1, 0.6 + distFromFlip * 8));
+          selected.push(newPadded[col]!);
+          opacity.push(Math.min(1, 0.6 + distFromFlip * 8));
         } else {
-          line += fadeChar(newCh, 1);
+          selected.push(newPadded[col]!);
+          opacity.push(1);
         }
       } else {
-        // Still showing old content
-        line += fadeChar(oldCh, 1);
+        selected.push(oldPadded[col]!);
+        opacity.push(1);
       }
     }
 
-    resultLines.push(line + RESET);
+    resultLines.push(`${renderCells(selected, (text, column) => fadeChar(text, opacity[column] ?? 1))}${RESET}`);
   }
 
   return resultLines.join('\n');
