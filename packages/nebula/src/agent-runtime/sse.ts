@@ -1,7 +1,7 @@
 import * as http from 'node:http';
 import * as https from 'node:https';
 import type { SseTransportConfig } from '../agent-types.js';
-import type { AgentTransport } from './contracts.js';
+import { type AgentTransport, CONNECT_TIMEOUT_MS, MAX_AGENT_MESSAGE_BYTES } from './contracts.js';
 
 interface SseEvent {
   readonly event?: string;
@@ -14,7 +14,10 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
   let postEndpoint: string | null = null;
   let lastEventId: string | undefined;
   let currentRequest: http.ClientRequest | null = null;
+  let endpointTimer: ReturnType<typeof setTimeout> | null = null;
+  let connecting: Promise<void> | null = null;
   let disconnectedByUser = false;
+  const activePosts = new Set<http.ClientRequest>();
 
   const messageHandlers: Array<(message: string) => void> = [];
   const closeHandlers: Array<(reason?: string) => void> = [];
@@ -35,7 +38,7 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
 
   function parseSseBuffer(buffer: string): [SseEvent[], string] {
     const events: SseEvent[] = [];
-    const blocks = buffer.split(/\n\n/);
+    const blocks = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split(/\n\n/);
     const remainder = blocks.pop() ?? '';
 
     for (const block of blocks) {
@@ -46,9 +49,13 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
 
       for (const rawLine of block.split('\n')) {
         const line = rawLine.replace(/^\uFEFF/, '');
-        if (line.startsWith('event:')) event = line.slice(6).trim();
-        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
-        else if (line.startsWith('id:')) id = line.slice(3).trim();
+        const separator = line.indexOf(':');
+        const field = separator === -1 ? line : line.slice(0, separator);
+        let value = separator === -1 ? '' : line.slice(separator + 1);
+        if (value.startsWith(' ')) value = value.slice(1);
+        if (field === 'event') event = value;
+        else if (field === 'data') dataLines.push(value);
+        else if (field === 'id' && !value.includes('\0')) id = value;
       }
 
       if (dataLines.length > 0) {
@@ -60,12 +67,15 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
   }
 
   function resolveEndpoint(endpoint: string): string {
-    try {
-      new URL(endpoint);
-      return endpoint;
-    } catch {
-      return new URL(endpoint, new URL(config.url)).toString();
+    const streamUrl = new URL(config.url);
+    const resolved = new URL(endpoint, streamUrl);
+    if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
+      throw new Error(`Unsupported SSE endpoint protocol: ${resolved.protocol}`);
     }
+    if (resolved.origin !== streamUrl.origin) {
+      throw new Error('SSE endpoint must use the same origin as the event stream');
+    }
+    return resolved.toString();
   }
 
   function getRequestModule(url: string): typeof http | typeof https {
@@ -75,16 +85,20 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
   function establishStream(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const parsed = new URL(config.url);
+      if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username || parsed.password) {
+        reject(new Error('SSE URL must be an http(s) URL without embedded credentials'));
+        return;
+      }
       const mod = getRequestModule(config.url);
       const headers: Record<string, string> = {
+        ...(config.headers ?? {}),
         Accept: 'text/event-stream',
         'Cache-Control': 'no-cache',
-        ...(config.headers ?? {}),
       };
 
       if (lastEventId !== undefined) headers['Last-Event-ID'] = lastEventId;
 
-      currentRequest = mod.request(
+      const request = mod.request(
         {
           hostname: parsed.hostname,
           port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
@@ -95,6 +109,9 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
         (res) => {
           if (res.statusCode !== 200) {
             res.resume();
+            currentRequest = null;
+            if (endpointTimer !== null) clearTimeout(endpointTimer);
+            endpointTimer = null;
             reject(new Error(`SSE connection failed with status ${res.statusCode}`));
             return;
           }
@@ -107,13 +124,28 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
             sseBuffer += chunk;
             const [events, remainder] = parseSseBuffer(sseBuffer);
             sseBuffer = remainder;
+            if (Buffer.byteLength(sseBuffer, 'utf8') > MAX_AGENT_MESSAGE_BYTES) {
+              request.destroy(new Error(`SSE event exceeded ${MAX_AGENT_MESSAGE_BYTES} bytes`));
+              return;
+            }
             for (const sseEvent of events) {
+              if (Buffer.byteLength(sseEvent.data, 'utf8') > MAX_AGENT_MESSAGE_BYTES) {
+                request.destroy(new Error(`SSE event exceeded ${MAX_AGENT_MESSAGE_BYTES} bytes`));
+                return;
+              }
               if (sseEvent.id !== undefined) lastEventId = sseEvent.id;
               if (sseEvent.event === 'endpoint' && postEndpoint === null) {
-                postEndpoint = resolveEndpoint(sseEvent.data);
+                try {
+                  postEndpoint = resolveEndpoint(sseEvent.data);
+                } catch (error: unknown) {
+                  request.destroy(error instanceof Error ? error : new Error(String(error)));
+                  return;
+                }
                 if (!resolved) {
                   resolved = true;
                   isConnected = true;
+                  if (endpointTimer !== null) clearTimeout(endpointTimer);
+                  endpointTimer = null;
                   resolve();
                 }
                 continue;
@@ -127,6 +159,8 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
           res.on('end', () => {
             isConnected = false;
             currentRequest = null;
+            if (endpointTimer !== null) clearTimeout(endpointTimer);
+            endpointTimer = null;
             if (!resolved) {
               reject(new Error('SSE stream ended before providing endpoint'));
               return;
@@ -137,6 +171,8 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
           res.on('error', (error: Error) => {
             isConnected = false;
             currentRequest = null;
+            if (endpointTimer !== null) clearTimeout(endpointTimer);
+            endpointTimer = null;
             if (!resolved) {
               reject(error);
               return;
@@ -145,13 +181,20 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
           });
         },
       );
+      currentRequest = request;
 
-      currentRequest.on('error', (error: Error) => {
-        currentRequest = null;
-        reject(error);
+      request.on('error', (error: Error) => {
+        if (currentRequest === request) currentRequest = null;
+        if (endpointTimer !== null) clearTimeout(endpointTimer);
+        endpointTimer = null;
+        if (isConnected) emitError(error);
+        else reject(error);
       });
 
-      currentRequest.end();
+      endpointTimer = setTimeout(() => {
+        request.destroy(new Error(`SSE endpoint was not received within ${CONNECT_TIMEOUT_MS}ms`));
+      }, CONNECT_TIMEOUT_MS);
+      request.end();
     });
   }
 
@@ -161,14 +204,20 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
     },
     connect() {
       if (isConnected) return Promise.resolve();
+      if (connecting) return connecting;
       disconnectedByUser = false;
       postEndpoint = null;
-      return establishStream();
+      const attempt = establishStream();
+      connecting = attempt.finally(() => {
+        connecting = null;
+      });
+      return connecting;
     },
     send(message: string) {
       if (!isConnected || !postEndpoint) {
-        emitError(new Error('Cannot send: transport is not connected or endpoint not received'));
-        return;
+        const error = new Error('Cannot send: transport is not connected or endpoint not received');
+        emitError(error);
+        throw error;
       }
 
       const mod = getRequestModule(postEndpoint);
@@ -181,20 +230,25 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
           path: `${parsed.pathname}${parsed.search}`,
           method: 'POST',
           headers: {
+            ...(config.headers ?? {}),
             'Content-Type': 'application/json',
             'Content-Length': body.length,
-            ...(config.headers ?? {}),
           },
         },
         (res) => {
+          activePosts.delete(req);
           res.resume();
           if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
             emitError(new Error(`POST to SSE endpoint failed with status ${res.statusCode}`));
           }
         },
       );
+      activePosts.add(req);
 
-      req.on('error', (error: Error) => emitError(error));
+      req.on('error', (error: Error) => {
+        activePosts.delete(req);
+        emitError(error);
+      });
       req.write(body);
       req.end();
     },
@@ -209,8 +263,12 @@ export function createSseTransport(config: SseTransportConfig): AgentTransport {
     },
     disconnect() {
       disconnectedByUser = true;
+      if (endpointTimer !== null) clearTimeout(endpointTimer);
+      endpointTimer = null;
       currentRequest?.destroy();
       currentRequest = null;
+      for (const request of activePosts) request.destroy();
+      activePosts.clear();
       isConnected = false;
       postEndpoint = null;
     },

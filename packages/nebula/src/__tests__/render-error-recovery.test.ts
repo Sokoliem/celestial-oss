@@ -116,6 +116,40 @@ describe('render error recovery', () => {
     stderrSpy.mockRestore();
   });
 
+  it('contains failures in onRenderError and strips terminal control sequences', async () => {
+    const { state, app, Cmd, Sub } = await loadRuntime();
+    let shouldThrow = false;
+
+    const config = {
+      init: (): [string, import('../types.js').Cmd<string>] => ['hello', Cmd.none()],
+      update: (_msg: string, model: string): [string, import('../types.js').Cmd<string>] => [model, Cmd.none()],
+      view: () => {
+        if (shouldThrow) throw new Error('bad\x1b[2J\x1b]8;;https://example.com\x07link\x1b]8;;\x07');
+        return { kind: 'text' as const, content: 'ok' };
+      },
+      subscriptions: () => Sub.none<string>(),
+    };
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const handle = app(config, {
+      onRenderError: () => {
+        throw new Error('observer failed');
+      },
+    });
+
+    shouldThrow = true;
+    expect(() => handle.replaceConfig({ ...config })).not.toThrow();
+
+    const errorOverlay = state.writes.at(-1) ?? '';
+    expect(errorOverlay).toContain('Error: badlink');
+    expect(errorOverlay).not.toContain('\x1b[2J');
+    expect(errorOverlay).not.toContain('https://example.com');
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('onRenderError callback failed'));
+
+    handle.stop();
+    stderrSpy.mockRestore();
+  });
+
   it('preserves model after render error', async () => {
     const { state, app, Cmd, Sub } = await loadRuntime();
     let shouldThrow = false;

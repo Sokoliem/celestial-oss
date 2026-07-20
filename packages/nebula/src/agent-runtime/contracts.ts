@@ -47,6 +47,7 @@ export interface McpClient {
 
 export interface ConnectionManager<M> {
   start(id: string, config: TransportConfig, toMsg: (event: AgentEvent) => M, dispatch: (msg: M) => void, retryPolicy?: RetryPolicy): void;
+  update(id: string, toMsg: (event: AgentEvent) => M, dispatch: (msg: M) => void): void;
   stop(id: string): void;
   send(id: string, message: AgentMessage): Promise<void>;
   stopAll(): void;
@@ -56,6 +57,9 @@ export const PROTOCOL_VERSION = '2024-11-05';
 export const CLIENT_NAME = 'celestui-agent';
 export const CLIENT_VERSION = '0.0.1';
 export const REQUEST_TIMEOUT_MS = 30_000;
+export const CONNECT_TIMEOUT_MS = 30_000;
+export const MAX_AGENT_MESSAGE_BYTES = 4 * 1024 * 1024;
+export const MAX_PENDING_REQUESTS = 1024;
 
 export const defaultRetryPolicy: RetryPolicy = {
   maxAttempts: 5,

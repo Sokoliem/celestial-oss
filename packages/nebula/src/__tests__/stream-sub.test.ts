@@ -297,6 +297,94 @@ describe('Sub.stream', () => {
     handle.stop();
   });
 
+  it('uses the latest message mapper without restarting a stable stream', async () => {
+    const { state, app, Cmd, Sub } = await loadRuntime();
+    let dataCallback: ((data: unknown) => void) | null = null;
+    let setupCount = 0;
+    const received: string[] = [];
+    const setup = (): StreamSource => {
+      setupCount++;
+      return {
+        onData: (callback) => {
+          dataCallback = callback;
+        },
+        teardown: () => {},
+      };
+    };
+
+    type Msg = { type: 'increment' } | { type: 'data'; payload: string };
+    const handle = app<{ version: number }, Msg>({
+      init: () => [{ version: 0 }, Cmd.none()],
+      update: (message, model) => {
+        if (message.type === 'increment') return [{ version: model.version + 1 }, Cmd.none()];
+        received.push(message.payload);
+        return [model, Cmd.none()];
+      },
+      view: () => ({ kind: 'text', content: 'ok' }),
+      subscriptions: (model) =>
+        Sub.batch(
+          Sub.key('i', { type: 'increment' as const }),
+          Sub.stream<Msg>({
+            id: 'latest-mapper',
+            setup,
+            toMsg: (data) => ({ type: 'data', payload: `${model.version}:${String(data)}` }),
+          }),
+        ),
+    });
+
+    state.inputHandler?.(Buffer.from('i'));
+    (dataCallback as ((data: unknown) => void) | null)?.('event');
+
+    expect(setupCount).toBe(1);
+    expect(received).toEqual(['1:event']);
+    handle.stop();
+  });
+
+  it('restarts on restartKey changes and suppresses stale source callbacks', async () => {
+    const { state, app, Cmd, Sub } = await loadRuntime();
+    const callbacks: Array<(data: unknown) => void> = [];
+    const lifecycle: string[] = [];
+    const received: string[] = [];
+    let setupIndex = 0;
+    const setup = (): StreamSource => {
+      const index = setupIndex++;
+      lifecycle.push(`setup:${index}`);
+      return {
+        onData: (callback) => callbacks.push(callback),
+        teardown: () => lifecycle.push(`teardown:${index}`),
+      };
+    };
+
+    type Msg = { type: 'restart' } | { type: 'data'; payload: string };
+    const handle = app<{ version: number }, Msg>({
+      init: () => [{ version: 0 }, Cmd.none()],
+      update: (message, model) => {
+        if (message.type === 'restart') return [{ version: model.version + 1 }, Cmd.none()];
+        received.push(message.payload);
+        return [model, Cmd.none()];
+      },
+      view: () => ({ kind: 'text', content: 'ok' }),
+      subscriptions: (model) =>
+        Sub.batch(
+          Sub.key('r', { type: 'restart' as const }),
+          Sub.stream<Msg>({
+            id: 'restartable',
+            setup,
+            restartKey: model.version,
+            toMsg: (data) => ({ type: 'data', payload: `${model.version}:${String(data)}` }),
+          }),
+        ),
+    });
+
+    state.inputHandler?.(Buffer.from('r'));
+    expect(lifecycle).toEqual(['setup:0', 'teardown:0', 'setup:1']);
+
+    callbacks[0]?.('stale');
+    callbacks[1]?.('fresh');
+    expect(received).toEqual(['1:fresh']);
+    handle.stop();
+  });
+
   it('works with Sub.map (structural)', async () => {
     const { Sub } = await loadRuntime();
 

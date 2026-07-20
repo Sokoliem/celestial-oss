@@ -1,23 +1,53 @@
 import { getAttachedPlugins, type Plugin } from '../plugin.js';
+import { disposeVNodeStateScope } from '../vdom/state.js';
 import type { AppConfig, ReplaceConfigOptions } from './contracts.js';
 import type { RuntimeContext } from './runtime-context.js';
 
 export function installLifecycle<Model, M>(ctx: RuntimeContext<Model, M>): void {
+  const reportLifecycleError = (scope: string, error: unknown): void => {
+    if (typeof process !== 'undefined' && process.stderr) {
+      process.stderr.write(`[nebula] ${scope} failed: ${String(error)}\n`);
+    }
+  };
+
   ctx.suspend = (): void => {
     if (!ctx.running || ctx.suspended) return;
     ctx.suspended = true;
     ctx.cancelScheduledRender();
     ctx.prevGrid = null;
     ctx.resetCompositorState();
-    ctx.detachRuntimeHandlers();
-    ctx.exitTerminalSession(false);
+    try {
+      ctx.detachRuntimeHandlers();
+    } catch (error: unknown) {
+      reportLifecycleError('Runtime handler detach during suspend', error);
+    }
+    try {
+      ctx.exitTerminalSession(false);
+    } catch (error: unknown) {
+      reportLifecycleError('Terminal cleanup during suspend', error);
+    }
   };
 
   ctx.resume = (): void => {
     if (!ctx.running || !ctx.suspended) return;
+    try {
+      ctx.enterTerminalSession(false);
+      ctx.attachRuntimeHandlers();
+    } catch (error: unknown) {
+      try {
+        ctx.detachRuntimeHandlers();
+      } catch (cleanupError: unknown) {
+        reportLifecycleError('Runtime handler rollback during resume', cleanupError);
+      }
+      try {
+        ctx.exitTerminalSession(false);
+      } catch (cleanupError: unknown) {
+        reportLifecycleError('Terminal rollback during resume', cleanupError);
+      }
+      reportLifecycleError('Resume', error);
+      return;
+    }
     ctx.suspended = false;
-    ctx.enterTerminalSession(false);
-    ctx.attachRuntimeHandlers();
     ctx.cancelScheduledRender();
     ctx.prevGrid = null;
     ctx.resetCompositorState();
@@ -89,7 +119,6 @@ export function installLifecycle<Model, M>(ctx: RuntimeContext<Model, M>): void 
     ctx.clearIdleTimers();
     ctx.idleSubs = [];
     ctx.prevTimerKey = '';
-    ctx.combinatorIdCounter = 0;
 
     ctx.cancelScheduledRender();
     ctx.prevGrid = null;
@@ -119,9 +148,20 @@ export function installLifecycle<Model, M>(ctx: RuntimeContext<Model, M>): void 
   };
 
   ctx.shutdown = (): void => {
-    ctx.appAbortController.abort();
+    if (!ctx.running && !ctx.terminalSessionActive) return;
     ctx.running = false;
     ctx.suspended = false;
+    const reportCleanupError = (scope: string, error: unknown): void => {
+      if (typeof process !== 'undefined' && process.stderr) {
+        process.stderr.write(`[nebula] ${scope} cleanup failed: ${error}\n`);
+      }
+    };
+
+    try {
+      ctx.appAbortController.abort();
+    } catch (error: unknown) {
+      reportCleanupError('Abort', error);
+    }
 
     while (ctx.pendingClipboardRequests.length > 0) {
       ctx.pendingClipboardRequests.shift()?.({ ok: false, error: new Error('Clipboard request interrupted by shutdown') });
@@ -129,43 +169,91 @@ export function installLifecycle<Model, M>(ctx: RuntimeContext<Model, M>): void 
 
     ctx.cancelScheduledRender();
     ctx.clearDebouncedCmdTimers();
+    for (const timer of ctx.combinatorDebounceTimers.values()) clearTimeout(timer);
+    ctx.combinatorDebounceTimers.clear();
+    ctx.combinatorThrottleTimestamps.clear();
+    ctx.combinatorDistinctLast.clear();
     ctx.clearIdleTimers();
     ctx.idleSubs = [];
 
-    ctx.connectionManager.stopAll();
+    try {
+      ctx.connectionManager.stopAll();
+    } catch (error: unknown) {
+      reportCleanupError('Agent', error);
+    }
     ctx.activeAgentIds.clear();
-    ctx.lensBridge?.close();
+    ctx.agentFingerprints.clear();
+    try {
+      ctx.lensBridge?.close();
+    } catch (error: unknown) {
+      reportCleanupError('Lens bridge', error);
+    }
 
-    for (const id of ctx.activePhaseIds) {
-      ctx.detachActivePhase(id, true);
+    for (const id of [...ctx.activePhaseIds]) {
+      try {
+        ctx.detachActivePhase(id, true);
+      } catch (error: unknown) {
+        reportCleanupError(`Phase "${id}"`, error);
+      }
     }
     ctx.phaseUnsubscribers.clear();
     ctx.phaseRegistries.clear();
     ctx.activePhaseEntries.clear();
     ctx.phaseMachineRefs.clear();
+    ctx.phaseHandlers.clear();
     ctx.activePhaseIds.clear();
 
     for (const [, source] of ctx.activeStreamSources) {
-      source.teardown();
+      try {
+        source.teardown();
+      } catch (error: unknown) {
+        if (typeof process !== 'undefined' && process.stderr) {
+          process.stderr.write(`[nebula] Stream teardown failed during shutdown: ${error}\n`);
+        }
+      }
     }
     ctx.activeStreamSources.clear();
     ctx.activeStreamIds.clear();
+    ctx.streamHandlers.clear();
+    ctx.streamRestartKeys.clear();
 
     for (const t of ctx.timers) clearInterval(t);
     ctx.timers.length = 0;
+    ctx.latestTimerSubs = [];
 
     if (ctx.animFrameTimer !== null) {
       clearInterval(ctx.animFrameTimer);
       ctx.animFrameTimer = null;
     }
 
-    ctx.renderWatchdog?.dispose();
-    ctx.detachRuntimeHandlers();
-    ctx.exitTerminalSession(true);
-    ctx.uninstallSuspendResumeHandlers();
+    try {
+      ctx.renderWatchdog?.dispose();
+    } catch (error: unknown) {
+      reportCleanupError('Render watchdog', error);
+    }
+    disposeVNodeStateScope(ctx.vnodeStateScope);
+    try {
+      ctx.detachRuntimeHandlers();
+    } catch (error: unknown) {
+      reportCleanupError('Runtime handler', error);
+    }
+    try {
+      ctx.exitTerminalSession(true);
+    } catch (error: unknown) {
+      reportCleanupError('Terminal session', error);
+    }
+    try {
+      ctx.uninstallSuspendResumeHandlers();
+    } catch (error: unknown) {
+      reportCleanupError('Signal handler', error);
+    }
 
     if (ctx.crashGuard) {
-      ctx.crashGuard.uninstall();
+      try {
+        ctx.crashGuard.uninstall();
+      } catch (error: unknown) {
+        reportCleanupError('Crash guard', error);
+      }
       ctx.crashGuard = null;
     }
   };

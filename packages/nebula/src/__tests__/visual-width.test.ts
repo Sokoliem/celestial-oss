@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { layout, measure, type TextNode } from '../vdom.js';
 import { sliceByWidth, visualWidth, wrapLine } from '../vdom/visual-width.js';
+import { layout, measure, type TextNode } from '../vdom.js';
 
 /** Helper: extract a row of characters from a CellGrid as a trimmed string */
 function gridRow(grid: ReturnType<typeof layout>, row: number): string {

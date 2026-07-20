@@ -34,45 +34,56 @@ export function app<Model, M>(initialConfig: AppConfig<Model, M>, options?: AppO
   const ctx = createRuntimeContext(initialConfig, options);
   installRuntime(ctx);
 
-  ctx.enterTerminalSession(true);
+  try {
+    ctx.enterTerminalSession(true);
 
-  if (!options?.disableCrashRecovery) {
-    ctx.crashGuard = installCrashRecovery({
-      terminal: ctx.terminal,
-      crashLogPath: options?.crashLogPath,
-      getModel: () => ctx.model,
-    });
-  }
-
-  const [initialModel, initCmd] = ctx.config.init() as [Model, Cmd<M>];
-  ctx.model = initialModel;
-
-  ctx.attachRuntimeHandlers();
-  ctx.installSuspendResumeHandlers();
-
-  const initSubs = ctx.config.subscriptions(ctx.model);
-  ctx.lastGoodSubs = initSubs;
-  if (ctx.hasPasteSub(initSubs) && !ctx.pasteActive) {
-    ctx.terminal.write(BRACKETED_PASTE_ENABLE);
-    ctx.pasteActive = true;
-  }
-  if (ctx.hasMouseSub(initSubs) && !ctx.mouseActive) {
-    if (process.env.CELESTIAL_DEBUG_INPUT) {
-      process.stderr.write('[mouse-mode] enable source=startup\n');
+    if (!options?.disableCrashRecovery) {
+      ctx.crashGuard = installCrashRecovery({
+        terminal: ctx.terminal,
+        crashLogPath: options?.crashLogPath,
+        getModel: () => ctx.model,
+      });
     }
-    ctx.terminal.write(MOUSE_ENABLE);
-    ctx.mouseActive = true;
-  }
-  if (ctx.hasWindowFocusSub(initSubs) && !ctx.windowFocusActive) {
-    ctx.terminal.write(WINDOW_FOCUS_ENABLE);
-    ctx.windowFocusActive = true;
-  }
 
-  ctx.executeCmd(initCmd);
-  ctx.flushAccessibilityAnnouncements();
-  ctx.render();
-  ctx.initialRenderDone = true;
-  ctx.reconcileSubscriptions();
+    const [initialModel, initCmd] = ctx.config.init() as [Model, Cmd<M>];
+    ctx.model = initialModel;
+
+    ctx.attachRuntimeHandlers();
+    ctx.installSuspendResumeHandlers();
+
+    const initSubs = ctx.config.subscriptions(ctx.model);
+    ctx.lastGoodSubs = initSubs;
+    if (ctx.hasPasteSub(initSubs) && !ctx.pasteActive) {
+      ctx.terminal.write(BRACKETED_PASTE_ENABLE);
+      ctx.pasteActive = true;
+    }
+    if (ctx.hasMouseSub(initSubs) && !ctx.mouseActive) {
+      if (process.env.CELESTIAL_DEBUG_INPUT) {
+        process.stderr.write('[mouse-mode] enable source=startup\n');
+      }
+      ctx.terminal.write(MOUSE_ENABLE);
+      ctx.mouseActive = true;
+    }
+    if (ctx.hasWindowFocusSub(initSubs) && !ctx.windowFocusActive) {
+      ctx.terminal.write(WINDOW_FOCUS_ENABLE);
+      ctx.windowFocusActive = true;
+    }
+
+    ctx.executeCmd(initCmd);
+    ctx.flushAccessibilityAnnouncements();
+    ctx.render();
+    ctx.initialRenderDone = true;
+    ctx.reconcileSubscriptions();
+  } catch (error: unknown) {
+    try {
+      ctx.shutdown();
+    } catch (cleanupError: unknown) {
+      if (typeof process !== 'undefined' && process.stderr) {
+        process.stderr.write(`[nebula] Startup cleanup failed: ${cleanupError}\n`);
+      }
+    }
+    throw error;
+  }
 
   return {
     stop: ctx.shutdown,
