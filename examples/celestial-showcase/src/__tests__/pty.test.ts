@@ -1,5 +1,5 @@
-import { createPtyHarness } from '@celestial/test/pty';
 import { fileURLToPath } from 'node:url';
+import { createPtyHarness } from '@celestial/test/pty';
 import { describe, expect, it } from 'vitest';
 
 describe('Celestial Flight Deck PTY', () => {
@@ -18,7 +18,7 @@ describe('Celestial Flight Deck PTY', () => {
     try {
       await harness.waitForText('CELESTIAL FLIGHT DECK');
       await harness.waitForText('WIDE / floating');
-      harness.write('5');
+      harness.write('7');
       // Incremental terminal diffs do not guarantee that a replaced heading is
       // emitted as one contiguous chunk. This window body is newly painted and
       // therefore a stable transcript receipt for the lab switch.

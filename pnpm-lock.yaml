@@ -69,6 +69,24 @@ importers:
       '@celestial/horizon':
         specifier: workspace:*
         version: link:../../packages/horizon
+      '@celestial/mirage':
+        specifier: workspace:*
+        version: link:../../packages/mirage
+      '@celestial/nova':
+        specifier: workspace:*
+        version: link:../../packages/nova
+      '@celestial/orbit':
+        specifier: workspace:*
+        version: link:../../packages/orbit
+      '@celestial/pulsar':
+        specifier: workspace:*
+        version: link:../../packages/pulsar
+      '@celestial/spectrum':
+        specifier: workspace:*
+        version: link:../../packages/spectrum
+      '@celestial/stellar':
+        specifier: workspace:*
+        version: link:../../packages/stellar
       '@celestial/ui':
         specifier: workspace:*
         version: link:../../packages/constellation

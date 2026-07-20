@@ -60,7 +60,17 @@ export const previewDemos = Object.freeze({
   }),
   '@celestial/demo-showcase': Object.freeze({
     directory: 'examples/celestial-showcase',
-    runtimePackages: Object.freeze(['@celestial/core', '@celestial/ui', '@celestial/horizon']),
+    runtimePackages: Object.freeze([
+      '@celestial/core',
+      '@celestial/ui',
+      '@celestial/horizon',
+      '@celestial/orbit',
+      '@celestial/spectrum',
+      '@celestial/mirage',
+      '@celestial/nova',
+      '@celestial/stellar',
+      '@celestial/pulsar',
+    ]),
   }),
 });
 

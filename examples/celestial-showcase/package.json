@@ -15,6 +15,12 @@
   "dependencies": {
     "@celestial/core": "workspace:*",
     "@celestial/horizon": "workspace:*",
+    "@celestial/mirage": "workspace:*",
+    "@celestial/nova": "workspace:*",
+    "@celestial/orbit": "workspace:*",
+    "@celestial/pulsar": "workspace:*",
+    "@celestial/spectrum": "workspace:*",
+    "@celestial/stellar": "workspace:*",
     "@celestial/ui": "workspace:*"
   },
   "devDependencies": {

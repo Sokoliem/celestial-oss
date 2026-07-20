@@ -54,18 +54,18 @@ describe('Celestial Flight Deck', () => {
     const screen = createScreen(handle);
     handle.pressKey('2');
     await handle.waitForUpdate();
-    handle.dispatch({ type: 'component-page', page: 4 });
+    handle.dispatch({ type: 'component-page', page: 6 });
 
     screen.fireResize(SHOWCASE_MIN_COLS - 10, SHOWCASE_MIN_ROWS - 8);
     expect(handle.lastFrame()).toContain('Resize required');
     expect(handle.lastFrame()).toContain(`minimum ${SHOWCASE_MIN_COLS}x${SHOWCASE_MIN_ROWS}`);
     expect(handle.model.activeLab).toBe('components');
-    expect(handle.model.componentPage).toBe(4);
+    expect(handle.model.componentPage).toBe(6);
 
     screen.fireResize(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
     expect(handle.lastFrame()).toContain('Feedback and layers - 7 builders');
     expect(handle.model.activeLab).toBe('components');
-    expect(handle.model.componentPage).toBe(4);
+    expect(handle.model.componentPage).toBe(6);
   });
 
   it('keeps long lab and status copy complete at the minimum width', async () => {
@@ -73,6 +73,8 @@ describe('Celestial Flight Deck', () => {
 
     expect(handle.lastFrame()).toContain('namespaces.');
     for (const [lab, tail] of [
+      ['workflows', 'model.'],
+      ['visuals', 'lane.'],
       ['mouse', 'propagation.'],
       ['layers', 'surface.'],
       ['windows', 'windows.'],
@@ -112,12 +114,12 @@ describe('Celestial Flight Deck', () => {
     await handle.waitForUpdate();
 
     const builders = new Set<string>();
-    for (let page = 0; page < 5; page += 1) {
+    for (let page = 0; page < 8; page += 1) {
       const frame = handle.lastFrame();
       for (const builder of UI_BUILDER_NAMES) {
         if (frame.includes(`${builder}()`)) builders.add(builder);
       }
-      if (page < 4) {
+      if (page < 7) {
         handle.pressKey(']');
         await handle.waitForUpdate();
       }
@@ -152,7 +154,7 @@ describe('Celestial Flight Deck', () => {
     handle.click(sliderElement!.col + 'Density '.length, sliderElement!.row);
     expect(handle.model.slider.value).toBe(0);
 
-    handle.dispatch({ type: 'component-page', page: 1 });
+    handle.dispatch({ type: 'component-page', page: 3 });
     await handle.waitForUpdate();
     const previewCrumb = findText(handle.lastFrame(), 'Preview');
     fireMouse(handle.terminal, { type: 'move', col: previewCrumb.col, row: previewCrumb.row });
@@ -161,7 +163,7 @@ describe('Celestial Flight Deck', () => {
     handle.click(celestialCrumb.col, celestialCrumb.row);
     expect(handle.model.breadcrumb.selectedIndex).toBe(0);
 
-    handle.dispatch({ type: 'component-page', page: 2 });
+    handle.dispatch({ type: 'component-page', page: 4 });
     await handle.waitForUpdate();
     const runtimeRow = findText(handle.lastFrame(), 'Elm runtime');
     const uiRow = findText(handle.lastFrame(), 'Curated UI');
@@ -178,7 +180,7 @@ describe('Celestial Flight Deck', () => {
 
   it('routes live mouse coordinates through raw and semantic hit regions after a lab switch', async () => {
     const handle = flightDeck(70, 36);
-    handle.pressKey('3');
+    handle.pressKey('5');
     await handle.waitForUpdate();
     const target = findText(handle.lastFrame(), 'MOUSE TARGET');
 
@@ -200,9 +202,34 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.completed.has('mouse-drag')).toBe(true);
   });
 
+  it('advances an Orbit workflow and renders the rich visual stack', async () => {
+    const handle = flightDeck(140, 48);
+
+    handle.pressKey('3');
+    await handle.waitForUpdate();
+    expect(handle.lastFrame()).toContain('ORBIT WORKFLOWS');
+    expect(handle.lastFrame()).toContain('Release preferences');
+    expect(handle.lastFrame()).toContain('Step 1 of 3: Scope');
+
+    const next = findText(handle.lastFrame(), 'Advance step');
+    handle.click(next.col, next.row);
+    await handle.waitForUpdate();
+    expect(handle.model.wizard.currentStep).toBe(1);
+    expect(handle.model.completed.has('workflow')).toBe(true);
+    expect(handle.lastFrame()).toContain('Step 2 of 3: Verify');
+
+    handle.pressKey('4');
+    await handle.waitForUpdate();
+    expect(handle.lastFrame()).toContain('RICH TERMINAL RENDERING');
+    expect(handle.lastFrame()).toContain('Spectrum / TypeScript');
+    expect(handle.lastFrame()).toContain('Stellar line chart');
+    expect(handle.lastFrame()).toContain('Pulsar');
+    expect(handle.model.completed.has('visual')).toBe(true);
+  });
+
   it('preserves the base app beneath layers and provides contextual Escape-dismissible help', async () => {
     const handle = flightDeck(100, 36);
-    handle.pressKey('4');
+    handle.pressKey('6');
     await handle.waitForUpdate();
     const modalLauncher = findText(handle.lastFrame(), 'modal');
     fireMouse(handle.terminal, { type: 'move', col: modalLauncher.col, row: modalLauncher.row });
@@ -222,7 +249,7 @@ describe('Celestial Flight Deck', () => {
     handle.click(paletteAction.col, paletteAction.row);
     await handle.waitForUpdate();
     expect(handle.model.activeLab).toBe('windows');
-    handle.pressKey('4');
+    handle.pressKey('6');
     await handle.waitForUpdate();
 
     handle.dispatch({ type: 'open-surface', surface: 'toast' });
@@ -273,7 +300,7 @@ describe('Celestial Flight Deck', () => {
   it('drags and manages Horizon windows, then preserves state across adaptive representations', async () => {
     const handle = flightDeck(140, 42);
     const screen = createScreen(handle);
-    handle.pressKey('5');
+    handle.pressKey('7');
     await handle.waitForUpdate();
 
     const before = handle.model.windows.windows.find((window) => window.id === 'telemetry')!;

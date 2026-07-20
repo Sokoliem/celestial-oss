@@ -1,10 +1,11 @@
 import type { DragState, MouseEventData } from '@celestial/core';
 import type { FloatingWindowDragState, FloatingWindowResizeState, WindowManager, WorkspaceModel } from '@celestial/horizon';
+import type { SchemaFormModel, SchemaFormMsg, WizardModel, WizardMsg } from '@celestial/orbit';
 import type {
-  CheckboxModel,
-  CheckboxMsg,
   BreadcrumbModel,
   BreadcrumbMsg,
+  CheckboxModel,
+  CheckboxMsg,
   CommandPaletteModel,
   CommandPaletteMsg,
   ConfirmDialogModel,
@@ -39,11 +40,11 @@ import type {
   TreeMsg,
 } from '@celestial/ui';
 
-export type LabId = 'core' | 'components' | 'mouse' | 'layers' | 'windows' | 'smoke';
+export type LabId = 'core' | 'components' | 'workflows' | 'visuals' | 'mouse' | 'layers' | 'windows' | 'smoke';
 export type ViewportTier = 'compact' | 'medium' | 'wide';
 export type ComponentFocus = 'none' | 'text' | 'textarea' | 'checkbox' | 'radio' | 'select' | 'toggle' | 'slider' | 'tabs' | 'pagination' | 'table' | 'tree';
 export type SurfaceId = 'modal' | 'confirm' | 'drawer' | 'tooltip' | 'palette' | 'toast';
-export type SmokeId = 'core' | 'component' | 'mouse-click' | 'mouse-drag' | 'layer' | 'adaptive' | 'window' | 'help';
+export type SmokeId = 'core' | 'component' | 'workflow' | 'visual' | 'mouse-click' | 'mouse-drag' | 'layer' | 'adaptive' | 'window' | 'help';
 
 export interface ShowcaseWorkspace {
   id: 'flight' | 'systems' | 'verification';
@@ -98,6 +99,8 @@ export interface CelestialShowcaseModel {
   pagination: PaginationModel;
   table: DataTableModel;
   tree: TreeModel;
+  schemaForm: SchemaFormModel;
+  wizard: WizardModel;
   tooltip: TooltipModel;
   toast: ToastModel;
   modal: ModalModel;
@@ -135,6 +138,8 @@ export type CelestialShowcaseMsg =
   | { type: 'pagination'; msg: PaginationMsg }
   | { type: 'table'; msg: DataTableMsg }
   | { type: 'tree'; msg: TreeMsg }
+  | { type: 'schema-form'; msg: SchemaFormMsg }
+  | { type: 'wizard'; msg: WizardMsg }
   | { type: 'tooltip'; msg: TooltipMsg }
   | { type: 'toast'; msg: ToastMsg }
   | { type: 'modal'; msg: ModalMsg }

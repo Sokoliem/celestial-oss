@@ -52,8 +52,10 @@ import {
   renderLayersLab,
   renderMouseLab,
   renderSmokeLab,
+  renderVisualsLab,
   renderWindowContent,
   renderWindowsLab,
+  renderWorkflowsLab,
   SMOKE_STEPS,
   setReactiveTick,
   viewportTier,
@@ -356,13 +358,17 @@ function renderActiveLab(components: ShowcaseComponents, model: CelestialShowcas
       return column(
         row(
           actionNode(model, 'gallery-prev', 'Previous', '['),
-          text(`  page ${model.componentPage + 1}/5  `, mutedStyle),
+          text(`  page ${model.componentPage + 1}/8  `, mutedStyle),
           actionNode(model, 'gallery-next', 'Next', ']'),
           text('  '),
-          badge({ label: '27 public builders', variant: 'success', size: 'sm' }).view({ visible: true }),
+          badge({ label: '44 public builders', variant: 'success', size: 'sm' }).view({ visible: true }),
         ),
         renderComponentGallery(components, model),
       );
+    case 'workflows':
+      return renderWorkflowsLab(components, model);
+    case 'visuals':
+      return renderVisualsLab(model, caps);
     case 'mouse':
       return renderMouseLab(model);
     case 'layers':
@@ -437,7 +443,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             dragDemo: closed.dragDemo.phase === 'dragging' ? dragUpdate({ type: 'drag-cancel' }, closed.dragDemo, dragTargets) : closed.dragDemo,
             lastAction: `Opened ${message.lab} lab.`,
           };
-          return [message.lab === 'core' ? mark(next, 'core') : next, Cmd.none()];
+          return [message.lab === 'core' ? mark(next, 'core') : message.lab === 'visuals' ? mark(next, 'visual') : next, Cmd.none()];
         }
         case 'next-lab': {
           const index = activeLabIndex(model.activeLab);
@@ -469,8 +475,8 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           return [{ ...model, tick }, Cmd.none()];
         }
         case 'component-page': {
-          const page = Math.max(0, Math.min(4, message.page));
-          return [mark(withComponentFocus({ ...model, componentPage: page }, 'none'), 'component', `Opened curated UI page ${page + 1}/5.`), Cmd.none()];
+          const page = Math.max(0, Math.min(7, message.page));
+          return [mark(withComponentFocus({ ...model, componentPage: page }, 'none'), 'component', `Opened curated UI page ${page + 1}/8.`), Cmd.none()];
         }
         case 'component-focus':
           return [mark(withComponentFocus(model, message.focus), 'component', `Focused ${message.focus} component.`), Cmd.none()];
@@ -522,6 +528,14 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           const [tree, command] = mapDescriptor(components.treeComponent, message.msg, model.tree, (msg) => ({ type: 'tree', msg }));
           return [mark({ ...model, tree }, 'component', 'Interacted with tree().'), command];
         }
+        case 'schema-form': {
+          const [schemaForm, command] = mapDescriptor(components.schemaFormComponent, message.msg, model.schemaForm, (msg) => ({ type: 'schema-form', msg }));
+          return [mark({ ...model, schemaForm }, 'workflow', 'Updated schemaForm().'), command];
+        }
+        case 'wizard': {
+          const [wizard, command] = mapDescriptor(components.wizardComponent, message.msg, model.wizard, (msg) => ({ type: 'wizard', msg }));
+          return [mark({ ...model, wizard }, 'workflow', message.msg.type === 'wizard:reset' ? 'Restarted wizard().' : 'Advanced wizard().'), command];
+        }
         case 'tooltip': {
           const [tooltip, command] = mapDescriptor(components.tooltipComponent, message.msg, model.tooltip, (msg) => ({ type: 'tooltip', msg }));
           return [mark({ ...model, tooltip }, 'layer', 'Tooltip layer updated.'), command];
@@ -553,6 +567,8 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             ? [
                 { id: 'core', msg: { type: 'switch-lab', lab: 'core' } as CelestialShowcaseMsg },
                 { id: 'components', msg: { type: 'switch-lab', lab: 'components' } as CelestialShowcaseMsg },
+                { id: 'workflows', msg: { type: 'switch-lab', lab: 'workflows' } as CelestialShowcaseMsg },
+                { id: 'visuals', msg: { type: 'switch-lab', lab: 'visuals' } as CelestialShowcaseMsg },
                 { id: 'mouse', msg: { type: 'switch-lab', lab: 'mouse' } as CelestialShowcaseMsg },
                 { id: 'layers', msg: { type: 'switch-lab', lab: 'layers' } as CelestialShowcaseMsg },
                 { id: 'windows', msg: { type: 'switch-lab', lab: 'windows' } as CelestialShowcaseMsg },
@@ -823,6 +839,14 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             if (action === 'help') return this.update({ type: 'open-help' }, model);
             if (action === 'gallery-prev') return this.update({ type: 'component-page', page: model.componentPage - 1 }, model);
             if (action === 'gallery-next') return this.update({ type: 'component-page', page: model.componentPage + 1 }, model);
+            if (action === 'workflow-toggle-motion') {
+              const current = model.schemaForm.values['reducedMotion'] === true;
+              return this.update({ type: 'schema-form', msg: { type: 'schema-form:set-field', field: 'reducedMotion', value: !current } }, model);
+            }
+            if (action === 'workflow-prev') return this.update({ type: 'wizard', msg: { type: 'wizard:prev' } }, model);
+            if (action === 'workflow-next') {
+              return this.update({ type: 'wizard', msg: { type: model.wizard.finished ? 'wizard:reset' : 'wizard:next' } }, model);
+            }
             if (action === 'reopen-telemetry') return this.update({ type: 'window-action', id: 'telemetry', action: 'reopen' }, model);
             if (action === 'reopen-events') return this.update({ type: 'window-action', id: 'events', action: 'reopen' }, model);
           }
@@ -983,18 +1007,26 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             mapSubscriptions(components.toggleComponent, model.toggle, (msg) => ({ type: 'toggle', msg })),
             mapSubscriptions(components.sliderComponent, model.slider, (msg) => ({ type: 'slider', msg })),
           );
-        } else if (model.componentPage === 1) {
+        } else if (model.componentPage === 3) {
           base.push(
             mapSubscriptions(components.tabsComponent, model.tabs, (msg) => ({ type: 'tabs', msg })),
             mapSubscriptions(components.breadcrumbComponent, model.breadcrumb, (msg) => ({ type: 'breadcrumb', msg })),
             mapSubscriptions(components.paginationComponent, model.pagination, (msg) => ({ type: 'pagination', msg })),
           );
-        } else if (model.componentPage === 2) {
+        } else if (model.componentPage === 4) {
           base.push(
             mapSubscriptions(components.tableComponent, model.table, (msg) => ({ type: 'table', msg })),
             mapSubscriptions(components.treeComponent, model.tree, (msg) => ({ type: 'tree', msg })),
           );
         }
+      }
+
+      if (model.activeLab === 'workflows') {
+        base.push(
+          mapSubscriptions(components.schemaFormComponent, model.schemaForm, (msg) => ({ type: 'schema-form', msg })),
+          Sub.key('n', { type: 'wizard', msg: { type: model.wizard.finished ? 'wizard:reset' : 'wizard:next' } }),
+          Sub.key('b', { type: 'wizard', msg: { type: 'wizard:prev' } }),
+        );
       }
 
       if (model.toast.toasts.length) base.push(Sub.map(components.toastManager.subscriptions(model.toast), (msg) => ({ type: 'toast', msg })));

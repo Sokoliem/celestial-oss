@@ -21,21 +21,31 @@ import {
   validateThemeContrast,
 } from '@celestial/core';
 import { createTabBar, getActiveWorkspace, panel, splitPane } from '@celestial/horizon';
+import { gradient, shimmer } from '@celestial/mirage';
+import { fadeTransition } from '@celestial/nova';
+import { renderMarkdown } from '@celestial/pulsar';
+import { highlightCode } from '@celestial/spectrum';
+import { chart } from '@celestial/stellar';
 import { badge, button, progressBar } from '@celestial/ui';
+import type { ShowcaseComponents } from './components.js';
 import type { CelestialShowcaseModel, LabId, SmokeId, SurfaceId, ViewportTier } from './types.js';
 
 export const LABS: Array<{ id: LabId; label: string; key: string; summary: string }> = [
   { id: 'core', label: 'Core', key: '1', summary: 'Six foundations, one facade' },
-  { id: 'components', label: 'Components', key: '2', summary: '27 curated builders' },
-  { id: 'mouse', label: 'Mouse', key: '3', summary: 'Pointer and hit regions' },
-  { id: 'layers', label: 'Layers', key: '4', summary: 'Stacked transient surfaces' },
-  { id: 'windows', label: 'Windows', key: '5', summary: 'Horizon beta management' },
-  { id: 'smoke', label: 'Smoke', key: '6', summary: 'Live verification receipts' },
+  { id: 'components', label: 'Components', key: '2', summary: '44 curated builders' },
+  { id: 'workflows', label: 'Workflows', key: '3', summary: 'Schema forms and wizards' },
+  { id: 'visuals', label: 'Visuals', key: '4', summary: 'Code, motion, charts, Markdown' },
+  { id: 'mouse', label: 'Mouse', key: '5', summary: 'Pointer and hit regions' },
+  { id: 'layers', label: 'Layers', key: '6', summary: 'Stacked transient surfaces' },
+  { id: 'windows', label: 'Windows', key: '7', summary: 'Horizon beta management' },
+  { id: 'smoke', label: 'Smoke', key: '8', summary: 'Live verification receipts' },
 ];
 
 export const SMOKE_STEPS: Array<{ id: SmokeId; label: string; lab: LabId; instruction: string }> = [
   { id: 'core', label: 'Core inspected', lab: 'core', instruction: 'Visit the Core lab.' },
   { id: 'component', label: 'Component changed', lab: 'components', instruction: 'Toggle or edit a curated control.' },
+  { id: 'workflow', label: 'Workflow advanced', lab: 'workflows', instruction: 'Advance the Orbit release wizard.' },
+  { id: 'visual', label: 'Visual stack inspected', lab: 'visuals', instruction: 'Visit the Visuals lab.' },
   { id: 'mouse-click', label: 'Mouse target clicked', lab: 'mouse', instruction: 'Click inside the pointer target.' },
   { id: 'mouse-drag', label: 'Payload dropped', lab: 'mouse', instruction: 'Drag the receipt into the drop bay.' },
   { id: 'layer', label: 'Layer composed', lab: 'layers', instruction: 'Open and dismiss any transient surface.' },
@@ -194,6 +204,91 @@ export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabili
     row(text('CORE FACADE', headingStyle), text('  @celestial/core', mutedStyle)),
     text('One understandable entry point; namespaces stay available when precision matters.', mutedStyle, { wrap: true }),
     layout.flex({ direction: 'row', gap: 1, alignItems: 'stretch' }, ...coreCards.map((node) => layout.flexItem(node, { grow: 1, basis: 34, minSize: 30 }))),
+  );
+}
+
+function ansiBlock(content: string): VNode {
+  return column(...content.split('\n').map((line) => text(line || ' ')));
+}
+
+export function renderWorkflowsLab(components: ShowcaseComponents, model: CelestialShowcaseModel): VNode {
+  const graph = components.wizardComponent.getGraph();
+  const schemaPanel = panel({
+    title: 'Schema form',
+    content: column(components.schemaFormComponent.view(model.schemaForm), text(''), action(model, 'workflow-toggle-motion', 'Toggle reduced motion', 'info')),
+    fill: true,
+  });
+  const wizardPanel = panel({
+    title: 'Release wizard',
+    content: column(
+      components.wizardComponent.view(model.wizard),
+      text(''),
+      row(
+        action(model, 'workflow-prev', 'Back', 'neutral'),
+        text('  '),
+        action(model, 'workflow-next', model.wizard.finished ? 'Restart workflow' : 'Advance step', 'success'),
+      ),
+      text(`Graph ${graph.stepOrder.join(' -> ')} | visited ${model.wizard.visited.length}`, mutedStyle, { wrap: true }),
+    ),
+    fill: true,
+  });
+
+  return column(
+    row(text('ORBIT WORKFLOWS', headingStyle), text('  schema-driven and Elm-native', mutedStyle)),
+    text('Fields, validation, focus, branching, and submit state stay explicit in the application model.', mutedStyle, { wrap: true }),
+    text(''),
+    model.cols >= 100
+      ? splitPane({ direction: 'horizontal', ratio: 0.56, first: schemaPanel, second: wizardPanel, minSize: 28 })
+      : column(schemaPanel, wizardPanel),
+    text('Mouse controls are primary; Tab and wizard navigation remain available as keyboard backup.', mutedStyle, { wrap: true }),
+  );
+}
+
+export function renderVisualsLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+  const width = Math.max(12, Math.min(46, model.cols - 18));
+  const motionTick = caps.reducedMotion ? 0 : model.tick;
+  const highlighted = highlightCode('const release = validate({ unicode: true });', { language: 'typescript', theme: 'dracula' });
+  const gradientText = gradient('Mirage preserves grapheme clusters: 👩‍🚀 e\u0301', {
+    colors: [defaultTheme.colors.tones.accent, defaultTheme.colors.tones.success],
+  });
+  const shimmerText = shimmer('Motion follows terminal preference', {
+    tick: motionTick,
+    color: defaultTheme.colors.tones.accent,
+    baseColor: defaultTheme.colors.muted,
+    reduceMotion: caps.reducedMotion,
+  });
+  const transition = fadeTransition({ duration: 20, reduceMotion: caps.reducedMotion });
+  const transitionState = transition.tick(transition.start(0), caps.reducedMotion ? 20 : model.tick % 21);
+  const transitioned = transition.render('private research', 'focused public preview', transitionState);
+  const lineChart = chart.line({ data: [3, 5, 4, 8, 7, 11, 10], width, height: 5, filled: false }).toString();
+  const markdown = renderMarkdown('**Pulsar** renders safely\n\n- CRLF normalized\n- Unicode width aware\n- Spectrum highlighted', {
+    width,
+    reduceMotion: caps.reducedMotion,
+  });
+  const textPanel = panel({
+    title: 'Spectrum + Mirage + Nova',
+    content: column(
+      text('Spectrum / TypeScript', titleStyle),
+      text(highlighted),
+      text(''),
+      text(gradientText),
+      text(shimmerText),
+      text(`Nova ${Math.round(transitionState.progress * 100)}%  ${transitioned}`, mutedStyle),
+      text(caps.reducedMotion ? 'Reduced motion: static end states' : 'Motion enabled: deterministic ticks', caps.reducedMotion ? warningStyle : successStyle),
+    ),
+    fill: true,
+  });
+  const renderPanel = panel({
+    title: 'Stellar + Pulsar',
+    content: column(text('Stellar line chart', titleStyle), ansiBlock(lineChart), text(''), ansiBlock(markdown)),
+    fill: true,
+  });
+
+  return column(
+    row(text('RICH TERMINAL RENDERING', headingStyle), text('  public-safe adapters', mutedStyle)),
+    text('Stateful highlighting, opt-out motion, braille charts, and Markdown share one Unicode-aware render lane.', mutedStyle, { wrap: true }),
+    text(''),
+    model.cols >= 100 ? splitPane({ direction: 'horizontal', ratio: 0.5, first: textPanel, second: renderPanel, minSize: 30 }) : column(textPanel, renderPanel),
   );
 }
 
