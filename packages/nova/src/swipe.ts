@@ -1,3 +1,5 @@
+import { finiteNumber, nonNegativeNumber } from './validation.js';
+
 export interface SwipeGesture {
   gesture: 'swipe';
   direction: 'up' | 'down' | 'left' | 'right';
@@ -20,11 +22,13 @@ export interface SwipeNavigator<M = unknown> {
 }
 
 export function createSwipeNavigator<M = unknown>(opts: SwipeNavigatorOpts<M>): SwipeNavigator<M> {
-  const threshold = opts.threshold ?? 0;
-  const velocity = opts.velocity ?? 0;
+  const threshold = nonNegativeNumber(opts.threshold ?? 0, 'threshold');
+  const velocity = nonNegativeNumber(opts.velocity ?? 0, 'velocity');
 
   function matches(gesture: SwipeGesture): boolean {
-    return gesture.gesture === 'swipe' && gesture.distance >= threshold && gesture.velocity >= velocity;
+    const distance = finiteNumber(gesture.distance, 'gesture.distance');
+    const gestureVelocity = finiteNumber(gesture.velocity, 'gesture.velocity');
+    return gesture.gesture === 'swipe' && distance >= threshold && gestureVelocity >= velocity;
   }
 
   function handleSwipe(gesture: SwipeGesture): M | undefined {

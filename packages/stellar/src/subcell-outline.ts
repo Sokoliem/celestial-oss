@@ -27,6 +27,7 @@ import type { Color } from '@celestial/corona';
 import type { VNode } from '@celestial/nebula';
 import { canvas } from './canvas.js';
 import type { CanvasModeOrAuto, ModeCapabilities } from './resolve-mode.js';
+import { clamp, nonNegativeInteger } from './validation.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -110,14 +111,17 @@ export interface SubcellOutlineResult {
  * stack: primary occupies the left sub-column, secondary the right.
  */
 export function subcellOutline(opts: SubcellOutlineOpts): SubcellOutlineResult {
-  const { density, secondaryDensity, height, mode = 'auto', caps, reducer = 'max', color, secondaryColor, threshold = 0 } = opts;
+  const { density, secondaryDensity, mode = 'auto', caps, color, secondaryColor } = opts;
+  const height = Math.min(100_000, nonNegativeInteger(opts.height, 0));
+  const reducer: DensityReducer = opts.reducer === 'mean' || opts.reducer === 'sum' ? opts.reducer : 'max';
+  const threshold = clamp(opts.threshold, 0, 1, 0);
 
   if (height <= 0) {
-    return { toVNode: () => canvas(1, 1, mode, caps).toVNode(), toString: () => '', rows: [] };
+    return { toVNode: () => canvas(0, 0, mode, caps).toVNode(), toString: () => '', rows: [] };
   }
 
   if (secondaryDensity && secondaryDensity.length !== density.length) {
-    throw new Error(`subcellOutline: secondaryDensity.length (${secondaryDensity.length}) must equal density.length (${density.length})`);
+    throw new RangeError(`subcellOutline: secondaryDensity.length (${secondaryDensity.length}) must equal density.length (${density.length})`);
   }
 
   const rows = aggregateRows(density, secondaryDensity, height, reducer);
@@ -134,7 +138,7 @@ export function subcellOutline(opts: SubcellOutlineOpts): SubcellOutlineResult {
   return {
     toVNode: () => c.toVNode(),
     toString: () => c.render(),
-    rows,
+    rows: Object.freeze(rows.map((row) => Object.freeze({ ...row }))),
   };
 }
 

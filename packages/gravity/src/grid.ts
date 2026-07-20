@@ -77,9 +77,18 @@ function isVNode(value: unknown): value is VNode {
 }
 
 function normalizeGap(gap: number | Gap | [number, number] | undefined): [number, number] {
-  if (Array.isArray(gap)) return gap;
-  if (typeof gap === 'number' || gap === undefined) return [gap ?? 0, gap ?? 0];
-  return [gap.row ?? gap.col ?? 0, gap.col ?? gap.row ?? 0];
+  const normalize = (value: number): number => (Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0);
+  if (Array.isArray(gap)) return [normalize(gap[0]), normalize(gap[1])];
+  if (typeof gap === 'number' || gap === undefined) return [normalize(gap ?? 0), normalize(gap ?? 0)];
+  return [normalize(gap.row ?? gap.col ?? 0), normalize(gap.col ?? gap.row ?? 0)];
+}
+
+function normalizeIndex(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) ? Math.floor(value!) : fallback;
+}
+
+function normalizeSpan(value: number | undefined): number {
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value!)) : 1;
 }
 
 function tokenizeTemplate(template: string): string[] {
@@ -120,8 +129,9 @@ function parseTrackToken(token: string): GridTrack {
 
 function parseTemplate(template: string | number | undefined): ParsedTemplate {
   if (typeof template === 'number') {
+    const count = Number.isFinite(template) ? Math.max(0, Math.floor(template)) : 0;
     return {
-      tracks: Array.from({ length: template }, () => ({ min: 0, weight: 1 })),
+      tracks: Array.from({ length: count }, () => ({ min: 0, weight: 1 })),
       lineNames: new Map<string, number>(),
     };
   }
@@ -151,8 +161,9 @@ function parseTemplate(template: string | number | undefined): ParsedTemplate {
 
 function parseAutoTrackTemplate(template: string | number | undefined): ParsedTemplate {
   if (typeof template === 'number') {
+    const size = Number.isFinite(template) ? Math.max(0, Math.floor(template)) : 0;
     return {
-      tracks: [{ min: template, weight: 0, max: template }],
+      tracks: [{ min: size, weight: 0, max: size }],
       lineNames: new Map<string, number>(),
     };
   }
@@ -256,10 +267,10 @@ function normalizeGridItemOptions(
     return { ...resolved, area: options.area };
   }
 
-  let col = options.col ?? 0;
-  let row = typeof options.row === 'number' ? options.row : 0;
-  let colSpan = options.colSpan ?? 1;
-  let rowSpan = options.rowSpan ?? 1;
+  let col = normalizeIndex(options.col, 0);
+  let row = typeof options.row === 'number' ? normalizeIndex(options.row, 0) : 0;
+  let colSpan = normalizeSpan(options.colSpan);
+  let rowSpan = normalizeSpan(options.rowSpan);
 
   if (options.column !== undefined) {
     const placement = resolvePlacement(options.column, columns.lineNames);
@@ -409,7 +420,9 @@ function normalizeGridProps(props: GridProps): NormalizedGridProps {
     }
   }
 
-  const cols = props.cols ?? (columns.tracks.length || (areaRows[0]?.length ?? 1));
+  const areaColumnCount = areaRows.reduce((max, row) => Math.max(max, row.length), 0);
+  const requestedCols = props.cols ?? (columns.tracks.length || areaColumnCount || 1);
+  const cols = Number.isFinite(requestedCols) ? Math.max(1, Math.floor(requestedCols)) : 1;
 
   // Auto-place items that have no explicit position
   if (props.autoFlow || children.some((c) => c.options._autoPlace)) {
@@ -452,22 +465,27 @@ function computeTrackSizes(total: number, tracks: GridTrack[], gap: number): num
     }
 
     const totalWeight = growable.reduce((sum, item) => sum + item.track.weight, 0);
-    let distributed = 0;
-
-    for (const { track, index } of growable) {
-      const share = Math.min(
-        track.max === undefined ? Number.POSITIVE_INFINITY : Math.max(0, track.max - sizes[index]!),
-        Math.floor((remaining * track.weight) / totalWeight),
-      );
-      if (share > 0) {
-        sizes[index] = sizes[index]! + share;
-        distributed += share;
-      }
+    const allocations = growable.map(({ track, index }) => {
+      const ideal = (remaining * track.weight) / totalWeight;
+      const capacity = track.max === undefined ? Number.POSITIVE_INFINITY : Math.max(0, track.max - sizes[index]!);
+      const base = Math.min(capacity, Math.floor(ideal));
+      return { index, capacity, base, fraction: capacity > base ? ideal - Math.floor(ideal) : -1 };
+    });
+    let distributed = allocations.reduce((sum, allocation) => sum + allocation.base, 0);
+    for (const allocation of allocations) {
+      sizes[allocation.index] = sizes[allocation.index]! + allocation.base;
     }
 
-    if (distributed === 0) {
-      break;
+    let remainder = remaining - distributed;
+    for (const allocation of allocations.sort((left, right) => right.fraction - left.fraction || left.index - right.index)) {
+      if (remainder === 0) break;
+      if (allocation.fraction < 0 || allocation.base >= allocation.capacity) continue;
+      sizes[allocation.index] = sizes[allocation.index]! + 1;
+      distributed += 1;
+      remainder -= 1;
     }
+
+    if (distributed === 0) break;
 
     remaining -= distributed;
   }

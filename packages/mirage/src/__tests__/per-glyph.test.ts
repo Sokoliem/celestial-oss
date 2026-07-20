@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 // Mocks
 // ---------------------------------------------------------------------------
 
-vi.mock('@celestial/corona', () => {
+vi.mock('@celestial/corona', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@celestial/corona')>();
   function rgb(r: number, g: number, b: number) {
     return {
       fg: () => `\x1b[38;2;${r};${g};${b}m`,
@@ -24,6 +25,7 @@ vi.mock('@celestial/corona', () => {
   }
 
   return {
+    ...actual,
     charWidth: () => 1,
     reduceMotion: () => false,
     color: {

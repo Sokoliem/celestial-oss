@@ -7,6 +7,7 @@ import type { Color } from '@celestial/corona';
 import type { VNode } from '@celestial/nebula';
 import { type CanvasMode, canvas } from './canvas.js';
 import { safeMax } from './math-utils.js';
+import { chartSize, finiteNumber, finiteValues, rangeRatio } from './validation.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -55,8 +56,7 @@ export interface AreaChartResult {
  * @returns An AreaChartResult with render methods.
  */
 export function areaChart(opts: AreaChartOpts): AreaChartResult {
-  const width = opts.width ?? 40;
-  const height = opts.height ?? 10;
+  const { width, height } = chartSize(opts.width, opts.height, 40, 10);
   const c = canvas(width, height, opts.mode);
   const series = opts.series;
 
@@ -75,12 +75,17 @@ export function areaChart(opts: AreaChartOpts): AreaChartResult {
   // Compute stacked data if needed
   const stackedData: number[][] = [];
   if (opts.stacked) {
+    let valueScale = 0;
+    for (const item of series) {
+      for (const value of item.data) valueScale = Math.max(valueScale, Math.abs(finiteNumber(value, 0)));
+    }
+    if (valueScale === 0) valueScale = 1;
     const baseline = new Array(maxLen).fill(0) as number[];
     for (const s of series) {
       const accumulated: number[] = [];
       for (let i = 0; i < maxLen; i++) {
         // Hold the last value for shorter series instead of dropping to zero
-        const val = i < s.data.length ? s.data[i]! : (s.data[s.data.length - 1] ?? 0);
+        const val = finiteNumber(i < s.data.length ? s.data[i] : s.data[s.data.length - 1], 0) / valueScale;
         accumulated.push(baseline[i]! + val);
         baseline[i] = accumulated[i]!;
       }
@@ -88,7 +93,7 @@ export function areaChart(opts: AreaChartOpts): AreaChartResult {
     }
   } else {
     for (const s of series) {
-      stackedData.push([...s.data]);
+      stackedData.push(finiteValues(s.data));
     }
   }
 
@@ -101,12 +106,6 @@ export function areaChart(opts: AreaChartOpts): AreaChartResult {
       if (v > globalMax) globalMax = v;
     }
   }
-  if (globalMin === globalMax) {
-    globalMin -= 1;
-    globalMax += 1;
-  }
-  const range = globalMax - globalMin;
-
   // Render series back-to-front (first series is bottommost)
   for (let si = 0; si < series.length; si++) {
     const data = stackedData[si]!;
@@ -125,7 +124,7 @@ export function areaChart(opts: AreaChartOpts): AreaChartResult {
       const v0 = idx < data.length ? data[idx]! : (data[data.length - 1] ?? 0);
       const v1 = idx + 1 < data.length ? data[idx + 1]! : v0;
       const topVal = v0 * (1 - frac) + v1 * frac;
-      const topPy = pxH - 1 - Math.round(((topVal - globalMin) / range) * (pxH - 1));
+      const topPy = pxH - 1 - Math.round(rangeRatio(topVal, globalMin, globalMax, 0.5) * (pxH - 1));
 
       // Interpolate bottom value (baseline or chart floor)
       let bottomPy: number;
@@ -133,7 +132,7 @@ export function areaChart(opts: AreaChartOpts): AreaChartResult {
         const b0 = idx < baselineData.length ? baselineData[idx]! : (baselineData[baselineData.length - 1] ?? 0);
         const b1 = idx + 1 < baselineData.length ? baselineData[idx + 1]! : b0;
         const baseVal = b0 * (1 - frac) + b1 * frac;
-        bottomPy = pxH - 1 - Math.round(((baseVal - globalMin) / range) * (pxH - 1));
+        bottomPy = pxH - 1 - Math.round(rangeRatio(baseVal, globalMin, globalMax, 0.5) * (pxH - 1));
       } else {
         bottomPy = pxH - 1;
       }

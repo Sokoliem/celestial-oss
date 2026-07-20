@@ -638,6 +638,34 @@ describe('chrome composition', () => {
   });
 });
 
+describe('layer boundary hardening', () => {
+  it('normalizes invalid dimensions, ranges, and z-index values', () => {
+    const order: string[] = [];
+    const result = composeChart(
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      [customCanvasLayer('invalid-z', () => order.push('invalid'), Number.NaN), customCanvasLayer('first', () => order.push('first'), -1)],
+      { xRange: [Number.NaN, Number.POSITIVE_INFINITY], yRange: [Number.NEGATIVE_INFINITY, 1] },
+    );
+    expect(result.canvas.width).toBe(1);
+    expect(result.canvas.height).toBe(1);
+    expect(order).toEqual(['first', 'invalid']);
+  });
+
+  it('measures wide chrome labels by terminal cells and strips unsafe controls', () => {
+    const result = composeChart(4, 1, [customChromeLayer('labels', () => ({ left: ['界'], above: ['safe\x1b[2Jtitle'] }))]);
+    const output = result.toString();
+    expect(output).toContain('界 ');
+    expect(output).toContain('safetitle');
+    expect(output).not.toContain('\x1b[2J');
+  });
+
+  it('renders extreme finite datasets without overflow', () => {
+    const data = [-Number.MAX_VALUE, Number.MAX_VALUE];
+    expect(() => composeChart(10, 4, [lineDataLayer(data)], dataRange(data)).toString()).not.toThrow();
+  });
+});
+
 // ── Helper to build a minimal LayerContext for unit-testing layers ───────
 
 function makeCtx(width: number, height: number): LayerContext {

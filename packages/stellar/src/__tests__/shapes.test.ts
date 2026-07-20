@@ -26,6 +26,34 @@ function approx(actual: number, expected: number, tolerance = 0.01): void {
   expect(actual).toBeLessThanOrEqual(expected + tolerance);
 }
 
+describe('shape input hardening', () => {
+  it('returns zero coverage for invalid primitive geometry', () => {
+    expect(isInsideCircle(0, 0, 0, 0, Number.POSITIVE_INFINITY)).toBe(0);
+    expect(isInsideEllipse(0, 0, 0, 0, 0, 1)).toBe(0);
+    expect(isInsideRoundedRect(0, 0, 0, 0, Number.NaN, 2, 1)).toBe(0);
+  });
+
+  it('bounds invalid and extreme star point counts', () => {
+    expect(isInsideStar(0, 0, 0, 0, Number.POSITIVE_INFINITY, 5, 2)).toBe(0);
+    expect(star({ cx: 0, cy: 0, points: Number.NaN, outerR: 5, innerR: 2 })(0, 0)).toBe(0);
+  });
+
+  it('clamps custom shape coverage in boolean composition', () => {
+    expect(
+      shapeUnion(
+        () => Number.NaN,
+        () => 2,
+      )(0, 0),
+    ).toBe(1);
+    expect(
+      shapeIntersect(
+        () => -2,
+        () => 1,
+      )(0, 0),
+    ).toBe(0);
+  });
+});
+
 // ── isInsideCircle ───────────────────────────────────────────────────────────
 
 describe('isInsideCircle', () => {

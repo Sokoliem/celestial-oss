@@ -119,3 +119,30 @@ describe('createStreamingChart', () => {
     expect(sc.getData()).toEqual([3, 4, 5]);
   });
 });
+
+describe('streaming callback hardening', () => {
+  it('uses a callback snapshot when listeners subscribe during delivery', () => {
+    const chart = createStreamingChart();
+    const late = vi.fn();
+    chart.onUpdate(() => chart.onUpdate(late));
+    chart.push(1);
+    expect(late).not.toHaveBeenCalled();
+    chart.push(2);
+    expect(late).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports faulty injected clocks and continues updates', () => {
+    const onSubscriberError = vi.fn();
+    const callback = vi.fn();
+    const chart = createStreamingChart({
+      now: () => {
+        throw new Error('clock');
+      },
+      onSubscriberError,
+    });
+    chart.onUpdate(callback);
+    chart.push(1);
+    expect(onSubscriberError).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+});

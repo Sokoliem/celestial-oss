@@ -23,7 +23,8 @@ describe('createInteractiveChart', () => {
       chartHeight: 10,
       regions,
     });
-    expect(ic.hitRegions).toBe(regions);
+    expect(ic.hitRegions).toEqual(regions);
+    expect(ic.hitRegions).not.toBe(regions);
     expect(ic.hitRegions.length).toBe(3);
   });
 
@@ -324,5 +325,41 @@ describe('buildBarHitRegions', () => {
         expect(r.y).toBeGreaterThanOrEqual(0);
       }
     }
+  });
+});
+
+describe('interactive boundary hardening', () => {
+  it('maps extreme finite ranges without producing invalid regions', () => {
+    const regions = buildPointHitRegions(
+      [
+        [-Number.MAX_VALUE, -Number.MAX_VALUE],
+        [Number.MAX_VALUE, Number.MAX_VALUE],
+      ],
+      0,
+      0,
+      20,
+      10,
+      -Number.MAX_VALUE,
+      Number.MAX_VALUE,
+      -Number.MAX_VALUE,
+      Number.MAX_VALUE,
+    );
+    expect(regions).toHaveLength(2);
+    expect(regions.flatMap((region) => [region.x, region.y, region.width, region.height]).every(Number.isFinite)).toBe(true);
+  });
+
+  it('sanitizes tooltip formatters and isolates input region mutations', () => {
+    const regions = makeRegions();
+    const chart = createInteractiveChart({
+      chartX: 0,
+      chartY: 0,
+      chartWidth: 20,
+      chartHeight: 10,
+      regions,
+      formatTooltip: () => 'safe\x1b[2Jtext',
+    });
+    regions[0]!.id = 'mutated';
+    expect(chart.getTooltip(5, 2)?.text).toBe('safetext');
+    expect(chart.hitTest(5, 2)?.id).toBe('p0');
   });
 });

@@ -1,6 +1,14 @@
 import { easing } from './easing.js';
 import type { Animation, PathConfig } from './types.js';
-import { assertFiniteNumber, assertNonNegativeNumber, assertPoint, assertPositiveNumber, normalizeProgress, normalizeSpeed } from './validation.js';
+import {
+  assertFiniteNumber,
+  assertNonNegativeNumber,
+  assertPoint,
+  assertPositiveNumber,
+  normalizeProgress,
+  normalizeSpeed,
+  resolveTimestamp,
+} from './validation.js';
 
 type Point = { x: number; y: number };
 
@@ -46,7 +54,7 @@ function createBasePathAnimation(config: PathConfig, getPointAtProgress: (progre
       usesExternalClock = true;
     }
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now, state.lastTickTime);
 
     if (state.pausedTime !== null && state.startTime !== null) {
       state.startTime += time - state.pausedTime;
@@ -105,7 +113,7 @@ function createBasePathAnimation(config: PathConfig, getPointAtProgress: (progre
     }
 
     const clampedProgress = Math.max(0, Math.min(1, rawProgress));
-    const easedProgress = easingFn(clampedProgress);
+    const easedProgress = assertFiniteNumber(easingFn(clampedProgress), 'easing result');
     state.currentValue = getPointAtProgress(easedProgress);
     state.lastProgress = clampedProgress;
     state.isDone = false;
@@ -185,7 +193,7 @@ function createBasePathAnimation(config: PathConfig, getPointAtProgress: (progre
 
     state.startTime = time - (clampedProgress * durationMs) / state.playbackSpeed;
     state.lastTickTime = time;
-    const easedProgress = easingFn(clampedProgress);
+    const easedProgress = assertFiniteNumber(easingFn(clampedProgress), 'easing result');
     state.currentValue = getPointAtProgress(easedProgress);
     state.lastProgress = clampedProgress;
     state.isDone = clampedProgress >= 1;

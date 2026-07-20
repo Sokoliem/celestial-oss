@@ -1,6 +1,7 @@
 import { type Color, highlightColor as defaultHighlightColor } from '@celestial/corona';
 import { type MotionEffectOpts, motionTick } from './motion.js';
-import { RESET, stripAnsi, visualWidth } from './utils.js';
+import { RESET, safeText, stripAnsi, visualWidth } from './utils.js';
+import { clamp, finiteNumber, positiveNumber } from './validation.js';
 
 export interface UnderlineWaveOpts extends MotionEffectOpts {
   tick: number;
@@ -8,10 +9,6 @@ export interface UnderlineWaveOpts extends MotionEffectOpts {
   amplitude?: number;
   wavelength?: number;
   speed?: number;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }
 
 function waveChar(sample: number, amplitude: number): string {
@@ -26,13 +23,13 @@ export function underlineWave(text: string, opts: UnderlineWaveOpts): string {
   if (text === '') return '';
 
   const waveColor = opts.color ?? defaultHighlightColor;
-  const amplitude = clamp(opts.amplitude ?? 1, 0, 1);
-  const wavelength = Math.max(1, opts.wavelength ?? 6);
-  const speed = opts.speed ?? 1;
+  const amplitude = clamp(opts.amplitude, 0, 1, 1);
+  const wavelength = positiveNumber(opts.wavelength, 6);
+  const speed = finiteNumber(opts.speed, 1);
   const phaseOffset = motionTick(opts) * speed * 0.25;
   const output: string[] = [];
 
-  for (const line of text.split('\n')) {
+  for (const line of safeText(text).split('\n')) {
     const visible = stripAnsi(line);
     let underline = '';
 

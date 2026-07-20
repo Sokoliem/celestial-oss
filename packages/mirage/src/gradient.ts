@@ -1,6 +1,11 @@
 import type { Color } from '@celestial/corona';
 import { gradient as coronaGradient } from '@celestial/corona';
-import { graphemes, RESET, stripAnsi, tokenize } from './utils.js';
+import { graphemeCellWidth, RESET, stripAnsi, tokenize, visualWidth } from './utils.js';
+
+function cellRatio(column: number, glyphWidth: number, totalWidth: number): number {
+  if (totalWidth <= glyphWidth) return 0;
+  return (column + (glyphWidth - 1) / 2) / (totalWidth - 1);
+}
 
 export interface GradientOpts {
   from?: Color;
@@ -25,12 +30,11 @@ function resolveStops(opts: GradientOpts): Color[] {
 function horizontalGradient(text: string, stops: Color[]): string {
   const grad = coronaGradient(stops);
   const tokens = tokenize(text);
-  const visibleChars = tokens.filter((t) => t.type === 'char');
-  const charCount = visibleChars.length;
+  const width = visualWidth(text);
 
-  if (charCount === 0) return '';
+  if (width === 0) return '';
 
-  let visibleIndex = 0;
+  let column = 0;
   let result = '';
 
   for (const token of tokens) {
@@ -38,10 +42,15 @@ function horizontalGradient(text: string, stops: Color[]): string {
       // Pass through existing ANSI codes (they'll be overridden by our fg)
       result += token.value;
     } else {
-      const ratio = charCount === 1 ? 0 : visibleIndex / (charCount - 1);
+      if (token.value === '\n') {
+        result += '\n';
+        continue;
+      }
+      const glyphWidth = graphemeCellWidth(token.value);
+      const ratio = cellRatio(column, glyphWidth, width);
       const c = grad.sample(ratio);
       result += c.fg() + token.value;
-      visibleIndex++;
+      column += glyphWidth;
     }
   }
 
@@ -77,29 +86,28 @@ function diagonalGradient(text: string, stops: Color[]): string {
   const lineCount = lines.length;
 
   // Find max columns across all lines
-  const cols = Math.max(...lines.map((l) => graphemes(stripAnsi(l)).length));
+  const cols = Math.max(...lines.map((line) => visualWidth(line)));
   if (cols === 0) return '';
 
   return lines
     .map((line, j) => {
       const tokens = tokenize(line);
-      const visibleChars = tokens.filter((t) => t.type === 'char');
-      const charCountInLine = visibleChars.length;
-      if (charCountInLine === 0) return line;
+      if (visualWidth(line) === 0) return line;
 
-      let visibleIndex = 0;
+      let column = 0;
       let result = '';
 
       for (const token of tokens) {
         if (token.type === 'ansi') {
           result += token.value;
         } else {
-          const colRatio = cols === 1 ? 0 : visibleIndex / (cols - 1);
+          const glyphWidth = graphemeCellWidth(token.value);
+          const colRatio = cellRatio(column, glyphWidth, cols);
           const rowRatio = lineCount === 1 ? 0 : j / (lineCount - 1);
           const ratio = (colRatio + rowRatio) / 2;
           const c = grad.sample(ratio);
           result += c.fg() + token.value;
-          visibleIndex++;
+          column += glyphWidth;
         }
       }
 

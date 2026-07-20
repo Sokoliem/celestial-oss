@@ -13,6 +13,7 @@ import { type MotionPreference, shouldReduceMotion } from './motion.js';
 import { applyStrategy } from './strategies/dispatch.js';
 import type { FlipAxis } from './strategies/flip.js';
 import type { RippleOrigin } from './strategies/ripple.js';
+import { finiteNumber, nonNegativeNumber } from './validation.js';
 
 // ---------------------------------------------------------------------------
 // Common interface
@@ -53,8 +54,8 @@ export interface ValueEffectOpts extends MotionPreference {
 }
 
 export function valueEffect(animation: Animation, opts: ValueEffectOpts = {}): ValueEffect {
-  const from = opts.from ?? 0;
-  const to = opts.to ?? 1;
+  const from = finiteNumber(opts.from ?? 0, 'from');
+  const to = finiteNumber(opts.to ?? 1, 'to');
   const range = to - from;
   const reducedMotion = shouldReduceMotion(opts);
   if (reducedMotion) animation.seek(1);
@@ -63,8 +64,9 @@ export function valueEffect(animation: Animation, opts: ValueEffectOpts = {}): V
     kind: 'value' as const,
 
     tick(now: number): void {
+      const time = finiteNumber(now, 'now');
       if (reducedMotion) return;
-      animation.tick(now);
+      animation.tick(time);
     },
 
     value(): number {
@@ -104,9 +106,11 @@ export interface TransitionEffectOpts extends MotionPreference {
 }
 
 export function transitionEffect(type: TransitionType, opts: TransitionEffectOpts): TransitionEffect {
-  const { duration, direction = 'left', rippleOrigin, flipAxis = 'horizontal', typewriterCursor = '▌' } = opts;
+  const { direction = 'left', rippleOrigin, flipAxis = 'horizontal', typewriterCursor = '▌' } = opts;
+  const duration = nonNegativeNumber(opts.duration, 'duration');
   const reducedMotion = shouldReduceMotion(opts);
   let startTime: number | null = null;
+  let lastTime: number | null = null;
   let elapsed = 0;
 
   function currentProgress(): number {
@@ -118,11 +122,13 @@ export function transitionEffect(type: TransitionType, opts: TransitionEffectOpt
     kind: 'transition' as const,
 
     tick(now: number): void {
+      const time = Math.max(finiteNumber(now, 'now'), lastTime ?? Number.NEGATIVE_INFINITY);
       if (reducedMotion) return;
       if (startTime === null) {
-        startTime = now;
+        startTime = time;
       }
-      elapsed = now - startTime;
+      lastTime = time;
+      elapsed = time - startTime;
     },
 
     progress(): number {
@@ -137,6 +143,7 @@ export function transitionEffect(type: TransitionType, opts: TransitionEffectOpt
 
     reset(): void {
       startTime = null;
+      lastTime = null;
       elapsed = 0;
     },
 
@@ -165,8 +172,11 @@ export interface StyleEffectOpts extends MotionPreference {
 
 export function styleEffect(type: StyleType, opts: StyleEffectOpts = {}): StyleEffect {
   const reducedMotion = shouldReduceMotion(opts);
+  const speed = finiteNumber(opts.speed ?? 1, 'speed');
+  const intensity = nonNegativeNumber(opts.intensity ?? 2, 'intensity');
   let tickCount = 0;
   let startTime: number | null = null;
+  let lastTime: number | null = null;
 
   // Default colors for breathe effect
   const breatheFrom = coronaColor.rgb(100, 100, 255);
@@ -180,11 +190,13 @@ export function styleEffect(type: StyleType, opts: StyleEffectOpts = {}): StyleE
     kind: 'style' as const,
 
     tick(now: number): void {
+      const time = Math.max(finiteNumber(now, 'now'), lastTime ?? Number.NEGATIVE_INFINITY);
       if (reducedMotion) return;
       if (startTime === null) {
-        startTime = now;
+        startTime = time;
       }
-      tickCount = now - startTime;
+      lastTime = time;
+      tickCount = time - startTime;
     },
 
     progress(): number {
@@ -199,12 +211,10 @@ export function styleEffect(type: StyleType, opts: StyleEffectOpts = {}): StyleE
     reset(): void {
       tickCount = 0;
       startTime = null;
+      lastTime = null;
     },
 
     apply(content: string): string {
-      const speed = opts.speed ?? 1;
-      const intensity = opts.intensity ?? 2;
-
       switch (type) {
         case 'shimmer':
           return shimmer(content, { tick: tickCount, speed, color: shimmerColor, reduceMotion: reducedMotion });

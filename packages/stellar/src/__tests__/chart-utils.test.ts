@@ -107,6 +107,26 @@ describe('computeTicks', () => {
   });
 });
 
+describe('chart utility boundary hardening', () => {
+  it('terminates for subnormal finite ranges', () => {
+    expect(computeTicks(0, Number.MIN_VALUE, 5)).toEqual([0, Number.MIN_VALUE]);
+  });
+
+  it('normalizes invalid responsive dimensions and aspect ratios', () => {
+    const size = responsiveSize(Number.NaN, Number.POSITIVE_INFINITY, 0);
+    expect(Number.isSafeInteger(size.width)).toBe(true);
+    expect(Number.isSafeInteger(size.height)).toBe(true);
+    expect(size.width).toBeGreaterThan(0);
+    expect(size.height).toBeGreaterThan(0);
+  });
+
+  it('strips unsafe controls from chart chrome while preserving line structure', () => {
+    const output = composeChartChrome('BODY', { title: { title: 'safe\x1b[2Jtitle' } }, { width: 20, height: 1 });
+    expect(output).toContain('safetitle');
+    expect(output).not.toContain('\x1b[2J');
+  });
+});
+
 // ── defaultFormat ────────────────────────────────────────────────────────
 
 describe('defaultFormat', () => {
@@ -167,6 +187,12 @@ describe('renderXTickLabels', () => {
     expect(line).toContain('50');
     expect(line).toContain('100');
   });
+
+  it('positions labels across the full finite number range', () => {
+    const line = renderXTickLabels([-Number.MAX_VALUE, Number.MAX_VALUE], -Number.MAX_VALUE, Number.MAX_VALUE, 40, (value) => (value < 0 ? 'low' : 'high'));
+    expect(line.indexOf('low')).toBe(0);
+    expect(line.indexOf('high')).toBeGreaterThan(30);
+  });
 });
 
 // ── renderYTickLabels ────────────────────────────────────────────────────
@@ -186,6 +212,14 @@ describe('renderYTickLabels', () => {
     const low = labels.find((l) => l.label === '0')!;
     const high = labels.find((l) => l.label === '100')!;
     expect(high.row).toBeLessThan(low.row);
+  });
+
+  it('positions labels across the full finite number range', () => {
+    const labels = renderYTickLabels([-Number.MAX_VALUE, Number.MAX_VALUE], -Number.MAX_VALUE, Number.MAX_VALUE, 10, (value) => (value < 0 ? 'low' : 'high'));
+    expect(labels).toEqual([
+      { row: 9, label: 'low' },
+      { row: 0, label: 'high' },
+    ]);
   });
 });
 

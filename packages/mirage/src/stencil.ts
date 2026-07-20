@@ -1,6 +1,6 @@
 import { type Color, gradient as coronaGradient, resolveGlyph, stencilGlyph } from '@celestial/corona';
-import { measureGraphemeWidth, segmentGraphemes } from '@celestial/rosetta';
-import { RESET, stripAnsi } from './utils.js';
+import { segmentGraphemes } from '@celestial/rosetta';
+import { graphemeCellWidth, graphemes, RESET, stripAnsi } from './utils.js';
 
 const DEFAULT_STENCIL_GLYPH = resolveGlyph(stencilGlyph, 'wide');
 
@@ -36,11 +36,12 @@ export function stencil(text: string, opts: StencilOpts): string {
   const plain = stripAnsi(text);
   const lines = plain.split('\n');
   const occupiedLines = lines.map((line) =>
-    segmentGraphemes(line).flatMap((grapheme) => Array(Math.max(1, measureGraphemeWidth(grapheme))).fill(grapheme !== ' ')),
+    segmentGraphemes(line).flatMap((grapheme) => Array(Math.max(1, graphemeCellWidth(grapheme))).fill(grapheme !== ' ')),
   );
   const width = Math.max(...occupiedLines.map((line) => line.length));
   const height = lines.length;
-  const bgChar = opts.bgChar ?? DEFAULT_STENCIL_GLYPH;
+  const requestedGlyph = graphemes(stripAnsi(opts.bgChar ?? DEFAULT_STENCIL_GLYPH)).find((glyph) => graphemeCellWidth(glyph) > 0);
+  const bgChar = requestedGlyph && graphemeCellWidth(requestedGlyph) === 1 ? requestedGlyph : DEFAULT_STENCIL_GLYPH;
   const sampleFill = resolveFillSampler(opts.fill);
 
   return lines

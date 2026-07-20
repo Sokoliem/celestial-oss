@@ -25,7 +25,7 @@
  * ```
  */
 
-import type { Color } from '@celestial/corona';
+import { type Color, cellWidth, sanitizeTerminalText, sliceCells } from '@celestial/corona';
 import type { CellShader, VNode } from '@celestial/nebula';
 import { column, text as textNode } from '@celestial/nebula';
 import { type BrailleCanvas, type CanvasMode, canvas } from './canvas.js';
@@ -46,6 +46,19 @@ import {
 import type { InkLayer } from './ink.js';
 import type { HitRegion } from './interactive.js';
 import { safeMax, safeMin } from './math-utils.js';
+import { chartSize, finiteNumber, finiteValues, nonNegativeInteger, rangeRatio } from './validation.js';
+
+function normalizeRange(value: [number, number] | undefined, fallback: [number, number]): [number, number] {
+  return [finiteNumber(value?.[0], fallback[0]), finiteNumber(value?.[1], fallback[1])];
+}
+
+function safeChromeLine(value: string): string {
+  return sanitizeTerminalText(value, { allowSgr: true, allowHyperlinks: false, controlPolicy: 'strip' }).replace(/[\r\n]/g, ' ');
+}
+
+function fitChromeLine(value: string, width: number): string {
+  return sliceCells(safeChromeLine(value), nonNegativeInteger(width, 0), { trusted: true })[0];
+}
 
 // ── Core Types ───────────────────────────────────────────────────────────
 
@@ -152,9 +165,10 @@ export function composeChart(
     yRange?: [number, number];
   },
 ): ComposedChart {
-  const c = canvas(width, height, opts?.mode);
-  const xRange: [number, number] = opts?.xRange ?? [0, 1];
-  const yRange: [number, number] = opts?.yRange ?? [0, 1];
+  const size = chartSize(width, height, 1, 1);
+  const c = canvas(size.width, size.height, opts?.mode);
+  const xRange = normalizeRange(opts?.xRange, [0, 1]);
+  const yRange = normalizeRange(opts?.yRange, [0, 1]);
 
   const plotBounds: PlotBounds = {
     x: 0,
@@ -168,12 +182,12 @@ export function composeChart(
     plotBounds,
     xRange,
     yRange,
-    cellWidth: width,
-    cellHeight: height,
+    cellWidth: size.width,
+    cellHeight: size.height,
   };
 
   // Sort layers by z-index (stable sort preserves insertion order for equal z)
-  const sorted = [...layers].sort((a, b) => a.zIndex - b.zIndex);
+  const sorted = [...layers].sort((a, b) => finiteNumber(a.zIndex, 0) - finiteNumber(b.zIndex, 0));
 
   const allChrome: ChromeLines[] = [];
   const allHitRegions: HitRegion[] = [];
@@ -189,7 +203,12 @@ export function composeChart(
         allChrome.push(output.lines);
         break;
       case 'hitRegions':
-        allHitRegions.push(...output.regions);
+        allHitRegions.push(
+          ...output.regions.map((region) => ({
+            ...region,
+            value: Array.isArray(region.value) ? ([...region.value] as [number, number]) : region.value,
+          })),
+        );
         break;
       case 'shader':
         allShaders.push(output.shader);
@@ -202,7 +221,7 @@ export function composeChart(
   // Compose final string
   function composeString(): string {
     const chartBody = c.render();
-    return applyChrome(chartBody, allChrome, width);
+    return applyChrome(chartBody, allChrome, size.width);
   }
 
   function composeVNode(): VNode {
@@ -222,7 +241,7 @@ export function composeChart(
 
 // ── Chrome Composition ───────────────────────────────────────────────────
 
-function applyChrome(chartBody: string, chromes: ChromeLines[], _width: number): string {
+function applyChrome(chartBody: string, chromes: ChromeLines[], width: number): string {
   // Merge all chrome into a single set
   const above: string[] = [];
   const below: string[] = [];
@@ -230,18 +249,18 @@ function applyChrome(chartBody: string, chromes: ChromeLines[], _width: number):
   const rightPerRow: string[][] = [];
 
   for (const chrome of chromes) {
-    if (chrome.above) above.push(...chrome.above);
-    if (chrome.below) below.push(...chrome.below);
+    if (chrome.above) above.push(...chrome.above.map((line) => safeChromeLine(line)));
+    if (chrome.below) below.push(...chrome.below.map((line) => safeChromeLine(line)));
     if (chrome.left) {
       for (let i = 0; i < chrome.left.length; i++) {
         if (!leftPerRow[i]) leftPerRow[i] = [];
-        leftPerRow[i]!.push(chrome.left[i]!);
+        leftPerRow[i]!.push(fitChromeLine(chrome.left[i]!, width));
       }
     }
     if (chrome.right) {
       for (let i = 0; i < chrome.right.length; i++) {
         if (!rightPerRow[i]) rightPerRow[i] = [];
-        rightPerRow[i]!.push(chrome.right[i]!);
+        rightPerRow[i]!.push(safeChromeLine(chrome.right[i]!));
       }
     }
   }
@@ -257,7 +276,7 @@ function applyChrome(chartBody: string, chromes: ChromeLines[], _width: number):
   for (const row of leftPerRow) {
     if (row) {
       for (const label of row) {
-        leftWidth = Math.max(leftWidth, label.length);
+        leftWidth = Math.max(leftWidth, cellWidth(label));
       }
     }
   }
@@ -271,7 +290,8 @@ function applyChrome(chartBody: string, chromes: ChromeLines[], _width: number):
     let prefix = '';
     if (pad > 0) {
       if (leftLabels && leftLabels.length > 0) {
-        prefix = leftLabels[leftLabels.length - 1]!.padStart(leftWidth) + ' ';
+        const label = leftLabels[leftLabels.length - 1]!;
+        prefix = `${' '.repeat(Math.max(0, leftWidth - cellWidth(label)))}${label} `;
       } else {
         prefix = ' '.repeat(pad);
       }
@@ -312,11 +332,8 @@ export function gridLayer(config: GridConfig, zIndex: number = -10): ChartLayer 
       const { canvas: c, plotBounds, xRange, yRange } = ctx;
       const [minX, maxX] = xRange;
       const [minY, maxY] = yRange;
-      const rangeX = maxX - minX || 1;
-      const rangeY = maxY - minY || 1;
-
-      const xTicks = computeTicks(minX, maxX, 5).map((v) => (v - minX) / rangeX);
-      const yTicks = computeTicks(minY, maxY, 5).map((v) => (v - minY) / rangeY);
+      const xTicks = computeTicks(minX, maxX, 5).map((v) => rangeRatio(v, minX, maxX));
+      const yTicks = computeTicks(minY, maxY, 5).map((v) => rangeRatio(v, minY, maxY));
 
       drawGrid(c, config, xTicks, yTicks, plotBounds.x, plotBounds.y, plotBounds.width, plotBounds.height);
 
@@ -333,16 +350,16 @@ export function gridLayer(config: GridConfig, zIndex: number = -10): ChartLayer 
  * @param zIndex - Z-order (default: 0).
  */
 export function lineDataLayer(data: number[], opts?: { color?: Color; filled?: boolean }, zIndex: number = 0): ChartLayer {
+  const values = finiteValues(data);
   return {
     name: 'data:line',
     zIndex,
     render(ctx: LayerContext): LayerOutput {
-      if (data.length === 0) return { type: 'none' };
+      if (values.length === 0) return { type: 'none' };
 
       const c = ctx.canvas;
       const { plotBounds, yRange } = ctx;
       const [minY, maxY] = yRange;
-      const range = maxY - minY || 1;
       const pxW = plotBounds.width;
       const pxH = plotBounds.height;
       const ox = plotBounds.x;
@@ -354,24 +371,24 @@ export function lineDataLayer(data: number[], opts?: { color?: Color; filled?: b
 
       if (filled) {
         for (let px = 0; px < pxW; px++) {
-          const dataProgress = (px / Math.max(pxW - 1, 1)) * (data.length - 1);
-          const i = Math.min(Math.floor(dataProgress), data.length - 1);
+          const dataProgress = (px / Math.max(pxW - 1, 1)) * (values.length - 1);
+          const i = Math.min(Math.floor(dataProgress), values.length - 1);
           const frac = dataProgress - i;
-          const val = i + 1 < data.length ? data[i]! * (1 - frac) + data[i + 1]! * frac : data[i]!;
-          const y = oy + pxH - 1 - Math.round(((val - minY) / range) * (pxH - 1));
+          const val = i + 1 < values.length ? values[i]! * (1 - frac) + values[i + 1]! * frac : values[i]!;
+          const y = oy + pxH - 1 - Math.round(rangeRatio(val, minY, maxY) * (pxH - 1));
           for (let py = y; py < oy + pxH; py++) {
             c.set(ox + px, py);
           }
         }
       } else {
-        for (let i = 0; i < data.length - 1; i++) {
-          const x1 = ox + Math.round((i / Math.max(data.length - 1, 1)) * (pxW - 1));
-          const y1 = oy + pxH - 1 - Math.round(((data[i]! - minY) / range) * (pxH - 1));
-          const x2 = ox + Math.round(((i + 1) / Math.max(data.length - 1, 1)) * (pxW - 1));
-          const y2 = oy + pxH - 1 - Math.round(((data[i + 1]! - minY) / range) * (pxH - 1));
+        for (let i = 0; i < values.length - 1; i++) {
+          const x1 = ox + Math.round((i / Math.max(values.length - 1, 1)) * (pxW - 1));
+          const y1 = oy + pxH - 1 - Math.round(rangeRatio(values[i]!, minY, maxY) * (pxH - 1));
+          const x2 = ox + Math.round(((i + 1) / Math.max(values.length - 1, 1)) * (pxW - 1));
+          const y2 = oy + pxH - 1 - Math.round(rangeRatio(values[i + 1]!, minY, maxY) * (pxH - 1));
           c.line(x1, y1, x2, y2);
         }
-        if (data.length === 1) {
+        if (values.length === 1) {
           c.set(ox + Math.round((pxW - 1) / 2), oy + Math.round((pxH - 1) / 2));
         }
       }
@@ -389,11 +406,12 @@ export function lineDataLayer(data: number[], opts?: { color?: Color; filled?: b
  * @param zIndex - Z-order (default: 0).
  */
 export function barDataLayer(values: number[], opts?: { color?: Color; colors?: Color[] }, zIndex: number = 0): ChartLayer {
+  const data = finiteValues(values);
   return {
     name: 'data:bar',
     zIndex,
     render(ctx: LayerContext): LayerOutput {
-      if (values.length === 0) return { type: 'none' };
+      if (data.length === 0) return { type: 'none' };
 
       const c = ctx.canvas;
       const { plotBounds } = ctx;
@@ -402,28 +420,28 @@ export function barDataLayer(values: number[], opts?: { color?: Color; colors?: 
       const ox = plotBounds.x;
       const oy = plotBounds.y;
 
-      const min = safeMin(values);
-      const max = safeMax(values);
+      const min = safeMin(data);
+      const max = safeMax(data);
       if (min === 0 && max === 0) return { type: 'none' };
 
-      const barWidth = Math.max(1, Math.floor(pxW / values.length));
+      const barWidth = Math.max(1, Math.floor(pxW / data.length));
       const gap = Math.max(0, Math.floor(barWidth * 0.2));
       const effectiveBarWidth = Math.max(1, barWidth - gap);
 
       const effectiveMin = Math.min(min, 0);
       const effectiveMax = Math.max(max, 0);
-      const range = effectiveMax - effectiveMin || 1;
-      const zeroY = oy + Math.round(((effectiveMax - 0) / range) * (pxH - 1));
+      const zeroProgress = rangeRatio(0, effectiveMin, effectiveMax);
+      const zeroY = oy + Math.round((1 - zeroProgress) * (pxH - 1));
 
-      for (let i = 0; i < values.length; i++) {
+      for (let i = 0; i < data.length; i++) {
         const barColor = opts?.colors?.[i] ?? opts?.color;
         if (barColor) c.setColor(barColor);
 
-        const val = values[i]!;
+        const val = data[i]!;
         const x = ox + i * barWidth;
 
         if (val >= 0) {
-          const barHeight = Math.round((val / range) * (pxH - 1));
+          const barHeight = Math.round(Math.abs(rangeRatio(val, effectiveMin, effectiveMax) - zeroProgress) * (pxH - 1));
           const y = zeroY - barHeight;
           for (let py = Math.max(oy, y); py <= zeroY && py < oy + pxH; py++) {
             for (let px = x; px < x + effectiveBarWidth; px++) {
@@ -431,7 +449,7 @@ export function barDataLayer(values: number[], opts?: { color?: Color; colors?: 
             }
           }
         } else {
-          const barHeight = Math.round((Math.abs(val) / range) * (pxH - 1));
+          const barHeight = Math.round(Math.abs(rangeRatio(val, effectiveMin, effectiveMax) - zeroProgress) * (pxH - 1));
           const yEnd = zeroY + barHeight;
           for (let py = zeroY; py <= Math.min(yEnd, oy + pxH - 1); py++) {
             for (let px = x; px < x + effectiveBarWidth; px++) {
@@ -454,18 +472,17 @@ export function barDataLayer(values: number[], opts?: { color?: Color; colors?: 
  * @param zIndex - Z-order (default: 0).
  */
 export function scatterDataLayer(data: [number, number][], opts?: { color?: Color; dotRadius?: number }, zIndex: number = 0): ChartLayer {
+  const points = data.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y)).map(([x, y]): [number, number] => [x, y]);
   return {
     name: 'data:scatter',
     zIndex,
     render(ctx: LayerContext): LayerOutput {
-      if (data.length === 0) return { type: 'none' };
+      if (points.length === 0) return { type: 'none' };
 
       const c = ctx.canvas;
       const { plotBounds, xRange, yRange } = ctx;
       const [minX, maxX] = xRange;
       const [minY, maxY] = yRange;
-      const rangeX = maxX - minX || 1;
-      const rangeY = maxY - minY || 1;
       const pxW = plotBounds.width;
       const pxH = plotBounds.height;
       const ox = plotBounds.x;
@@ -473,10 +490,10 @@ export function scatterDataLayer(data: [number, number][], opts?: { color?: Colo
 
       if (opts?.color) c.setColor(opts.color);
 
-      for (const [dx, dy] of data) {
-        const px = ox + Math.round(((dx - minX) / rangeX) * (pxW - 1));
-        const py = oy + pxH - 1 - Math.round(((dy - minY) / rangeY) * (pxH - 1));
-        const r = opts?.dotRadius ?? 1;
+      for (const [dx, dy] of points) {
+        const px = ox + Math.round(rangeRatio(dx, minX, maxX) * (pxW - 1));
+        const py = oy + pxH - 1 - Math.round(rangeRatio(dy, minY, maxY) * (pxH - 1));
+        const r = nonNegativeInteger(opts?.dotRadius, 1);
         if (r <= 0) {
           c.set(px, py);
         } else {
@@ -556,8 +573,9 @@ export function xAxisLayer(config?: AxisConfig, zIndex: number = 90): ChartLayer
 
       const below: string[] = [tickLine];
       if (config?.xLabel) {
-        const pad = Math.max(0, Math.floor((ctx.cellWidth - config.xLabel.length) / 2));
-        below.push(' '.repeat(pad) + config.xLabel);
+        const label = fitChromeLine(config.xLabel, ctx.cellWidth);
+        const pad = Math.max(0, Math.floor((ctx.cellWidth - cellWidth(label)) / 2));
+        below.push(' '.repeat(pad) + label);
       }
 
       return { type: 'chrome', lines: { below } };
@@ -668,11 +686,12 @@ export function customChromeLayer(name: string, chromeFn: (ctx: LayerContext) =>
  * Returns [xRange, yRange] suitable for `composeChart` opts.
  */
 export function dataRange(data: number[]): { xRange: [number, number]; yRange: [number, number] } {
-  if (data.length === 0) return { xRange: [0, 1], yRange: [0, 1] };
-  const minY = safeMin(data);
-  const maxY = safeMax(data);
+  const values = finiteValues(data);
+  if (values.length === 0) return { xRange: [0, 1], yRange: [0, 1] };
+  const minY = safeMin(values);
+  const maxY = safeMax(values);
   return {
-    xRange: [0, Math.max(data.length - 1, 1)],
+    xRange: [0, Math.max(values.length - 1, 1)],
     yRange: [minY, maxY === minY ? minY + 1 : maxY],
   };
 }
@@ -681,9 +700,10 @@ export function dataRange(data: number[]): { xRange: [number, number]; yRange: [
  * Compute data ranges from scatter data points.
  */
 export function scatterRange(data: [number, number][]): { xRange: [number, number]; yRange: [number, number] } {
-  if (data.length === 0) return { xRange: [0, 1], yRange: [0, 1] };
-  const xs = data.map((d) => d[0]);
-  const ys = data.map((d) => d[1]);
+  const points = data.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+  if (points.length === 0) return { xRange: [0, 1], yRange: [0, 1] };
+  const xs = points.map((d) => d[0]);
+  const ys = points.map((d) => d[1]);
   const minX = safeMin(xs);
   const maxX = safeMax(xs);
   const minY = safeMin(ys);
@@ -698,11 +718,12 @@ export function scatterRange(data: [number, number][]): { xRange: [number, numbe
  * Compute data ranges from bar values.
  */
 export function barRange(values: number[]): { xRange: [number, number]; yRange: [number, number] } {
-  if (values.length === 0) return { xRange: [0, 1], yRange: [0, 1] };
-  const min = safeMin(values);
-  const max = safeMax(values);
+  const data = finiteValues(values);
+  if (data.length === 0) return { xRange: [0, 1], yRange: [0, 1] };
+  const min = safeMin(data);
+  const max = safeMax(data);
   return {
-    xRange: [0, Math.max(values.length - 1, 1)],
+    xRange: [0, Math.max(data.length - 1, 1)],
     yRange: [Math.min(min, 0), Math.max(max, 0) || 1],
   };
 }

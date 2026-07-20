@@ -25,6 +25,7 @@
  */
 
 import { createUiTransitionState, tickUiTransitionState, type UiTransitionConfig, type UiTransitionState } from './ui-transition.js';
+import { assertNonNegativeNumber, assertPositiveNumber } from './validation.js';
 
 /** Canonical fallback duration when no theme value is wired. Matches the
  * historical wrapper-side `WRAPPER_BACKDROP_TRANSITION_MS=240`. */
@@ -71,8 +72,8 @@ export interface BackdropTransitionState {
  * {@link getBackdropOpacity}.
  */
 export function createBackdropTransition(options: CreateBackdropTransitionOptions = {}): BackdropTransitionState {
-  const duration = options.duration ?? DEFAULT_BACKDROP_DURATION_MS;
-  const bootstrapMs = options.bootstrapMs ?? DEFAULT_BACKDROP_BOOTSTRAP_MS;
+  const duration = assertPositiveNumber(options.duration ?? DEFAULT_BACKDROP_DURATION_MS, 'duration');
+  const bootstrapMs = assertNonNegativeNumber(options.bootstrapMs ?? DEFAULT_BACKDROP_BOOTSTRAP_MS, 'bootstrapMs');
   const reduceMotion = options.reduceMotion ?? false;
   const initiallyVisible = options.initiallyVisible ?? false;
   const uiConfig: UiTransitionConfig = { duration, reduceMotion, initiallyVisible };
@@ -89,13 +90,14 @@ export function createBackdropTransition(options: CreateBackdropTransitionOption
  * `wrapper-motion.ts` BOOTSTRAP_MS=80 behavior).
  */
 export function tickBackdropTransition(state: BackdropTransitionState, deltaMs: number): BackdropTransitionState {
-  const nextAge = state.ageMs + Math.max(0, deltaMs);
+  const delta = assertNonNegativeNumber(deltaMs, 'deltaMs');
+  const nextAge = assertNonNegativeNumber(state.ageMs, 'state.ageMs') + delta;
   const inBootstrap = nextAge <= state.config.bootstrapMs;
   const uiConfig: UiTransitionConfig = {
     duration: state.config.duration,
     reduceMotion: state.config.reduceMotion || inBootstrap,
   };
-  const nextTransition = tickUiTransitionState(state.transition, deltaMs, uiConfig);
+  const nextTransition = tickUiTransitionState(state.transition, delta, uiConfig);
   return { ...state, transition: nextTransition, ageMs: nextAge };
 }
 
@@ -136,4 +138,4 @@ export function isBackdropSettled(state: BackdropTransitionState): boolean {
 // them, so consumers reach for `createBackdropTransition` rather than the
 // underlying state machine.
 
-import { setUiTransitionTarget as setUiTransitionTargetSafe, getUiTransitionOpacity as getUiTransitionOpacitySafe } from './ui-transition.js';
+import { getUiTransitionOpacity as getUiTransitionOpacitySafe, setUiTransitionTarget as setUiTransitionTargetSafe } from './ui-transition.js';

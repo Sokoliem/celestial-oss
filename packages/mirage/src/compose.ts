@@ -33,38 +33,72 @@ export interface EffectContext {
   subscribe(cb: EffectContextSubscriber): () => void;
 }
 
+export interface EffectContextOptions {
+  /** Injectable monotonic clock, primarily for hosts and deterministic tests. */
+  now?: () => number;
+  /** Delay between standalone context frames. Default: 16ms. */
+  frameMs?: number;
+  /** Reports an individual subscriber failure without stopping sibling effects. */
+  onSubscriberError?: (error: unknown) => void;
+}
+
 /**
  * Create a simple EffectContext backed by `performance.now` (or `Date.now`
  * in environments without `performance`). Suitable for tests and standalone
  * use; in a full app the host can provide its own via `createAppEffectContext`.
  */
-export function createEffectContext(): EffectContext {
-  const subscribers = new Set<EffectContextSubscriber>();
+export function createEffectContext(options: EffectContextOptions = {}): EffectContext {
+  const subscribers = new Set<{ callback: EffectContextSubscriber }>();
   let rafId: ReturnType<typeof setTimeout> | null = null;
+  let lastTime = 0;
+  const frameMs = Number.isFinite(options.frameMs) && options.frameMs! > 0 ? Math.floor(options.frameMs!) : 16;
+
+  function readTime(): number {
+    const candidate = options.now?.() ?? (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (Number.isFinite(candidate)) lastTime = Math.max(lastTime, candidate);
+    return lastTime;
+  }
+
+  function schedule(): void {
+    if (rafId === null && subscribers.size > 0) rafId = setTimeout(tick, frameMs);
+  }
 
   function tick(): void {
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    for (const cb of subscribers) {
-      cb(now);
+    rafId = null;
+    const now = readTime();
+    for (const subscription of [...subscribers]) {
+      if (!subscribers.has(subscription)) continue;
+      try {
+        subscription.callback(now);
+      } catch (error) {
+        try {
+          options.onSubscriberError?.(error);
+        } catch {
+          // Error reporting is isolated too: a host hook cannot stop the clock.
+        }
+      }
     }
-    if (subscribers.size > 0) {
-      rafId = setTimeout(tick, 16);
-    } else {
-      rafId = null;
-    }
+    schedule();
   }
 
   return {
     getTime(): number {
-      return typeof performance !== 'undefined' ? performance.now() : Date.now();
+      return readTime();
     },
     subscribe(cb: EffectContextSubscriber): () => void {
-      subscribers.add(cb);
-      if (rafId === null) {
-        rafId = setTimeout(tick, 16);
-      }
+      if (typeof cb !== 'function') throw new TypeError('effect subscriber must be a function');
+      const subscription = { callback: cb };
+      subscribers.add(subscription);
+      schedule();
+      let active = true;
       return () => {
-        subscribers.delete(cb);
+        if (!active) return;
+        active = false;
+        subscribers.delete(subscription);
+        if (subscribers.size === 0 && rafId !== null) {
+          clearTimeout(rafId);
+          rafId = null;
+        }
       };
     },
   };
@@ -165,15 +199,30 @@ export function mapTextContent(node: VNode, transform: (content: string) => stri
     case 'tabGroup':
       return { ...node, children: node.children.map((c) => mapTextContent(c, transform)) };
 
+    case 'event':
+    case 'hover':
+      return { ...node, child: mapTextContent(node.child, transform) };
+
+    case 'memo':
+      return { ...node, render: () => mapTextContent(node.render(), transform) };
+
+    case 'localState':
+      return { ...node, view: (state, dispatch) => mapTextContent(node.view(state, dispatch), transform) };
+
+    case 'lazy':
+      return {
+        ...node,
+        placeholder: mapTextContent(node.placeholder, transform),
+        loader: async () => {
+          const render = await node.loader();
+          return () => mapTextContent(render(), transform);
+        },
+      };
+
     // Nodes without text content or whose rendering is opaque — pass through.
     case 'empty':
     case 'image':
     case 'component':
-    case 'event':
-    case 'hover':
-    case 'memo':
-    case 'localState':
-    case 'lazy':
       return node;
   }
 }
@@ -187,7 +236,8 @@ import type { GradientOpts } from './gradient.js';
 import { gradient as gradientFn } from './gradient.js';
 import { colorToHSL, interpolateColor } from './interpolate.js';
 import { type MotionEffectOpts, shouldReduceMotion } from './motion.js';
-import { graphemes, RESET, stripAnsi } from './utils.js';
+import { positionedGraphemes, RESET, stripAnsi, visualWidth } from './utils.js';
+import { clamp, finiteNumber, positiveInteger, wrap } from './validation.js';
 
 /**
  * Maximum HSL lightness (0–100) used when projecting the scan-line `dim`
@@ -237,27 +287,34 @@ export function scan(opts: ScanEffectOpts): Effect {
     if (shouldReduceMotion(opts)) return node;
     return mapTextContent(node, (content) => {
       const visible = stripAnsi(content);
-      const chars = graphemes(visible);
-      if (chars.length === 0) return content;
+      const glyphs = positionedGraphemes(visible);
+      const width = visualWidth(visible);
+      if (width === 0) return content;
 
-      const speed = opts.speed ?? 1;
-      const lineCount = opts.lines ?? 2;
-      const dim = opts.dim ?? 0.35;
-      const pos = (opts.tick * speed) % chars.length;
+      const speed = finiteNumber(opts.speed, 1);
+      const lineCount = positiveInteger(opts.lines, 2);
+      const dim = clamp(opts.dim, 0, 1, 0.35);
+      const pos = wrap(finiteNumber(opts.tick, 0) * speed, width);
+      const spacing = width / lineCount;
+      const halfBand = spacing / 4;
 
       let result = '';
-      for (let i = 0; i < chars.length; i++) {
-        // Distance to nearest scan band
-        const dist = Math.abs(i - pos) % (chars.length / Math.max(1, lineCount));
-        const halfBand = chars.length / (Math.max(1, lineCount) * 4);
+      for (const glyph of glyphs) {
+        if (glyph.value === '\n') {
+          result += '\n';
+          continue;
+        }
+        const center = glyph.column + (glyph.width - 1) / 2;
+        const phase = wrap(center - pos, spacing);
+        const dist = Math.min(phase, spacing - phase);
         if (dist <= halfBand) {
           // In scan band — full brightness
-          result += chars[i];
+          result += glyph.value;
         } else {
           // Dimmed
           const dimL = Math.round(dim * SCAN_DIM_LIGHTNESS_CEILING);
           const c = coronaColor.hsl(0, 0, dimL);
-          result += c.fg() + chars[i];
+          result += c.fg() + glyph.value;
         }
       }
 
@@ -283,8 +340,7 @@ export interface GlitchEffectOpts extends MotionEffectOpts {
 
 /** Simple deterministic pseudo-random number based on seed + index + tick. */
 function deterministicRand(seed: number, index: number, tick: number): number {
-  const n = (seed * 9301 + index * 49297 + tick * 233) % 233280;
-  return n / 233280;
+  return wrap(seed * 9301 + index * 49297 + tick * 233, 233280) / 233280;
 }
 
 /**
@@ -296,26 +352,30 @@ export function glitch(opts: GlitchEffectOpts): Effect {
     if (shouldReduceMotion(opts)) return node;
     return mapTextContent(node, (content) => {
       const visible = stripAnsi(content);
-      const chars = graphemes(visible);
-      if (chars.length === 0) return content;
+      const glyphs = positionedGraphemes(visible);
+      if (glyphs.length === 0) return content;
 
-      const freq = opts.freq ?? 0.05;
-      const intensity = opts.intensity ?? 60;
-      const seed = opts.seed ?? 42;
-      const tick = opts.tick;
+      const freq = clamp(opts.freq, 0, 1, 0.05);
+      const intensity = clamp(opts.intensity, 0, 255, 60);
+      const seed = finiteNumber(opts.seed, 42);
+      const tick = finiteNumber(opts.tick, 0);
 
       let result = '';
-      for (let i = 0; i < chars.length; i++) {
-        const r = deterministicRand(seed, i, tick);
+      for (const glyph of glyphs) {
+        if (glyph.value === '\n') {
+          result += '\n';
+          continue;
+        }
+        const r = deterministicRand(seed, glyph.column, tick);
         if (r < freq) {
-          const shift = Math.floor(deterministicRand(seed + 1, i, tick) * intensity);
-          const channel = Math.floor(deterministicRand(seed + 2, i, tick) * 3);
+          const shift = Math.floor(deterministicRand(seed + 1, glyph.column, tick) * intensity);
+          const channel = Math.floor(deterministicRand(seed + 2, glyph.column, tick) * 3);
           const rgb: [number, number, number] = [128, 128, 128];
           rgb[channel] = Math.min(255, 128 + shift);
           const c = coronaColor.rgb(rgb[0], rgb[1], rgb[2]);
-          result += c.fg() + chars[i];
+          result += c.fg() + glyph.value;
         } else {
-          result += chars[i];
+          result += glyph.value;
         }
       }
 

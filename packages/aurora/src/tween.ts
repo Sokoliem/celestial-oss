@@ -1,6 +1,14 @@
 import { clone, interpolateValue, interpolateWithType } from './interpolate.js';
 import type { Animatable, Animation, EasingFn, TweenConfig } from './types.js';
-import { assertNoNonFiniteNumbers, assertNonNegativeNumber, assertPositiveNumber, normalizeProgress, normalizeSpeed } from './validation.js';
+import {
+  assertFiniteNumber,
+  assertNoNonFiniteNumbers,
+  assertNonNegativeNumber,
+  assertPositiveNumber,
+  normalizeProgress,
+  normalizeSpeed,
+  resolveTimestamp,
+} from './validation.js';
 
 export function tween<T extends Animatable = number>(config: TweenConfig<T>): Animation<T> {
   const { from, to, duration, delay = 0, onStart, onUpdate, onComplete, onCancel } = config;
@@ -60,7 +68,7 @@ export function tween<T extends Animatable = number>(config: TweenConfig<T>): An
       usesExternalClock = true;
     }
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now, lastTickTime);
 
     if (pausedTime !== null && startTime !== null) {
       startTime += time - pausedTime;
@@ -113,10 +121,11 @@ export function tween<T extends Animatable = number>(config: TweenConfig<T>): An
 
     const rawProgress = animElapsed / durationMs;
     const progress = Math.max(0, Math.min(1, rawProgress));
-    const easedProgress = easingFn(progress);
+    const easedProgress = assertFiniteNumber(easingFn(progress), 'easing result');
     lastProgress = progress;
 
     currentValue = interpolate(clone(from), clone(to), easedProgress);
+    assertNoNonFiniteNumbers(currentValue, 'interpolated value');
     isDone = false;
 
     if (onUpdate) {
@@ -208,8 +217,9 @@ export function tween<T extends Animatable = number>(config: TweenConfig<T>): An
     lastTickTime = time;
     lastProgress = clampedProgress;
 
-    const easedProgress = easingFn(clampedProgress);
+    const easedProgress = assertFiniteNumber(easingFn(clampedProgress), 'easing result');
     currentValue = interpolate(clone(from), clone(to), easedProgress);
+    assertNoNonFiniteNumbers(currentValue, 'interpolated value');
     isDone = playbackDirection === 1 ? clampedProgress >= 1 : clampedProgress <= 0;
     onCompleteFired = isDone;
   }

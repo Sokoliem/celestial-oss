@@ -11,14 +11,14 @@
  * the original RGB values rather than replacing them with grayscale.
  */
 
+import { sanitizeTerminalText, stripAnsi as stripTerminalFormatting, tokenizeTerminalText } from '@celestial/corona';
 import { segmentGraphemes } from '@celestial/rosetta';
 
 const RESET = '\x1b[0m';
 
 /** Strip all ANSI escape sequences from a string */
 function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*m/g, '');
+  return stripTerminalFormatting(sanitizeTerminalText(str, { allowSgr: true, allowHyperlinks: false, controlPolicy: 'strip' }));
 }
 
 /**
@@ -40,29 +40,19 @@ export interface StyledChar {
  */
 export function parseStyledChars(text: string): StyledChar[] {
   const result: StyledChar[] = [];
-  // eslint-disable-next-line no-control-regex
-  const ansiPattern = /\x1b\[[0-9;]*m/g;
-  let lastIndex = 0;
   let pendingAnsi = '';
-  let match: RegExpExecArray | null;
 
-  while ((match = ansiPattern.exec(text)) !== null) {
-    // Collect any visible characters between lastIndex and this ANSI code
-    const segment = text.slice(lastIndex, match.index);
-    for (const ch of segmentGraphemes(segment)) {
+  const safeText = sanitizeTerminalText(text, { allowSgr: true, allowHyperlinks: false, controlPolicy: 'strip' });
+  for (const token of tokenizeTerminalText(safeText)) {
+    if (token.kind === 'sgr') {
+      pendingAnsi += token.value;
+      continue;
+    }
+    if (token.kind !== 'text') continue;
+    for (const ch of segmentGraphemes(token.value)) {
       result.push({ ansi: pendingAnsi, char: ch, plain: ch });
       pendingAnsi = '';
     }
-    // Accumulate this ANSI code for the next visible character
-    pendingAnsi += match[0];
-    lastIndex = ansiPattern.lastIndex;
-  }
-
-  // Collect remaining visible characters after the last ANSI code
-  const remaining = text.slice(lastIndex);
-  for (const ch of segmentGraphemes(remaining)) {
-    result.push({ ansi: pendingAnsi, char: ch, plain: ch });
-    pendingAnsi = '';
   }
 
   return result;

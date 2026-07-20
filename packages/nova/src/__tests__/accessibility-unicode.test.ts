@@ -1,7 +1,18 @@
+import { cellWidth, stripAnsi as stripTerminalFormatting } from '@celestial/corona';
 import { describe, expect, it } from 'vitest';
 import { createTransition } from '../builders.js';
 import { parseStyledChars } from '../fade.js';
+import { morph } from '../morph.js';
+import { blur } from '../strategies/blur.js';
+import { crossfade } from '../strategies/crossfade.js';
+import { dissolve } from '../strategies/dissolve.js';
+import { flip } from '../strategies/flip.js';
+import { glitch } from '../strategies/glitch.js';
+import { ripple } from '../strategies/ripple.js';
 import { slide } from '../strategies/slide.js';
+import { typewriterReveal } from '../strategies/typewriter.js';
+import { wipe } from '../strategies/wipe.js';
+import { zoom } from '../strategies/zoom.js';
 import { resetTransitionState, transition } from '../transition.js';
 
 function stripAnsi(value: string): string {
@@ -36,6 +47,36 @@ describe('Unicode-safe transitions', () => {
     for (const token of frame.match(/\p{Extended_Pictographic}(?:\u200d\p{Extended_Pictographic})*/gu) ?? []) {
       expect(token).toBe(family);
     }
+  });
+
+  it('keeps every intermediate strategy at the same terminal-cell width', () => {
+    const oldContent = '界A';
+    const newContent = '🙂B';
+    const frames = [
+      blur(oldContent, newContent, 0.25),
+      crossfade(oldContent, newContent, 0.5),
+      dissolve(oldContent, newContent, 0.5, 7),
+      flip(oldContent, newContent, 0.25),
+      glitch(oldContent, newContent, 0.5, { seed: 7 }),
+      morph(oldContent, newContent, { tick: 0.5, duration: 1 }),
+      ripple(oldContent, newContent, 0.5),
+      slide(oldContent, newContent, 0.5, 'left'),
+      typewriterReveal(oldContent, newContent, 0.5),
+      wipe(oldContent, newContent, 0.5, 'left'),
+      zoom(oldContent, newContent, 0.5),
+    ];
+
+    expect(cellWidth(oldContent)).toBe(3);
+    for (const frame of frames) expect(cellWidth(frame)).toBe(3);
+  });
+
+  it('strips unsafe terminal controls while preserving safe SGR styling', () => {
+    const unsafe = '\x1b]52;c;dGVzdA==\x07safe\x1b[31m red\x1b[0m';
+    const frame = slide(unsafe, 'next', 0, 'left');
+
+    expect(frame).not.toContain('\x1b]52');
+    expect(stripTerminalFormatting(frame)).toBe('safe red');
+    expect(frame).toContain('\x1b[31m');
   });
 });
 

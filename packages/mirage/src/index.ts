@@ -13,6 +13,7 @@ export {
   createEffectContext,
   type Effect,
   type EffectContext,
+  type EffectContextOptions,
   type EffectContextSubscriber,
   type GlitchEffectOpts,
   type GradientEffectOpts,

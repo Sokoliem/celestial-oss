@@ -11,10 +11,11 @@
  * Uses corona's stripAllStyles() for ANSI removal — no duplication.
  */
 import type { Color } from '@celestial/corona';
-import { stripAllStyles } from '@celestial/corona';
+import { sanitizeTerminalText, stripAllStyles } from '@celestial/corona';
 import type { BrailleCanvas } from './canvas.js';
 import type { CellCodec } from './codec.js';
 import { cssStyleToString, escapeHtml, parseAnsiString } from './html-export.js';
+import { nonNegativeNumber, positiveNumber } from './validation.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -243,7 +244,9 @@ function buildSpan(chars: string, fg: string | undefined, bg: string | undefined
  * color map; cells without explicit color use `defaultForeground`.
  */
 export function toSvg(canvas: BrailleCanvas, opts?: SvgExportOpts): string {
-  const { pixelSize = 4, pixelGap = 0.5, background = '#1e1e2e', defaultForeground = '#cdd6f4', xmlDeclaration = false, className } = opts ?? {};
+  const { background = '#1e1e2e', defaultForeground = '#cdd6f4', xmlDeclaration = false, className } = opts ?? {};
+  const pixelSize = Math.min(1_000_000, positiveNumber(opts?.pixelSize, 4));
+  const pixelGap = Math.min(1_000_000, nonNegativeNumber(opts?.pixelGap, 0.5));
 
   const codec = canvas.getCodec();
   const defaultFgRgb = parseHexColor(defaultForeground);
@@ -253,8 +256,8 @@ export function toSvg(canvas: BrailleCanvas, opts?: SvgExportOpts): string {
   const cellH = codec.subRows * pixelSize + Math.max(0, codec.subRows - 1) * pixelGap;
 
   // Inter-cell gap matches pixel gap
-  const totalW = canvas.width * (cellW + pixelGap) - pixelGap;
-  const totalH = canvas.height * (cellH + pixelGap) - pixelGap;
+  const totalW = Math.max(0, canvas.width * (cellW + pixelGap) - pixelGap);
+  const totalH = Math.max(0, canvas.height * (cellH + pixelGap) - pixelGap);
 
   const rects: string[] = [];
 
@@ -357,7 +360,7 @@ export function toPixelData(canvas: BrailleCanvas, opts?: PixelDataExportOpts): 
  * and StatsChartResult from the chart modules.
  */
 export function exportChartAsPlainText(chartOutput: { toString(): string }, opts?: PlainTextExportOpts): string {
-  const ansi = chartOutput.toString();
+  const ansi = sanitizeTerminalText(chartOutput.toString(), { allowSgr: true, allowHyperlinks: false, controlPolicy: 'strip' });
   const plain = stripAllStyles(ansi);
   const trailing = opts?.trailingNewline ?? true;
   return trailing ? plain + '\n' : plain;
@@ -378,7 +381,7 @@ export function exportChartAsHtml(chartOutput: { toString(): string }, opts?: Ht
     lineHeight = '1.2',
   } = opts ?? {};
 
-  const ansi = chartOutput.toString();
+  const ansi = sanitizeTerminalText(chartOutput.toString(), { allowSgr: true, allowHyperlinks: false, controlPolicy: 'strip' });
   const htmlContent = ansiToHtml(ansi, defaultForeground);
 
   const classAttr = className ? ` class="${escapeHtml(className)}"` : '';

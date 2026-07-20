@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createMeasurementContext, measureNode, measureNodeWithContext, resolveMeasurementSpace } from '../index.js';
+import { createMeasureCache, createMeasurementContext, measureNode, measureNodeWithContext, resolveMeasurementSpace, setTerminalSize } from '../index.js';
 import type { VNode } from '../types.js';
 
 describe('measureNode', () => {
@@ -60,5 +60,22 @@ describe('measureNode', () => {
   it('measures wide characters using nebula width rules', () => {
     const node: VNode = { kind: 'text', content: '界界' };
     expect(measureNode(node).width).toBeGreaterThan(2);
+  });
+
+  it('normalizes invalid measurement spaces and rejects invalid terminal overrides', () => {
+    expect(createMeasurementContext({ terminal: { cols: Number.NaN, rows: -2 } })).toEqual({
+      terminal: { cols: 80, rows: 0 },
+      available: { cols: 80, rows: 0 },
+      container: { cols: 80, rows: 0 },
+    });
+    expect(() => setTerminalSize(Number.NaN, 24)).toThrow(TypeError);
+  });
+
+  it('keeps the measurement cache bounded to finite sizes', () => {
+    expect(() => createMeasureCache({ maxEntries: 0 })).toThrow(RangeError);
+    const cache = createMeasureCache({ maxEntries: 1 });
+    expect(() => cache.set('invalid', Number.NaN)).toThrow(RangeError);
+    cache.set('valid', 2);
+    expect(cache.get('valid')).toBe(2);
   });
 });

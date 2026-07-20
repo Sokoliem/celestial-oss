@@ -7,6 +7,18 @@ export {
   slideUp,
   wobble,
 } from './animation-presets.js';
+// Backdrop transition preset — Phase 0 P0-12 (wrapper-motion.ts replacement)
+export {
+  type BackdropTransitionState,
+  type CreateBackdropTransitionOptions,
+  createBackdropTransition,
+  DEFAULT_BACKDROP_BOOTSTRAP_MS,
+  DEFAULT_BACKDROP_DURATION_MS,
+  getBackdropOpacity,
+  isBackdropSettled,
+  setBackdropVisible,
+  tickBackdropTransition,
+} from './backdrop-transition.js';
 export { type DecayAnimation, decay } from './decay.js';
 export { animationDuration, hasDuration } from './duration.js';
 export { easing } from './easing.js';
@@ -114,16 +126,3 @@ export {
   type UiTransitionPhase,
   type UiTransitionState,
 } from './ui-transition.js';
-
-// Backdrop transition preset — Phase 0 P0-12 (wrapper-motion.ts replacement)
-export {
-  type BackdropTransitionState,
-  type CreateBackdropTransitionOptions,
-  DEFAULT_BACKDROP_BOOTSTRAP_MS,
-  DEFAULT_BACKDROP_DURATION_MS,
-  createBackdropTransition,
-  getBackdropOpacity,
-  isBackdropSettled,
-  setBackdropVisible,
-  tickBackdropTransition,
-} from './backdrop-transition.js';

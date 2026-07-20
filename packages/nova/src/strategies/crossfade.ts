@@ -13,7 +13,8 @@
  */
 
 import { fadeChar } from '../fade.js';
-import { padGraphemes, visibleLength } from './text.js';
+import { clampUnit } from '../validation.js';
+import { cellIsBlank, padCells, renderCells, safeContent, type TerminalCell, visibleLength } from './text.js';
 
 const RESET = '\x1b[0m';
 
@@ -23,22 +24,24 @@ function splitLines(content: string): string[] {
 }
 
 export function crossfade(oldContent: string, newContent: string, progress: number): string {
+  const safeOldContent = safeContent(oldContent);
+  const safeNewContent = safeContent(newContent);
   // Fast path: identical content needs no transition
-  if (oldContent === newContent) {
-    return oldContent;
+  if (safeOldContent === safeNewContent) {
+    return safeOldContent;
   }
 
-  const p = Math.max(0, Math.min(1, progress));
+  const p = clampUnit(progress);
 
   // Boundary fast paths — return raw content at endpoints
-  if (p <= 0) return oldContent;
-  if (p >= 1) return newContent;
+  if (p <= 0) return safeOldContent;
+  if (p >= 1) return safeNewContent;
 
   const oldOpacity = 1.0 - p;
   const newOpacity = p;
 
-  const oldLines = splitLines(oldContent);
-  const newLines = splitLines(newContent);
+  const oldLines = splitLines(safeOldContent);
+  const newLines = splitLines(safeNewContent);
   const lineCount = Math.max(oldLines.length, newLines.length);
 
   const resultLines: string[] = [];
@@ -47,26 +50,27 @@ export function crossfade(oldContent: string, newContent: string, progress: numb
     const oldLine = oldLines[i] ?? '';
     const newLine = newLines[i] ?? '';
     const width = Math.max(visibleLength(oldLine), visibleLength(newLine));
-    const oldPadded = padGraphemes(oldLine, width);
-    const newPadded = padGraphemes(newLine, width);
-
-    let line = '';
+    const oldPadded = padCells(oldLine, width);
+    const newPadded = padCells(newLine, width);
+    const selected: TerminalCell[] = [];
+    const opacity: number[] = [];
     for (let col = 0; col < width; col++) {
-      const oldCh = oldPadded[col] ?? ' ';
-      const newCh = newPadded[col] ?? ' ';
+      const oldCell = oldPadded[col]!;
+      const newCell = newPadded[col]!;
 
-      if (oldCh === ' ' && newCh === ' ') {
-        line += ' ';
+      if (cellIsBlank(oldCell) && cellIsBlank(newCell)) {
+        selected.push(oldCell);
+        opacity.push(1);
       } else if (newOpacity >= oldOpacity) {
-        // New layer dominates — show new char at new opacity
-        line += fadeChar(newCh, newOpacity);
+        selected.push(newCell);
+        opacity.push(newOpacity);
       } else {
-        // Old layer dominates — show old char at old opacity
-        line += fadeChar(oldCh, oldOpacity);
+        selected.push(oldCell);
+        opacity.push(oldOpacity);
       }
     }
 
-    resultLines.push(line + RESET);
+    resultLines.push(`${renderCells(selected, (text, column) => (text === ' ' ? text : fadeChar(text, opacity[column] ?? 1)))}${RESET}`);
   }
 
   return resultLines.join('\n');

@@ -87,8 +87,9 @@ describe('grid', () => {
     });
 
     const row = ((result.render() as ColumnNode).children[0] as RowNode).children as BoxNode[];
-    expect(row[0]?.width).toBe(26);
+    expect(row[0]?.width).toBe(27);
     expect(row[1]?.width).toBe(33);
+    expect(row.reduce((sum, cell) => sum + (cell.width as number), 0)).toBe(60);
   });
 
   it('grid places items at correct col/row positions', () => {
@@ -173,7 +174,7 @@ describe('grid', () => {
 
   it('grid with tuple gap uses separate row and col gaps', () => {
     // gap: [4, 8] → rowGap=4, colGap=8
-    // colWidth = floor((120 - 8*2) / 3) = floor(104/3) = 34
+    // The 104 available cells are apportioned without dropping the remainder.
     const result = grid({
       cols: 3,
       gap: [4, 8],
@@ -189,9 +190,7 @@ describe('grid', () => {
     const row0 = rendered.children[0] as RowNode;
     expect(row0.gap).toBe(8);
 
-    // Column width
-    const cellWidth = (row0.children[0] as BoxNode).width;
-    expect(cellWidth).toBe(34);
+    expect((row0.children[0] as BoxNode).width).toBe(35);
   });
 
   it('grid returns empty node when no children', () => {
@@ -221,7 +220,7 @@ describe('grid', () => {
     const rendered = result.render() as ColumnNode;
     const row0 = rendered.children[0] as RowNode;
     const hero = row0.children[0] as BoxNode;
-    expect(hero.height).toBe(14);
+    expect(hero.height).toBe(16);
   });
 
   it('named areas resolve vertical spans and explicit row heights', () => {
@@ -238,7 +237,28 @@ describe('grid', () => {
     const rendered = result.render() as ColumnNode;
     const hero = (rendered.children[0] as RowNode).children[0] as BoxNode;
     expect(hero.width).toBe(39);
-    expect(hero.height).toBe(19);
+    expect(hero.height).toBe(20);
+  });
+
+  it('consumes every available cell and reflows from the render context', () => {
+    const result = grid({
+      cols: 3,
+      gap: 1,
+      children: [
+        gridItem({ kind: 'text', content: 'a' }, { col: 0, row: 0 }),
+        gridItem({ kind: 'text', content: 'b' }, { col: 1, row: 0 }),
+        gridItem({ kind: 'text', content: 'c' }, { col: 2, row: 0 }),
+      ],
+    });
+
+    const renderAt = (cols: number): number[] => {
+      const context = { terminal: { cols, rows: 4 }, available: { cols, rows: 4 }, container: { cols, rows: 4 } };
+      const row = (result.render(context) as ColumnNode).children[0] as RowNode;
+      return row.children.map((child) => (child as BoxNode).width as number);
+    };
+
+    expect(renderAt(10)).toEqual([3, 3, 2]);
+    expect(renderAt(7)).toEqual([2, 2, 1]);
   });
 
   it('grid resolves named line placements', () => {

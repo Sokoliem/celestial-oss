@@ -13,7 +13,9 @@ import { applyStrategy } from './strategies/dispatch.js';
 import type { FlipAxis } from './strategies/flip.js';
 import type { GlitchOpts } from './strategies/glitch.js';
 import type { RippleOrigin } from './strategies/ripple.js';
+import { safeContent } from './strategies/text.js';
 import type { ZoomMode, ZoomOrigin } from './strategies/zoom.js';
+import { clampUnit, easedProgress, finiteNumber, nonNegativeNumber } from './validation.js';
 
 export interface TransitionOpts extends MotionPreference {
   /** When this changes, a transition starts. */
@@ -54,6 +56,7 @@ interface TransitionState {
   startTick: number;
   active: boolean;
   lastTick: number;
+  scope: 'explicit' | 'legacy';
 }
 
 // Idle entries not accessed within this many ticks are pruned from stateMap
@@ -99,22 +102,26 @@ export function transition(content: string, opts: TransitionOpts): string {
     typewriterCursor,
     glitchOpts,
   } = opts;
+  const safeNextContent = safeContent(content);
+  const durationTicks = nonNegativeNumber(duration, 'duration');
+  const requestedTick = finiteNumber(tick, 'tick');
 
   const strategyOptions = { direction, zoomMode, zoomOrigin, dissolveSeed, rippleOrigin, flipAxis, typewriterCursor, glitchOpts };
 
   // Use `id` as the state map key when provided, falling back to `key`.
   // This eliminates ambiguity when multiple slots share the same key values.
-  const mapKey = id ?? String(key);
+  const scope = id === undefined ? 'legacy' : 'explicit';
+  const mapKey = id === undefined ? `key:${String(key)}` : `id:${id}`;
 
   if (shouldReduceMotion(opts)) {
     stateMap.delete(mapKey);
-    return content;
+    return safeNextContent;
   }
 
   // Prune stale idle entries to prevent unbounded memory growth when slots
   // are rendered once and then discarded (e.g. unmounted components).
   for (const [k, v] of stateMap) {
-    if (!v.active && tick - v.lastTick > PRUNE_IDLE_AFTER_TICKS) {
+    if (!v.active && requestedTick - v.lastTick > PRUNE_IDLE_AFTER_TICKS) {
       stateMap.delete(k);
     }
   }
@@ -130,28 +137,30 @@ export function transition(content: string, opts: TransitionOpts): string {
     // idle entry whose previousKey differs from the current key.
     if (id == null) {
       for (const [oldMapKey, oldState] of stateMap) {
-        if (oldMapKey !== mapKey) {
+        if (oldMapKey !== mapKey && oldState.scope === 'legacy') {
+          const currentTick = Math.max(requestedTick, oldState.lastTick);
           if (oldState.active) {
             // Mid-transition key change: capture current interpolated frame
             // as the new starting point and restart the transition.
-            const progress = Math.min((tick - oldState.startTick) / duration, 1);
-            const easedProgress = easing ? easing(progress) : progress;
-            const captured = applyStrategy(type, oldState.previousContent, content, easedProgress, strategyOptions);
+            const progress = durationTicks === 0 ? 1 : clampUnit((currentTick - oldState.startTick) / durationTicks);
+            const captured = applyStrategy(type, oldState.previousContent, safeNextContent, easedProgress(easing, progress), strategyOptions);
             state = {
               previousContent: captured,
               previousKey: key,
-              startTick: tick,
+              startTick: currentTick,
               active: true,
-              lastTick: tick,
+              lastTick: currentTick,
+              scope,
             };
           } else {
             // Found a previous state that was idle. Transfer it.
             state = {
               previousContent: oldState.previousContent,
               previousKey: oldState.previousKey,
-              startTick: tick,
+              startTick: currentTick,
               active: true,
-              lastTick: tick,
+              lastTick: currentTick,
+              scope,
             };
           }
           stateMap.delete(oldMapKey);
@@ -164,29 +173,31 @@ export function transition(content: string, opts: TransitionOpts): string {
     if (!state) {
       // Truly first call: no previous state at all. Store and return.
       stateMap.set(mapKey, {
-        previousContent: content,
+        previousContent: safeNextContent,
         previousKey: key,
-        startTick: tick,
+        startTick: requestedTick,
         active: false,
-        lastTick: tick,
+        lastTick: requestedTick,
+        scope,
       });
-      return content;
+      return safeNextContent;
     }
   }
 
   // State exists for this slot.
 
-  state.lastTick = tick;
+  const currentTick = Math.max(requestedTick, state.lastTick);
+  state.lastTick = currentTick;
 
   if (state.previousKey === key && !state.active) {
     // No key change and no active transition: just update content.
-    state.previousContent = content;
-    return content;
+    state.previousContent = safeNextContent;
+    return safeNextContent;
   }
 
   if (state.previousKey !== key && !state.active) {
     // Key changed! Start a new transition.
-    state.startTick = tick;
+    state.startTick = currentTick;
     state.active = true;
     // previousContent and previousKey remain as the old values.
   }
@@ -195,30 +206,29 @@ export function transition(content: string, opts: TransitionOpts): string {
     // Issue 2 fix: check if key changed AGAIN mid-transition.
     if (state.previousKey !== key) {
       // Capture the current interpolated frame as the new starting point.
-      const progress = Math.min((tick - state.startTick) / duration, 1);
-      const easedProgress = easing ? easing(progress) : progress;
-      state.previousContent = applyStrategy(type, state.previousContent, content, easedProgress, strategyOptions);
+      const progress = durationTicks === 0 ? 1 : clampUnit((currentTick - state.startTick) / durationTicks);
+      state.previousContent = applyStrategy(type, state.previousContent, safeNextContent, easedProgress(easing, progress), strategyOptions);
       state.previousKey = key;
-      state.startTick = tick;
+      state.startTick = currentTick;
       // Continue with the new transition from the captured frame.
     }
 
-    const elapsed = tick - state.startTick;
-    const rawProgress = Math.min(1, elapsed / duration);
-    const progress = easing ? easing(rawProgress) : rawProgress;
+    const elapsed = currentTick - state.startTick;
+    const rawProgress = durationTicks === 0 ? 1 : clampUnit(elapsed / durationTicks);
+    const progress = easedProgress(easing, rawProgress);
 
     if (rawProgress >= 1) {
       // Transition complete — delete entry from stateMap to prevent memory leak.
       // Completed transitions with active:false would otherwise accumulate forever.
       stateMap.delete(mapKey);
-      return content;
+      return safeNextContent;
     }
 
     // Produce the transition frame.
-    return applyStrategy(type, state.previousContent, content, progress, strategyOptions);
+    return applyStrategy(type, state.previousContent, safeNextContent, progress, strategyOptions);
   }
 
   // Fallback: no active transition, key matches.
-  state.previousContent = content;
-  return content;
+  state.previousContent = safeNextContent;
+  return safeNextContent;
 }

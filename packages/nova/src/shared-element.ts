@@ -5,6 +5,8 @@
  * position from source to destination over a configurable duration.
  */
 
+import { clampUnit, easedProgress, finiteNumber, nonNegativeNumber } from './validation.js';
+
 export interface LayoutRect {
   readonly x: number;
   readonly y: number;
@@ -56,8 +58,8 @@ export function beginTransition(state: SharedElementState, tick: number, duratio
   return {
     ...state,
     transitioning: true,
-    startTick: tick,
-    duration,
+    startTick: finiteNumber(tick, 'tick'),
+    duration: nonNegativeNumber(duration, 'duration'),
   };
 }
 
@@ -76,9 +78,10 @@ export function endTransition(state: SharedElementState): SharedElementState {
  * Compute the raw transition progress as a clamped 0..1 value.
  */
 export function getTransitionProgress(state: SharedElementState, tick: number): number {
-  if (state.duration === 0) return 1;
-  const elapsed = tick - state.startTick;
-  return Math.min(1, Math.max(0, elapsed / state.duration));
+  const duration = nonNegativeNumber(state.duration, 'state.duration');
+  if (duration === 0) return 1;
+  const elapsed = finiteNumber(tick, 'tick') - finiteNumber(state.startTick, 'state.startTick');
+  return clampUnit(elapsed / duration);
 }
 
 /**
@@ -130,13 +133,30 @@ function bezier(p0: number, p1: number, p2: number, p3: number, t: number): numb
  * curve. When `curve` is undefined the result matches a linear LERP.
  */
 export function interpolateRectAlongCurve(source: LayoutRect, target: LayoutRect, t: number, curve?: RectMotionCurve): LayoutRect {
-  const x = curve ? bezier(source.x, curve.control1.x, curve.control2.x, target.x, t) : lerp(source.x, target.x, t);
-  const y = curve ? bezier(source.y, curve.control1.y, curve.control2.y, target.y, t) : lerp(source.y, target.y, t);
+  const progress = clampUnit(t);
+  const sourceRect = validateRect(source, 'source');
+  const targetRect = validateRect(target, 'target');
+  const control1 = curve ? validatePoint(curve.control1, 'curve.control1') : undefined;
+  const control2 = curve ? validatePoint(curve.control2, 'curve.control2') : undefined;
+  const x = control1 && control2 ? bezier(sourceRect.x, control1.x, control2.x, targetRect.x, progress) : lerp(sourceRect.x, targetRect.x, progress);
+  const y = control1 && control2 ? bezier(sourceRect.y, control1.y, control2.y, targetRect.y, progress) : lerp(sourceRect.y, targetRect.y, progress);
   return {
     x,
     y,
-    width: lerp(source.width, target.width, t),
-    height: lerp(source.height, target.height, t),
+    width: lerp(sourceRect.width, targetRect.width, progress),
+    height: lerp(sourceRect.height, targetRect.height, progress),
+  };
+}
+
+function validatePoint(point: { x: number; y: number }, name: string): { x: number; y: number } {
+  return { x: finiteNumber(point.x, `${name}.x`), y: finiteNumber(point.y, `${name}.y`) };
+}
+
+function validateRect(rect: LayoutRect, name: string): LayoutRect {
+  return {
+    ...validatePoint(rect, name),
+    width: nonNegativeNumber(rect.width, `${name}.width`),
+    height: nonNegativeNumber(rect.height, `${name}.height`),
   };
 }
 
@@ -161,11 +181,11 @@ export function getInterpolatedRect(
 ): LayoutRect {
   const captured = state.captured.get(id);
   if (!captured) {
-    return targetRect;
+    return validateRect(targetRect, 'targetRect');
   }
 
   const rawProgress = getTransitionProgress(state, tick);
-  const t = easing ? easing(rawProgress) : rawProgress;
+  const t = easedProgress(easing, rawProgress);
 
   return interpolateRectAlongCurve(captured.rect, targetRect, t, curve);
 }

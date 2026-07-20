@@ -18,7 +18,11 @@ export interface MeasureCache {
  * the least-recently-used entry.
  */
 export function createMeasureCache(options: MeasureCacheOptions = {}): MeasureCache {
-  const maxEntries = Math.max(1, options.maxEntries ?? 1024);
+  const requestedMaxEntries = options.maxEntries ?? 1024;
+  if (!Number.isFinite(requestedMaxEntries) || !Number.isInteger(requestedMaxEntries) || requestedMaxEntries < 1) {
+    throw new RangeError('maxEntries must be a positive finite integer');
+  }
+  const maxEntries = requestedMaxEntries;
   const entries = new Map<string, number>();
 
   function touch(id: string, value: number): void {
@@ -41,6 +45,7 @@ export function createMeasureCache(options: MeasureCacheOptions = {}): MeasureCa
       return value;
     },
     set(id: string, size: number): void {
+      if (!Number.isFinite(size) || size < 0) throw new RangeError('measurement size must be a finite number >= 0');
       touch(id, size);
     },
     has(id: string): boolean {

@@ -445,3 +445,33 @@ describe('renderPanIndicator', () => {
     expect(overlay).toBe('');
   });
 });
+
+describe('gesture numeric hardening', () => {
+  it('maps the full finite data range without overflow', () => {
+    const map = createCoordinateMap({
+      chartX: 0,
+      chartY: 0,
+      chartWidth: 20,
+      chartHeight: 10,
+      dataMinX: -Number.MAX_VALUE,
+      dataMaxX: Number.MAX_VALUE,
+      dataMinY: -Number.MAX_VALUE,
+      dataMaxY: Number.MAX_VALUE,
+    });
+    expect(Object.values(map.cellToData(10, 5)!).every(Number.isFinite)).toBe(true);
+    expect(Object.values(map.dataToCell(0, 0)).every(Number.isFinite)).toBe(true);
+  });
+
+  it('bounds range overlays derived from extreme external state', () => {
+    const state = {
+      ...createChartGestureState(makeCoordMap(), defaultConfig),
+      phase: 'range-selecting' as const,
+      pressCol: -Number.MAX_VALUE,
+      pressRow: -Number.MAX_VALUE,
+      currentCol: Number.MAX_VALUE,
+      currentRow: Number.MAX_VALUE,
+    };
+    const output = renderRangeSelection(state);
+    expect(output.length).toBeLessThanOrEqual(20 * 10 + 20);
+  });
+});

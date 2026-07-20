@@ -15,6 +15,7 @@
  */
 
 import { morph } from '../morph.js';
+import { finiteNumber } from '../validation.js';
 import { blur } from './blur.js';
 import { crossfade } from './crossfade.js';
 import { dissolve } from './dissolve.js';
@@ -22,6 +23,7 @@ import { type FlipAxis, flip } from './flip.js';
 import { type GlitchOpts, glitch } from './glitch.js';
 import { type RippleOrigin, ripple } from './ripple.js';
 import { slide } from './slide.js';
+import { safeContent } from './text.js';
 import { typewriterReveal } from './typewriter.js';
 import { wipe } from './wipe.js';
 import { type ZoomMode, type ZoomOrigin, zoom } from './zoom.js';
@@ -79,34 +81,37 @@ export interface StrategyOptions {
 }
 
 export function applyStrategy(strategy: StrategyKey, oldContent: string, newContent: string, progress: number, options: StrategyOptions = {}): string {
-  const p = options.clampProgress ? Math.max(0, Math.min(1, progress)) : progress;
+  const numericProgress = finiteNumber(progress, 'progress');
+  const p = options.clampProgress ? Math.max(0, Math.min(1, numericProgress)) : numericProgress;
+  const safeOldContent = safeContent(oldContent);
+  const safeNewContent = safeContent(newContent);
   const direction = options.direction ?? 'left';
   switch (strategy) {
     case 'slide':
-      return slide(oldContent, newContent, p, direction);
+      return slide(safeOldContent, safeNewContent, p, direction);
     case 'wipe':
-      return wipe(oldContent, newContent, p, direction);
+      return wipe(safeOldContent, safeNewContent, p, direction);
     case 'morph':
-      return morph(oldContent, newContent, { tick: p, duration: 1 });
+      return morph(safeOldContent, safeNewContent, { tick: p, duration: 1 });
     case 'blur':
-      return blur(oldContent, newContent, p);
+      return blur(safeOldContent, safeNewContent, p);
     case 'dissolve':
-      return dissolve(oldContent, newContent, p, options.dissolveSeed);
+      return dissolve(safeOldContent, safeNewContent, p, options.dissolveSeed);
     case 'zoom':
-      return zoom(oldContent, newContent, p, options.zoomMode, options.zoomOrigin);
+      return zoom(safeOldContent, safeNewContent, p, options.zoomMode, options.zoomOrigin);
     case 'ripple':
-      return ripple(oldContent, newContent, p, options.rippleOrigin?.x ?? 0.5, options.rippleOrigin?.y ?? 0.5);
+      return ripple(safeOldContent, safeNewContent, p, options.rippleOrigin?.x ?? 0.5, options.rippleOrigin?.y ?? 0.5);
     case 'flip':
-      return flip(oldContent, newContent, p, options.flipAxis ?? 'horizontal');
+      return flip(safeOldContent, safeNewContent, p, options.flipAxis ?? 'horizontal');
     case 'typewriter':
-      return typewriterReveal(oldContent, newContent, p, options.typewriterCursor ?? '▌');
+      return typewriterReveal(safeOldContent, safeNewContent, p, options.typewriterCursor ?? '▌');
     case 'glitch':
-      return glitch(oldContent, newContent, p, options.glitchOpts);
+      return glitch(safeOldContent, safeNewContent, p, options.glitchOpts);
     case 'none':
-      return p >= 1 ? newContent : oldContent;
+      return p >= 1 ? safeNewContent : safeOldContent;
     case 'fade':
     case 'crossfade':
     default:
-      return crossfade(oldContent, newContent, p);
+      return crossfade(safeOldContent, safeNewContent, p);
   }
 }

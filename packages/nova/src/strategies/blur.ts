@@ -13,7 +13,8 @@
  * At progress 1: returns newContent unchanged.
  */
 
-import { padGraphemes, visibleLength } from './text.js';
+import { clampUnit } from '../validation.js';
+import { padCells, renderCells, safeContent, visibleLength } from './text.js';
 
 const RESET = '\x1b[0m';
 
@@ -63,13 +64,15 @@ function splitLines(content: string): string[] {
 }
 
 export function blur(oldContent: string, newContent: string, progress: number): string {
-  const p = Math.max(0, Math.min(1, progress));
+  const safeOldContent = safeContent(oldContent);
+  const safeNewContent = safeContent(newContent);
+  const p = clampUnit(progress);
 
-  if (p <= 0) return oldContent;
-  if (p >= 1) return newContent;
+  if (p <= 0) return safeOldContent;
+  if (p >= 1) return safeNewContent;
 
-  const oldLines = splitLines(oldContent);
-  const newLines = splitLines(newContent);
+  const oldLines = splitLines(safeOldContent);
+  const newLines = splitLines(safeNewContent);
   const lineCount = Math.max(oldLines.length, newLines.length);
 
   const resultLines: string[] = [];
@@ -78,27 +81,20 @@ export function blur(oldContent: string, newContent: string, progress: number): 
     const oldLine = oldLines[i] ?? '';
     const newLine = newLines[i] ?? '';
     const width = Math.max(visibleLength(oldLine), visibleLength(newLine));
-    const oldPadded = padGraphemes(oldLine, width);
-    const newPadded = padGraphemes(newLine, width);
-
-    let line = '';
+    const oldPadded = padCells(oldLine, width);
+    const newPadded = padCells(newLine, width);
+    let line: string;
 
     if (p < 0.5) {
       // Old content blurring out: blur goes 0 → 1 over [0, 0.5]
       const blurAmount = p / 0.5;
       const brightness = Math.round(200 * (1 - blurAmount * 0.5));
-      for (let col = 0; col < width; col++) {
-        const ch = oldPadded[col] ?? ' ';
-        line += blurCharWithColor(ch, blurAmount, brightness);
-      }
+      line = renderCells(oldPadded, (text) => blurCharWithColor(text, blurAmount, brightness));
     } else {
       // New content de-blurring: blur goes 1 → 0 over [0.5, 1]
       const blurAmount = 1 - (p - 0.5) / 0.5;
       const brightness = Math.round(200 * (1 - blurAmount * 0.5));
-      for (let col = 0; col < width; col++) {
-        const ch = newPadded[col] ?? ' ';
-        line += blurCharWithColor(ch, blurAmount, brightness);
-      }
+      line = renderCells(newPadded, (text) => blurCharWithColor(text, blurAmount, brightness));
     }
 
     resultLines.push(line + RESET);

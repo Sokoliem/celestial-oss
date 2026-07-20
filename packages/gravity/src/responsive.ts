@@ -46,6 +46,12 @@ function getCurrentCols(): number {
   return getTerminalSize().cols;
 }
 
+function getRenderCols(renderContext?: Partial<{ terminal: { cols: number } }>): number {
+  if (activeBreakpointContext) return activeBreakpointContext.size().cols;
+  const cols = renderContext?.terminal?.cols;
+  return cols !== undefined && Number.isFinite(cols) ? Math.max(0, Math.floor(cols)) : getCurrentCols();
+}
+
 function resolveBreakpoint(cols: number, condition: BreakpointDef): boolean {
   if (condition.min !== undefined && cols < condition.min) return false;
   if (condition.max !== undefined && cols > condition.max) return false;
@@ -81,8 +87,7 @@ function fallbackLayout(layouts: Record<string, VNode>): VNode {
   return layouts.default ?? Object.values(layouts)[Object.values(layouts).length - 1] ?? { kind: 'empty' };
 }
 
-function getActiveBreakpointName(defs: BreakpointMap): string {
-  const cols = getCurrentCols();
+function getActiveBreakpointName(defs: BreakpointMap, cols = getCurrentCols()): string {
   const entries = Object.entries(defs).sort((a, b) => a[1] - b[1]);
   for (let i = entries.length - 1; i >= 0; i--) {
     const [name, threshold] = entries[i]!;
@@ -229,8 +234,7 @@ function toAxisCondition(input: AxisConditionInput): AxisCondition {
   };
 }
 
-export function resolveWhen(condition: AnyWhenCondition): boolean {
-  const cols = getCurrentCols();
+export function resolveWhen(condition: AnyWhenCondition, cols = getCurrentCols()): boolean {
   if (condition._tag === 'when-predicate') {
     return condition.test(cols);
   }
@@ -294,8 +298,8 @@ function parseComparator(raw: string): { op: '>=' | '>' | '<=' | '<' | '==' | '!
   return { op: match[1] as '>=' | '>' | '<=' | '<' | '==' | '!=', tierName: match[2]!.trim() };
 }
 
-export function resolveConditional<T>(cond: WhenConditional<T>): T {
-  return resolveWhen(cond.condition) ? cond.ifTrue : cond.ifFalse;
+export function resolveConditional<T>(cond: WhenConditional<T>, cols = getCurrentCols()): T {
+  return resolveWhen(cond.condition, cols) ? cond.ifTrue : cond.ifFalse;
 }
 
 export function responsive(layouts: Record<string, VNode>): ComponentNode;
@@ -305,12 +309,13 @@ export function responsive(layoutsOrBreakpoints: Record<string, VNode> | Breakpo
 
   return {
     kind: 'component',
-    render: (): VNode => {
+    render: (renderContext): VNode => {
+      const cols = getRenderCols(renderContext);
       if (useCustomBreakpoints) {
-        return render!(getActiveBreakpointName(layoutsOrBreakpoints as BreakpointMap));
+        return render!(getActiveBreakpointName(layoutsOrBreakpoints as BreakpointMap, cols));
       }
 
-      return resolveResponsiveSelection(getCurrentCols(), layoutsOrBreakpoints as Record<string, VNode>).selected;
+      return resolveResponsiveSelection(cols, layoutsOrBreakpoints as Record<string, VNode>).selected;
     },
   };
 }

@@ -332,3 +332,15 @@ describe('waterfall', () => {
     expect(result.toString().length).toBeGreaterThan(0);
   });
 });
+
+describe('statistical chart numeric hardening', () => {
+  it('renders extreme finite ranges across chart families', () => {
+    expect(() => boxPlot({ data: [{ min: -Number.MAX_VALUE, q1: -1, median: 0, q3: 1, max: Number.MAX_VALUE }] }).toString()).not.toThrow();
+    expect(() =>
+      candlestick({ data: [{ open: -Number.MAX_VALUE, high: Number.MAX_VALUE, low: -Number.MAX_VALUE, close: Number.MAX_VALUE }] }).toString(),
+    ).not.toThrow();
+    expect(() => histogram({ data: [-Number.MAX_VALUE, 0, Number.MAX_VALUE], bins: 3 }).toString()).not.toThrow();
+    expect(() => bullet({ value: 0, min: -Number.MAX_VALUE, max: Number.MAX_VALUE }).toString()).not.toThrow();
+    expect(() => waterfall({ data: [{ value: Number.MAX_VALUE }, { value: Number.MAX_VALUE }] }).toString()).not.toThrow();
+  });
+});

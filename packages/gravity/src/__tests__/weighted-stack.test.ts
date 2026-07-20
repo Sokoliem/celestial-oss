@@ -66,4 +66,20 @@ describe('resolveWeightedStack', () => {
     expect(result.hiddenBelow).toEqual([]);
     expect(result.visibleEntries.map((entry) => entry.id)).toEqual(['c']);
   });
+
+  it('normalizes non-finite dimensions and weights without leaking NaN', () => {
+    const result = resolveWeightedStack({
+      size: Number.NaN,
+      gap: Number.POSITIVE_INFINITY,
+      scrollOffset: Number.NaN,
+      items: [
+        { id: 'a', weight: Number.NaN, collapsed: true, collapsedSize: Number.NaN },
+        { id: 'b', weight: Number.POSITIVE_INFINITY, minSize: Number.NaN, maxSize: Number.NaN },
+      ],
+    });
+
+    expect(result.entries.map((entry) => entry.size)).toEqual([0, 1]);
+    expect(result.entries.every((entry) => Number.isFinite(entry.start))).toBe(true);
+    expect(result.scrollOffset).toBe(0);
+  });
 });

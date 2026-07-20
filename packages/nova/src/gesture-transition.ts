@@ -18,6 +18,8 @@ import { type MotionPreference, shouldReduceMotion } from './motion.js';
 import { applyStrategy } from './strategies/dispatch.js';
 import type { FlipAxis } from './strategies/flip.js';
 import type { RippleOrigin } from './strategies/ripple.js';
+import { safeContent } from './strategies/text.js';
+import { clampUnit, finiteNumber, nonNegativeNumber } from './validation.js';
 
 export type GestureTransitionStrategy = 'slide' | 'crossfade' | 'wipe' | 'morph' | 'blur' | 'dissolve' | 'zoom' | 'ripple' | 'flip' | 'typewriter' | 'glitch';
 
@@ -89,8 +91,8 @@ export function createGestureTransition(config: GestureTransitionConfig = {}): G
   const rippleOrigin = config.rippleOrigin;
   const flipAxis = config.flipAxis ?? 'horizontal';
   const typewriterCursor = config.typewriterCursor ?? '▌';
-  const commitThreshold = config.commitThreshold ?? 0.4;
-  const velocityThreshold = config.velocityThreshold ?? 0.3;
+  const commitThreshold = clampUnit(config.commitThreshold ?? 0.4, 'commitThreshold');
+  const velocityThreshold = nonNegativeNumber(config.velocityThreshold ?? 0.3, 'velocityThreshold');
   const springPreset = config.spring ?? DEFAULT_SPRING;
   const reducedMotion = shouldReduceMotion(config);
 
@@ -113,15 +115,18 @@ export function createGestureTransition(config: GestureTransitionConfig = {}): G
 
     drag(offset: number, total: number): void {
       if (currentPhase !== 'dragging') return;
-      if (total <= 0) return;
-      currentProgress = Math.max(0, Math.min(1, Math.abs(offset) / total));
+      const distance = finiteNumber(offset, 'offset');
+      const extent = finiteNumber(total, 'total');
+      if (extent <= 0) return;
+      currentProgress = clampUnit(Math.abs(distance) / extent);
     },
 
     release(velocity: number): void {
       if (currentPhase !== 'dragging') return;
+      const releaseVelocity = finiteNumber(velocity, 'velocity');
 
       // Decide: commit or cancel
-      const shouldCommit = currentProgress >= commitThreshold || Math.abs(velocity) >= velocityThreshold;
+      const shouldCommit = currentProgress >= commitThreshold || Math.abs(releaseVelocity) >= velocityThreshold;
 
       const target = shouldCommit ? 1 : 0;
       didCommit = shouldCommit;
@@ -146,9 +151,10 @@ export function createGestureTransition(config: GestureTransitionConfig = {}): G
     },
 
     tick(now: number): void {
+      const time = finiteNumber(now, 'now');
       if (currentPhase !== 'settling' || !settleSpring) return;
 
-      settleSpring.tick(now);
+      settleSpring.tick(time);
       currentProgress = settleSpring.value();
 
       if (settleSpring.done()) {
@@ -165,9 +171,11 @@ export function createGestureTransition(config: GestureTransitionConfig = {}): G
     },
 
     render(oldContent: string, newContent: string): string {
-      if (currentPhase === 'idle' && currentProgress <= 0) return oldContent;
-      if (currentPhase === 'idle' && currentProgress >= 1) return newContent;
-      return applyStrategy(strategy, oldContent, newContent, currentProgress, {
+      const safeOldContent = safeContent(oldContent);
+      const safeNewContent = safeContent(newContent);
+      if (currentPhase === 'idle' && currentProgress <= 0) return safeOldContent;
+      if (currentPhase === 'idle' && currentProgress >= 1) return safeNewContent;
+      return applyStrategy(strategy, safeOldContent, safeNewContent, currentProgress, {
         direction,
         rippleOrigin,
         flipAxis,
