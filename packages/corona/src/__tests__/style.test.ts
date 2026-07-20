@@ -154,6 +154,17 @@ describe('style', () => {
       const result = s.render('\u4f60\u597d'); // "你好" — visual width 4, char count 2
       expect(s.measureWidth(result)).toBeLessThanOrEqual(3);
     });
+
+    it('does not cut through a joined emoji grapheme', () => {
+      const family = '👨‍👩‍👧‍👦';
+      const s = style({ width: 3 });
+      const result = s.render(`${family}AB`);
+
+      expect(result).toContain(family);
+      expect(result).toContain('A');
+      expect(result).not.toContain('B');
+      expect(s.measureWidth(result)).toBe(3);
+    });
   });
 
   describe('truncate closes unclosed SGR sequences', () => {

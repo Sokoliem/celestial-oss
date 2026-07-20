@@ -1,11 +1,13 @@
 # @celestial/ui
 
-A curated set of 27 terminal UI components for the Celestial preview.
+A curated set of 44 terminal UI component builders for the Celestial preview.
 
 ```ts
-import { button, dataTable, modal, textInput } from '@celestial/ui';
+import { button, combobox, contextMenuView, dataTable, modal, popover, textInput } from '@celestial/ui';
 ```
 
-The package includes general-purpose inputs, navigation, data display,
-feedback, and layered surfaces. Additional components are outside this focused
-preview and may be introduced only after they meet its release gates.
+The package includes Unicode-safe form controls, navigation, data display,
+feedback, and mouse-first layered surfaces. Context menus, popovers, and
+hovercards expose Escape dismissal and visible close affordances where the
+surface can remain open. Additional components remain outside this focused
+preview until they meet the same release gates.

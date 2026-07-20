@@ -69,6 +69,24 @@ importers:
       '@celestial/horizon':
         specifier: workspace:*
         version: link:../../packages/horizon
+      '@celestial/mirage':
+        specifier: workspace:*
+        version: link:../../packages/mirage
+      '@celestial/nova':
+        specifier: workspace:*
+        version: link:../../packages/nova
+      '@celestial/orbit':
+        specifier: workspace:*
+        version: link:../../packages/orbit
+      '@celestial/pulsar':
+        specifier: workspace:*
+        version: link:../../packages/pulsar
+      '@celestial/spectrum':
+        specifier: workspace:*
+        version: link:../../packages/spectrum
+      '@celestial/stellar':
+        specifier: workspace:*
+        version: link:../../packages/stellar
       '@celestial/ui':
         specifier: workspace:*
         version: link:../../packages/constellation
@@ -184,6 +202,18 @@ importers:
       '@celestial/core':
         specifier: workspace:*
         version: link:../core
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/gravity':
+        specifier: workspace:*
+        version: link:../gravity
+      '@celestial/nebula':
+        specifier: workspace:*
+        version: link:../nebula
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../rosetta
     devDependencies:
       '@celestial/test':
         specifier: workspace:*
@@ -283,6 +313,31 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@25.5.0)
 
+  packages/mirage:
+    dependencies:
+      '@celestial/aurora':
+        specifier: workspace:*
+        version: link:../aurora
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/nebula':
+        specifier: workspace:*
+        version: link:../nebula
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../rosetta
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
   packages/nebula:
     dependencies:
       '@celestial/atlas':
@@ -294,6 +349,9 @@ importers:
       '@celestial/corona':
         specifier: workspace:*
         version: link:../corona
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../rosetta
     devDependencies:
       tsup:
         specifier: ^8.3.0
@@ -319,6 +377,159 @@ importers:
       '@celestial/nebula':
         specifier: workspace:*
         version: link:../nebula
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
+  packages/nova:
+    dependencies:
+      '@celestial/aurora':
+        specifier: workspace:*
+        version: link:../aurora
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/mirage':
+        specifier: workspace:*
+        version: link:../mirage
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../rosetta
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
+  packages/orbit:
+    dependencies:
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/nebula':
+        specifier: workspace:*
+        version: link:../nebula
+      '@celestial/nexus':
+        specifier: workspace:*
+        version: link:../nexus
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../rosetta
+      '@celestial/ui':
+        specifier: workspace:*
+        version: link:../constellation
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
+  packages/pulsar:
+    dependencies:
+      '@celestial/aurora':
+        specifier: workspace:*
+        version: link:../aurora
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/nebula':
+        specifier: workspace:*
+        version: link:../nebula
+      '@celestial/nexus':
+        specifier: workspace:*
+        version: link:../nexus
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../rosetta
+      '@celestial/spectrum':
+        specifier: workspace:*
+        version: link:../spectrum
+      '@celestial/stellar':
+        specifier: workspace:*
+        version: link:../stellar
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
+  packages/rosetta:
+    dependencies:
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
+  packages/spectrum:
+    dependencies:
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/nebula':
+        specifier: workspace:*
+        version: link:../nebula
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
+  packages/stellar:
+    dependencies:
+      '@celestial/aurora':
+        specifier: workspace:*
+        version: link:../aurora
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/nebula':
+        specifier: workspace:*
+        version: link:../nebula
+      '@celestial/nexus':
+        specifier: workspace:*
+        version: link:../nexus
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../rosetta
     devDependencies:
       tsup:
         specifier: ^8.3.0
@@ -1633,6 +1844,9 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
 snapshots:
 
   '@babel/runtime@7.29.2': {}
@@ -2774,3 +2988,5 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  zod@3.25.76: {}

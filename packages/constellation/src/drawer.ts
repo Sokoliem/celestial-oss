@@ -1,7 +1,8 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { border, style, truncate, visualWidth } from '@celestial/core/corona';
+import { border, style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, component, empty, event, focus, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
+import { measureTextWidth, truncateCellText } from '@celestial/rosetta';
 import { assignFocusGroup, generateFocusGroupId } from './focus-group.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
 import { applyTypography, useTokens } from './theme.js';
@@ -162,8 +163,8 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
 
         const innerWidth = Math.max(0, surfaceWidth - 4);
         const closeWidth = closable ? 3 : 0;
-        const visibleTitle = truncate(config.title ?? '', Math.max(0, innerWidth - closeWidth));
-        const titleGap = Math.max(0, innerWidth - visualWidth(visibleTitle) - closeWidth);
+        const visibleTitle = truncateCellText(config.title ?? '', Math.max(0, innerWidth - closeWidth));
+        const titleGap = Math.max(0, innerWidth - measureTextWidth(visibleTitle) - closeWidth);
         const headerRow = row(
           text(visibleTitle, applyTypography(tokens.titleStyle, { background: tokens.headerBg })),
           text(' '.repeat(titleGap), headerStyle),

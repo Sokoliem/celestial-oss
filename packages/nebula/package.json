@@ -47,7 +47,8 @@
   "dependencies": {
     "@celestial/atlas": "workspace:*",
     "@celestial/corona": "workspace:*",
-    "@celestial/aurora": "workspace:*"
+    "@celestial/aurora": "workspace:*",
+    "@celestial/rosetta": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.3.0",

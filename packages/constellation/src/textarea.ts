@@ -1,7 +1,8 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
 import { style } from '@celestial/core/corona';
-import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
+import type { KeyEvent, Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, event, focus, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
+import { segmentGraphemes } from '@celestial/rosetta';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 import type { Validator } from './validation.js';
@@ -59,6 +60,8 @@ export interface TextareaModel {
 }
 
 export type TextareaMsg =
+  | Msg<'key', { event: KeyEvent }>
+  | Msg<'paste', { value: string }>
   | Msg<'char', { char: string }>
   | Msg<'newline'>
   | Msg<'backspace'>
@@ -80,13 +83,26 @@ export type TextareaMsg =
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function printableCharSubscriptions(): Array<Sub<TextareaMsg>> {
-  const subs: Array<Sub<TextareaMsg>> = [Sub.key('space', { type: 'char', char: ' ' } as TextareaMsg)];
-  for (let code = 33; code <= 126; code++) {
-    const char = String.fromCharCode(code);
-    subs.push(Sub.key(char, { type: 'char', char } as TextareaMsg));
-  }
-  return subs;
+function lineGraphemes(value: string): string[] {
+  return segmentGraphemes(value);
+}
+
+function messageForKey(event: KeyEvent): TextareaMsg {
+  if (event.char && !event.ctrl && !event.alt) return { type: 'char', char: event.char };
+  if (event.key === 'enter') return event.ctrl ? { type: 'submit' } : { type: 'newline' };
+  const messages: Partial<Record<string, TextareaMsg>> = {
+    left: { type: 'cursor-left' },
+    right: { type: 'cursor-right' },
+    up: { type: 'cursor-up' },
+    down: { type: 'cursor-down' },
+    home: { type: 'home' },
+    end: { type: 'end' },
+    backspace: { type: 'backspace' },
+    delete: { type: 'delete' },
+    pageup: { type: 'page-up' },
+    pagedown: { type: 'page-down' },
+  };
+  return messages[event.key] ?? { type: 'noop' };
 }
 
 function getValue(lines: string[]): string {
@@ -108,7 +124,6 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
   const maxLines = config.maxLines ?? Infinity;
   const showLineNumbers = config.showLineNumbers ?? false;
   const readOnly = config.readOnly ?? false;
-  const printableSubs = printableCharSubscriptions();
   const inputId = `textarea-${Math.random().toString(36).slice(2, 10)}`;
   const surfaceId = `${inputId}:surface`;
   const focusTag = `${inputId}:focus`;
@@ -128,23 +143,47 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
     return focus(inputId, surface, { focused: model.focused });
   }
 
-  return {
+  let descriptor!: ComponentDescriptor<TextareaModel, TextareaMsg>;
+  descriptor = {
     init(): [TextareaModel, Cmd<TextareaMsg>] {
       const initVal = config.value ?? '';
       const lines = initVal.length > 0 ? initVal.split('\n') : [''];
       const cursorRow = lines.length - 1;
-      const cursorCol = lines[cursorRow]!.length;
+      const cursorCol = lineGraphemes(lines[cursorRow]!).length;
       return [{ lines, cursorRow, cursorCol, scrollOffset: 0, focused: false }, Cmd.none()];
     },
 
     update(msg: TextareaMsg, model: TextareaModel): [TextareaModel, Cmd<TextareaMsg>] {
       switch (msg.type) {
+        case 'key':
+          return descriptor.update(messageForKey(msg.event), model);
+
+        case 'paste': {
+          if (readOnly || msg.value.length === 0) return [model, Cmd.none()];
+          const current = lineGraphemes(model.lines[model.cursorRow]!);
+          const before = current.slice(0, model.cursorCol).join('');
+          const after = current.slice(model.cursorCol).join('');
+          const pastedLines = msg.value.replace(/\r\n?/g, '\n').split('\n');
+          const availableLines = Math.max(1, maxLines - model.lines.length + 1);
+          const accepted = pastedLines.slice(0, availableLines);
+          const replacement = accepted.length === 1 ? [`${before}${accepted[0]!}${after}`] : [`${before}${accepted[0]!}`, ...accepted.slice(1, -1), `${accepted.at(-1)!}${after}`];
+          const lines = [...model.lines];
+          lines.splice(model.cursorRow, 1, ...replacement);
+          const cursorRow = model.cursorRow + replacement.length - 1;
+          const cursorCol = lineGraphemes(replacement.at(-1)!).length - lineGraphemes(after).length;
+          const scrollOffset = ensureCursorVisible(cursorRow, model.scrollOffset, visibleRows);
+          config.onChange?.(getValue(lines));
+          return [{ ...model, lines, cursorRow, cursorCol, scrollOffset }, Cmd.none()];
+        }
+
         case 'char': {
           if (readOnly) return [model, Cmd.none()];
           const lines = [...model.lines];
-          const line = lines[model.cursorRow]!;
-          lines[model.cursorRow] = line.slice(0, model.cursorCol) + msg.char + line.slice(model.cursorCol);
-          const newCol = model.cursorCol + 1;
+          const parts = lineGraphemes(lines[model.cursorRow]!);
+          const before = parts.slice(0, model.cursorCol).join('');
+          const after = parts.slice(model.cursorCol).join('');
+          lines[model.cursorRow] = `${before}${msg.char}${after}`;
+          const newCol = lineGraphemes(`${before}${msg.char}`).length;
           config.onChange?.(getValue(lines));
           return [{ ...model, lines, cursorCol: newCol }, Cmd.none()];
         }
@@ -153,9 +192,9 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
           if (readOnly) return [model, Cmd.none()];
           if (model.lines.length >= maxLines) return [model, Cmd.none()];
           const lines = [...model.lines];
-          const line = lines[model.cursorRow]!;
-          const before = line.slice(0, model.cursorCol);
-          const after = line.slice(model.cursorCol);
+          const parts = lineGraphemes(lines[model.cursorRow]!);
+          const before = parts.slice(0, model.cursorCol).join('');
+          const after = parts.slice(model.cursorCol).join('');
           lines.splice(model.cursorRow, 1, before, after);
           const newRow = model.cursorRow + 1;
           const scrollOffset = ensureCursorVisible(newRow, model.scrollOffset, visibleRows);
@@ -168,8 +207,8 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
           if (model.cursorCol > 0) {
             // Delete character within line
             const lines = [...model.lines];
-            const line = lines[model.cursorRow]!;
-            lines[model.cursorRow] = line.slice(0, model.cursorCol - 1) + line.slice(model.cursorCol);
+            const parts = lineGraphemes(lines[model.cursorRow]!);
+            lines[model.cursorRow] = `${parts.slice(0, model.cursorCol - 1).join('')}${parts.slice(model.cursorCol).join('')}`;
             config.onChange?.(getValue(lines));
             return [{ ...model, lines, cursorCol: model.cursorCol - 1 }, Cmd.none()];
           }
@@ -178,7 +217,7 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
             const lines = [...model.lines];
             const prevLine = lines[model.cursorRow - 1]!;
             const curLine = lines[model.cursorRow]!;
-            const newCol = prevLine.length;
+            const newCol = lineGraphemes(prevLine).length;
             lines[model.cursorRow - 1] = prevLine + curLine;
             lines.splice(model.cursorRow, 1);
             const newRow = model.cursorRow - 1;
@@ -192,10 +231,11 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
         case 'delete': {
           if (readOnly) return [model, Cmd.none()];
           const line = model.lines[model.cursorRow]!;
-          if (model.cursorCol < line.length) {
+          const parts = lineGraphemes(line);
+          if (model.cursorCol < parts.length) {
             // Delete character forward within line
             const lines = [...model.lines];
-            lines[model.cursorRow] = line.slice(0, model.cursorCol) + line.slice(model.cursorCol + 1);
+            lines[model.cursorRow] = `${parts.slice(0, model.cursorCol).join('')}${parts.slice(model.cursorCol + 1).join('')}`;
             config.onChange?.(getValue(lines));
             return [{ ...model, lines }, Cmd.none()];
           }
@@ -217,7 +257,7 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
           }
           if (model.cursorRow > 0) {
             const newRow = model.cursorRow - 1;
-            const newCol = model.lines[newRow]!.length;
+            const newCol = lineGraphemes(model.lines[newRow]!).length;
             const scrollOffset = ensureCursorVisible(newRow, model.scrollOffset, visibleRows);
             return [{ ...model, cursorRow: newRow, cursorCol: newCol, scrollOffset }, Cmd.none()];
           }
@@ -226,7 +266,7 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
 
         case 'cursor-right': {
           const line = model.lines[model.cursorRow]!;
-          if (model.cursorCol < line.length) {
+          if (model.cursorCol < lineGraphemes(line).length) {
             return [{ ...model, cursorCol: model.cursorCol + 1 }, Cmd.none()];
           }
           if (model.cursorRow < model.lines.length - 1) {
@@ -241,7 +281,7 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
           if (model.cursorRow <= 0) return [model, Cmd.none()];
           const newRow = model.cursorRow - 1;
           const targetLine = model.lines[newRow]!;
-          const newCol = Math.min(model.cursorCol, targetLine.length);
+          const newCol = Math.min(model.cursorCol, lineGraphemes(targetLine).length);
           const scrollOffset = ensureCursorVisible(newRow, model.scrollOffset, visibleRows);
           return [{ ...model, cursorRow: newRow, cursorCol: newCol, scrollOffset }, Cmd.none()];
         }
@@ -250,7 +290,7 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
           if (model.cursorRow >= model.lines.length - 1) return [model, Cmd.none()];
           const newRow = model.cursorRow + 1;
           const targetLine = model.lines[newRow]!;
-          const newCol = Math.min(model.cursorCol, targetLine.length);
+          const newCol = Math.min(model.cursorCol, lineGraphemes(targetLine).length);
           const scrollOffset = ensureCursorVisible(newRow, model.scrollOffset, visibleRows);
           return [{ ...model, cursorRow: newRow, cursorCol: newCol, scrollOffset }, Cmd.none()];
         }
@@ -259,12 +299,12 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
           return [{ ...model, cursorCol: 0 }, Cmd.none()];
 
         case 'end':
-          return [{ ...model, cursorCol: model.lines[model.cursorRow]!.length }, Cmd.none()];
+          return [{ ...model, cursorCol: lineGraphemes(model.lines[model.cursorRow]!).length }, Cmd.none()];
 
         case 'page-up': {
           const newRow = Math.max(0, model.cursorRow - visibleRows);
           const targetLine = model.lines[newRow]!;
-          const newCol = Math.min(model.cursorCol, targetLine.length);
+          const newCol = Math.min(model.cursorCol, lineGraphemes(targetLine).length);
           const scrollOffset = ensureCursorVisible(newRow, model.scrollOffset, visibleRows);
           return [{ ...model, cursorRow: newRow, cursorCol: newCol, scrollOffset }, Cmd.none()];
         }
@@ -272,7 +312,7 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
         case 'page-down': {
           const newRow = Math.min(model.lines.length - 1, model.cursorRow + visibleRows);
           const targetLine = model.lines[newRow]!;
-          const newCol = Math.min(model.cursorCol, targetLine.length);
+          const newCol = Math.min(model.cursorCol, lineGraphemes(targetLine).length);
           const scrollOffset = ensureCursorVisible(newRow, model.scrollOffset, visibleRows);
           return [{ ...model, cursorRow: newRow, cursorCol: newCol, scrollOffset }, Cmd.none()];
         }
@@ -350,9 +390,10 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
         // Line content
         if (model.focused && isCursorLine) {
           // Show cursor (reverse on character at cursor position)
-          const before = line.slice(0, model.cursorCol);
-          const ch = model.cursorCol < line.length ? line[model.cursorCol]! : ' ';
-          const after = line.slice(model.cursorCol + 1);
+          const lineParts = lineGraphemes(line);
+          const before = lineParts.slice(0, model.cursorCol).join('');
+          const ch = model.cursorCol < lineParts.length ? lineParts[model.cursorCol]! : ' ';
+          const after = lineParts.slice(model.cursorCol + 1).join('');
           const cursorStyle = style({ reverse: true });
 
           if (before.length > 0) parts.push(text(before));
@@ -387,20 +428,10 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
       if (!model.focused) return mouse;
       return Sub.batch<TextareaMsg>(
         mouse,
-        ...printableSubs,
-        Sub.key('left', { type: 'cursor-left' }),
-        Sub.key('right', { type: 'cursor-right' }),
-        Sub.key('up', { type: 'cursor-up' }),
-        Sub.key('down', { type: 'cursor-down' }),
-        Sub.key('home', { type: 'home' }),
-        Sub.key('end', { type: 'end' }),
-        Sub.key('backspace', { type: 'backspace' }),
-        Sub.key('delete', { type: 'delete' }),
-        Sub.key('enter', { type: 'newline' }),
-        Sub.key('pageup', { type: 'page-up' }),
-        Sub.key('pagedown', { type: 'page-down' }),
-        Sub.keyWithModifiers('enter', { ctrl: true }, { type: 'submit' }),
+        Sub.keyEvent<TextareaMsg>((event) => ({ type: 'key', event })),
+        Sub.paste<TextareaMsg>((value) => ({ type: 'paste', value })),
       );
     },
   };
+  return descriptor;
 }

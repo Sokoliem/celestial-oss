@@ -1,0 +1,93 @@
+name: Publish preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      npm_tag:
+        description: npm distribution tag
+        required: true
+        default: preview
+        type: string
+      dry_run:
+        description: Validate and print the release plan without publishing
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: publish-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PNPM_VERSION: 9.15.0
+  NODE_VERSION: 22
+
+jobs:
+  secret-scan:
+    name: Full-history secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  validate:
+    name: Validate release artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run preview:validate
+      - run: pnpm run preview:publish:dry-run -- --tag ${{ inputs.npm_tag }}
+
+  publish:
+    name: Publish allowlisted packages
+    needs: [secret-scan, validate]
+    if: inputs.dry_run == false && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run preview:build
+      - run: pnpm run preview:pack:check
+      - name: Publish in dependency order
+        run: node scripts/publish-preview.mjs --confirm --provenance --tag ${{ inputs.npm_tag }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

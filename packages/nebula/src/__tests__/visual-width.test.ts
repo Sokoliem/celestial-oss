@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { layout, measure, type TextNode } from '../vdom.js';
+import { sliceByWidth, visualWidth, wrapLine } from '../vdom/visual-width.js';
 
 /** Helper: extract a row of characters from a CellGrid as a trimmed string */
 function gridRow(grid: ReturnType<typeof layout>, row: number): string {
@@ -93,6 +94,19 @@ describe('visualWidth – Unicode width correctness', () => {
       const m = measure(node);
       expect(m.width).toBe(2);
     });
+
+    it('keeps flags and joined emoji as single display units', () => {
+      const flag = '🇺🇸';
+      const family = '👨‍👩‍👧‍👦';
+
+      expect(visualWidth(flag)).toBe(2);
+      expect(visualWidth(family)).toBe(2);
+      expect(sliceByWidth(`${family}Z`, 2)).toEqual([family, 'Z']);
+
+      const grid = layout({ kind: 'text', content: `${flag}A` }, 3, 1);
+      expect(grid.cells[0]?.[0]?.char).toBe(flag);
+      expect(grid.cells[0]?.[2]?.char).toBe('A');
+    });
   });
 
   describe('zero-width joiners and special characters', () => {
@@ -174,6 +188,22 @@ describe('visualWidth – Unicode width correctness', () => {
       expect(line1).toContain('好');
       expect(line2).toContain('世');
       expect(line2).toContain('界');
+    });
+
+    it('splits a long word even when it follows regular prose', () => {
+      const lines = wrapLine('go abcdefghij', 4);
+
+      expect(lines.every((line) => visualWidth(line) <= 4)).toBe(true);
+      expect(lines.join('').replaceAll(' ', '')).toBe('goabcdefghij');
+      expect(lines.at(-1)).toBe('ij');
+    });
+
+    it('never splits combining or joined grapheme clusters across lines', () => {
+      const family = '👨‍👩‍👧‍👦';
+      const combined = 'e\u0301';
+      const lines = wrapLine(`${family}${combined}${family}`, 2);
+
+      expect(lines).toEqual([family, combined, family]);
     });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ansi, parseKeyInput } from '../terminal.js';
+import { ansi, createKeyInputDecoder, parseKeyInput } from '../terminal.js';
 
 // Helper to create a Buffer from hex values
 function buf(...bytes: number[]): Buffer {
@@ -44,6 +44,12 @@ describe('parseKeyInput', () => {
       expect(events[0]!.key).toBe('a');
       expect(events[1]!.key).toBe('b');
       expect(events[2]!.key).toBe('c');
+    });
+
+    it('parses CJK, emoji, and combining scalars without dropping bytes', () => {
+      const events = parseKeyInput(Buffer.from('界🙂e\u0301', 'utf8'));
+      expect(events.map((event) => event.char)).toEqual(['界', '🙂', 'e', '\u0301']);
+      expect(events.every((event) => event.ctrl === false && event.alt === false)).toBe(true);
     });
   });
 
@@ -206,6 +212,11 @@ describe('parseKeyInput', () => {
       expect(events).toEqual([{ key: 'f10', char: undefined, ctrl: false, alt: false, shift: false }]);
     });
 
+    it('parses Shift+F10 from the xterm modifier parameter', () => {
+      const events = parseKeyInput(esc('\x1b[21;2~'));
+      expect(events).toEqual([{ key: 'f10', char: undefined, ctrl: false, alt: false, shift: true }]);
+    });
+
     it('should parse F11 (\\x1b[23~)', () => {
       const events = parseKeyInput(esc('\x1b[23~'));
       expect(events).toEqual([{ key: 'f11', char: undefined, ctrl: false, alt: false, shift: false }]);
@@ -214,6 +225,13 @@ describe('parseKeyInput', () => {
     it('should parse F12 (\\x1b[24~)', () => {
       const events = parseKeyInput(esc('\x1b[24~'));
       expect(events).toEqual([{ key: 'f12', char: undefined, ctrl: false, alt: false, shift: false }]);
+    });
+  });
+
+  describe('xterm modifiers', () => {
+    it('parses combined modifiers on CSI letter keys', () => {
+      const events = parseKeyInput(esc('\x1b[1;8A'));
+      expect(events).toEqual([{ key: 'up', char: undefined, ctrl: true, alt: true, shift: true }]);
     });
   });
 
@@ -277,6 +295,34 @@ describe('parseKeyInput', () => {
       const events = parseKeyInput(esc('\x1bA'));
       expect(events).toEqual([{ key: 'A', char: 'A', ctrl: false, alt: true, shift: true }]);
     });
+
+    it('parses alt plus a Unicode scalar', () => {
+      const events = parseKeyInput(Buffer.concat([buf(0x1b), Buffer.from('界', 'utf8')]));
+      expect(events).toEqual([{ key: '界', char: '界', ctrl: false, alt: true, shift: false }]);
+    });
+  });
+});
+
+describe('createKeyInputDecoder', () => {
+  it('buffers UTF-8 sequences split across terminal chunks', () => {
+    const decoder = createKeyInputDecoder();
+    const bytes = Buffer.from('🙂', 'utf8');
+    expect(decoder.push(bytes.subarray(0, 2))).toEqual([]);
+    expect(decoder.pendingBytes).toBe(2);
+    expect(decoder.push(bytes.subarray(2))).toEqual([{ key: '🙂', char: '🙂', ctrl: false, alt: false, shift: false }]);
+    expect(decoder.pendingBytes).toBe(0);
+  });
+
+  it('buffers terminal escape sequences split across chunks', () => {
+    const decoder = createKeyInputDecoder();
+    expect(decoder.push(buf(0x1b))).toEqual([]);
+    expect(decoder.push(Buffer.from('[A', 'ascii'))).toEqual([{ key: 'up', char: undefined, ctrl: false, alt: false, shift: false }]);
+  });
+
+  it('flushes a standalone Escape key', () => {
+    const decoder = createKeyInputDecoder();
+    expect(decoder.push(buf(0x1b))).toEqual([]);
+    expect(decoder.flush()).toEqual([{ key: 'escape', char: undefined, ctrl: false, alt: false, shift: false }]);
   });
 });
 

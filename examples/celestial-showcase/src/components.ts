@@ -1,30 +1,50 @@
-import { column, defaultTheme, event, row, runtime, style, text, type VNode } from '@celestial/core';
+import { Cmd, type Cmd as Command, column, defaultTheme, event, row, runtime, style, text, type VNode } from '@celestial/core';
+import { schemaForm, wizard } from '@celestial/orbit';
 import {
   alert,
+  autocomplete,
   badge,
   breadcrumb,
   button,
   card,
   checkbox,
+  checkboxGroup,
+  colorPicker,
+  combobox,
   commandPalette,
   confirmDialog,
+  contextMenuUpdate,
+  contextMenuView,
+  createContextMenuState,
   createToastManager,
   dataTable,
+  datePicker,
   divider,
   drawer,
   emptyState,
+  formField,
+  hovercard,
   list,
   modal,
+  multiSelect,
+  numberInput,
+  optionListView,
   pagination,
+  popover,
   progressBar,
   radioGroup,
+  rangeSlider,
+  rating,
+  segmentedControl,
   select,
   slider,
   spinner,
   tabs,
+  tagInput,
   textarea,
   textInput,
   toggle,
+  toggleGroup,
   tooltip,
   tree,
 } from '@celestial/ui';
@@ -39,7 +59,7 @@ interface CapabilityRow {
 
 const capabilityRows: CapabilityRow[] = [
   { id: 'runtime', capability: 'Elm runtime', package: '@celestial/core', state: 'ready' },
-  { id: 'components', capability: 'Curated UI', package: '@celestial/ui', state: '27 builders' },
+  { id: 'components', capability: 'Curated UI', package: '@celestial/ui', state: '44 builders' },
   { id: 'windows', capability: 'Window manager', package: '@celestial/horizon', state: 'beta' },
   { id: 'testing', capability: 'Headless + PTY', package: '@celestial/test', state: 'ready' },
 ];
@@ -57,10 +77,24 @@ export const UI_BUILDER_NAMES = [
   'select',
   'toggle',
   'slider',
+  'checkboxGroup',
+  'toggleGroup',
+  'autocomplete',
+  'combobox',
+  'datePicker',
+  'multiSelect',
+  'numberInput',
+  'rangeSlider',
+  'rating',
+  'segmentedControl',
+  'tagInput',
+  'colorPicker',
+  'formField',
   'tabs',
   'breadcrumb',
   'pagination',
   'commandPalette',
+  'optionListView',
   'dataTable',
   'tree',
   'list',
@@ -76,6 +110,9 @@ export const UI_BUILDER_NAMES = [
   'modal',
   'confirmDialog',
   'drawer',
+  'contextMenuView',
+  'popover',
+  'hovercard',
 ] as const;
 
 const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }> = {
@@ -85,14 +122,24 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
     verify: 'Confirm capability detection, theme contrast, motion, reactivity, layout tier, and mouse status are visible.',
   },
   components: {
-    purpose: 'Tour every curated @celestial/ui builder across five compact pages.',
+    purpose: 'Tour every curated @celestial/ui builder across eight compact pages.',
     mouse: 'Click controls to focus, toggle, advance, or open their real layered surface.',
-    verify: 'Advance through pages 1-5 and confirm the counter reaches 27/27 builders.',
+    verify: 'Advance through pages 1-8 and confirm the counter reaches 44/44 builders.',
+  },
+  workflows: {
+    purpose: 'Exercise Orbit schema forms and branch-aware wizard state using the same Elm update loop.',
+    mouse: 'Change a schema-driven field or use the visible Previous and Next wizard controls.',
+    verify: 'Advance the release wizard and confirm its visited-step graph and receipt update.',
+  },
+  visuals: {
+    purpose: 'Inspect Spectrum highlighting, Mirage effects, Nova transitions, Stellar charts, and Pulsar Markdown.',
+    mouse: 'Use the lab strip to revisit this live panel while resizing the terminal.',
+    verify: 'Confirm rich output stays width-safe and reduced-motion mode resolves to static end states.',
   },
   mouse: {
     purpose: 'Exercise terminal pointer tracking and event-scoped hit regions.',
-    mouse: 'Move over the target, click it, use the wheel, then drag the verification receipt into the drop bay.',
-    verify: 'Watch coordinates, event phase, target, click count, drag offset, and the drop receipt update.',
+    mouse: 'Move over the target, click it, use the wheel, drag the receipt, then right-click a lab, control, window, or blank panel area.',
+    verify: 'Watch coordinates, event phase, target, click count, drag offset, drop receipt, and target-specific context actions update.',
   },
   layers: {
     purpose: 'Compose transient UI over a preserved base application.',
@@ -107,7 +154,7 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
   smoke: {
     purpose: 'Turn the interaction history into a repeatable acceptance check.',
     mouse: 'Click any incomplete receipt to jump to its relevant lab.',
-    verify: 'Complete all eight receipts, then run the README headless and PTY commands.',
+    verify: 'Complete all eleven receipts, then run the README headless and PTY commands.',
   },
 };
 
@@ -125,7 +172,7 @@ function helpContent(lab: LabId): VNode {
     text('Smoke receipt', labelStyle),
     text(copy.verify, undefined, { wrap: true }),
     text(''),
-    text('Global: 1-6 labs | ?/F1 help | Esc dismiss | Ctrl+P commands | Q quit', mutedStyle, { wrap: true }),
+    text('Global: 1-8 labs | ?/F1 help | Esc dismiss | Ctrl+P commands | Q quit', mutedStyle, { wrap: true }),
   );
 }
 
@@ -152,6 +199,98 @@ export function createShowcaseComponents() {
   });
   const toggleComponent = toggle({ label: 'Live motion', checked: true, variant: 'success' });
   const sliderComponent = slider({ min: 0, max: 100, step: 10, value: 70, width: 16, label: 'Density' });
+  const checkboxGroupComponent = checkboxGroup({
+    options: [
+      { label: 'Unit', value: 'unit', checked: true },
+      { label: 'PTY', value: 'pty' },
+    ],
+  });
+  const toggleGroupComponent = toggleGroup({
+    options: [
+      { label: 'Mouse', value: 'mouse', checked: true },
+      { label: 'Keys', value: 'keys', checked: true },
+    ],
+    layout: 'row',
+  });
+  const autocompleteComponent = autocomplete({
+    source: (query) => ['release', 'resize', 'render'].filter((value) => value.startsWith(query)),
+    placeholder: 'Search APIs',
+  });
+  const comboboxComponent = combobox({
+    options: [
+      { label: 'Pulsar', value: 'pulsar' },
+      { label: 'Stellar', value: 'stellar' },
+      { label: 'Spectrum', value: 'spectrum' },
+    ],
+    value: 'Stellar',
+  });
+  const datePickerComponent = datePicker({ selected: { year: 2026, month: 7, day: 19 } });
+  const multiSelectComponent = multiSelect({
+    options: [
+      { label: 'Unicode', value: 'unicode' },
+      { label: 'Mouse', value: 'mouse' },
+      { label: 'Motion', value: 'motion' },
+    ],
+    selected: [0, 1],
+  });
+  const numberInputComponent = numberInput({ value: 44, min: 1, max: 99, label: 'Builders' });
+  const rangeSliderComponent = rangeSlider({ min: 40, max: 160, low: 70, high: 120, width: 18 });
+  const ratingComponent = rating({ value: 4, max: 5, interactive: true });
+  const segmentedControlComponent = segmentedControl({ options: ['Compact', 'Wide'], selected: 1 });
+  const tagInputComponent = tagInput({ tags: ['unicode', 'mouse'], placeholder: 'Add capability' });
+  const colorPickerComponent = colorPicker({ value: '#5FD7FF' });
+  const schemaFormComponent = schemaForm({
+    schema: {
+      fields: [
+        {
+          kind: 'segmented',
+          name: 'density',
+          label: 'Layout density',
+          default: 'balanced',
+          options: [
+            { label: 'Compact', value: 'compact' },
+            { label: 'Balanced', value: 'balanced' },
+          ],
+        },
+        { kind: 'toggle', name: 'reducedMotion', label: 'Reduced motion', default: true },
+        { kind: 'range', name: 'viewport', label: 'Target width', min: 70, max: 160, step: 10, default: [80, 120] },
+      ],
+      layout: {
+        sections: [
+          {
+            title: 'Release preferences',
+            description: 'Schema-driven fields reuse curated UI adapters.',
+            fields: ['density', 'reducedMotion', 'viewport'],
+          },
+        ],
+      },
+    },
+    value: {},
+    onChange: () => undefined,
+  });
+  const workflowStep = (summary: string) => ({
+    init: (): [string, Command<unknown>] => [summary, Cmd.none<unknown>()],
+    update: (_msg: unknown, model: string): [string, Command<unknown>] => [model, Cmd.none<unknown>()],
+    view: (model: string) => text(model, mutedStyle, { wrap: true }),
+  });
+  const wizardComponent = wizard({
+    steps: [
+      { name: 'scope', title: 'Scope', description: 'Choose the public package boundary.', component: workflowStep('17 packages pass the allowlist gate.') },
+      {
+        name: 'verify',
+        title: 'Verify',
+        description: 'Run deterministic release checks.',
+        component: workflowStep('Build, typecheck, tests, PTY, and packed installs.'),
+      },
+      {
+        name: 'publish',
+        title: 'Publish',
+        description: 'Require explicit release approval.',
+        component: workflowStep('Changesets produce the preview package set.'),
+      },
+    ],
+    focusGroup: 'showcase-release-wizard',
+  });
   const tabsComponent = tabs({
     tabs: [
       { key: 'runtime', label: 'Runtime' },
@@ -168,6 +307,14 @@ export function createShowcaseComponents() {
     ],
   });
   const paginationComponent = pagination({ total: 50, pageSize: 10, current: 1 });
+  const optionListComponent = optionListView({
+    items: [
+      { id: 'preview', label: 'Preview', value: 'preview' },
+      { id: 'beta', label: 'Beta', value: 'beta' },
+      { id: 'private', label: 'Private', value: 'private', disabled: true },
+    ],
+    maxVisible: 3,
+  });
   const tableComponent = dataTable<CapabilityRow>({
     columns: [
       { key: 'capability', header: 'Capability', width: 18, sortable: true },
@@ -230,15 +377,30 @@ export function createShowcaseComponents() {
     width: 42,
     height: 22,
   });
+  const popoverComponent = popover({
+    trigger: text('[ Inspect release ]', labelStyle),
+    title: 'Public boundary',
+    content: text('Only allowlisted packages ship.', undefined, { wrap: true }),
+    position: 'bottom',
+    width: 34,
+  });
+  const hovercardComponent = hovercard({
+    id: 'showcase-package-card',
+    trigger: text('[ Hover package ]', labelStyle),
+    content: column(text('@celestial/pulsar', labelStyle), text('Markdown + Spectrum + Stellar', mutedStyle)),
+    width: 36,
+  });
   const paletteComponent = commandPalette<CelestialShowcaseMsg>({
     placeholder: 'Jump to a lab or run an action...',
     commands: [
       { id: 'core', label: 'Open Core lab', category: 'Labs', shortcut: '1', msg: { type: 'switch-lab', lab: 'core' } },
       { id: 'components', label: 'Open Components lab', category: 'Labs', shortcut: '2', msg: { type: 'switch-lab', lab: 'components' } },
-      { id: 'mouse', label: 'Open Mouse lab', category: 'Labs', shortcut: '3', msg: { type: 'switch-lab', lab: 'mouse' } },
-      { id: 'layers', label: 'Open Layers lab', category: 'Labs', shortcut: '4', msg: { type: 'switch-lab', lab: 'layers' } },
-      { id: 'windows', label: 'Open Windows lab', category: 'Labs', shortcut: '5', msg: { type: 'switch-lab', lab: 'windows' } },
-      { id: 'smoke', label: 'Open Smoke lab', category: 'Labs', shortcut: '6', msg: { type: 'switch-lab', lab: 'smoke' } },
+      { id: 'workflows', label: 'Open Workflows lab', category: 'Labs', shortcut: '3', msg: { type: 'switch-lab', lab: 'workflows' } },
+      { id: 'visuals', label: 'Open Visuals lab', category: 'Labs', shortcut: '4', msg: { type: 'switch-lab', lab: 'visuals' } },
+      { id: 'mouse', label: 'Open Mouse lab', category: 'Labs', shortcut: '5', msg: { type: 'switch-lab', lab: 'mouse' } },
+      { id: 'layers', label: 'Open Layers lab', category: 'Labs', shortcut: '6', msg: { type: 'switch-lab', lab: 'layers' } },
+      { id: 'windows', label: 'Open Windows lab', category: 'Labs', shortcut: '7', msg: { type: 'switch-lab', lab: 'windows' } },
+      { id: 'smoke', label: 'Open Smoke lab', category: 'Labs', shortcut: '8', msg: { type: 'switch-lab', lab: 'smoke' } },
       { id: 'help', label: 'Open contextual help', category: 'Actions', shortcut: '?', msg: { type: 'open-help' } },
       { id: 'reset', label: 'Reset all receipts', category: 'Actions', shortcut: 'R', msg: { type: 'reset' } },
     ],
@@ -265,9 +427,24 @@ export function createShowcaseComponents() {
     selectComponent,
     toggleComponent,
     sliderComponent,
+    checkboxGroupComponent,
+    toggleGroupComponent,
+    autocompleteComponent,
+    comboboxComponent,
+    datePickerComponent,
+    multiSelectComponent,
+    numberInputComponent,
+    rangeSliderComponent,
+    ratingComponent,
+    segmentedControlComponent,
+    tagInputComponent,
+    colorPickerComponent,
+    schemaFormComponent,
+    wizardComponent,
     tabsComponent,
     breadcrumbComponent,
     paginationComponent,
+    optionListComponent,
     tableComponent,
     treeComponent,
     spinnerComponent,
@@ -276,6 +453,8 @@ export function createShowcaseComponents() {
     modalComponent,
     confirmComponent,
     drawerComponent,
+    popoverComponent,
+    hovercardComponent,
     paletteComponent,
     helpDrawers,
   };
@@ -297,6 +476,8 @@ export function initialComponentModels(components: ShowcaseComponents) {
     pagination: components.paginationComponent.init()[0],
     table: components.tableComponent.init()[0],
     tree: components.treeComponent.init()[0],
+    schemaForm: components.schemaFormComponent.init()[0],
+    wizard: components.wizardComponent.init()[0],
     tooltip: components.tooltipComponent.init()[0],
     toast: components.toastManager.init()[0],
     modal: components.modalComponent.init()[0],
@@ -316,7 +497,12 @@ function action(
   const node = event(
     `showcase-action:${id}`,
     visual,
-    { onClick: `showcase-action:${id}`, onMouseEnter: `showcase-hover:action:${id}`, onMouseLeave: `showcase-leave:action:${id}` },
+    {
+      onClick: `showcase-action:${id}`,
+      onRightClick: `showcase-context:action:${id}`,
+      onMouseEnter: `showcase-hover:action:${id}`,
+      onMouseLeave: `showcase-leave:action:${id}`,
+    },
     { label, intent: id, affordances: ['hover', 'click'], cursor: 'pointer' },
   );
   runtime.setVNodeMeta(node, { a11y: { role: 'button', label } });
@@ -338,7 +524,12 @@ function named(name: string, child: VNode): VNode {
 }
 
 function galleryHeader(page: number, subtitle: string): VNode {
-  return row(text(`CURATED UI  ${page + 1}/5`, headingStyle), text(`  ${subtitle}`, mutedStyle));
+  return row(text(`CURATED UI  ${page + 1}/8`, headingStyle), text(`  ${subtitle}`, mutedStyle));
+}
+
+function initialView<Model extends object>(descriptor: { init(): [Model, unknown]; view(model: Model): VNode }, overrides?: Partial<Model>): VNode {
+  const [model] = descriptor.init();
+  return descriptor.view(overrides ? { ...model, ...overrides } : model);
 }
 
 export function renderComponentGallery(components: ShowcaseComponents, model: CelestialShowcaseModel): VNode {
@@ -363,16 +554,59 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
       );
     case 1:
       return column(
-        galleryHeader(1, 'Navigation - 4 builders'),
+        galleryHeader(1, 'Grouped and assisted inputs - 7 builders'),
+        row(
+          named('checkboxGroup()', initialView(components.checkboxGroupComponent)),
+          text('    '),
+          named('toggleGroup()', initialView(components.toggleGroupComponent)),
+        ),
+        named(
+          'autocomplete()',
+          initialView(components.autocompleteComponent, { query: 're', suggestions: ['release', 'resize', 'render'], highlighted: 0, open: true }),
+        ),
+        named('combobox()', initialView(components.comboboxComponent)),
+        named('datePicker()', initialView(components.datePickerComponent)),
+        row(
+          named('multiSelect()', initialView(components.multiSelectComponent)),
+          text('    '),
+          named('numberInput()', initialView(components.numberInputComponent)),
+        ),
+      );
+    case 2:
+      return column(
+        galleryHeader(2, 'Specialized form controls - 6 builders'),
+        named('rangeSlider()', initialView(components.rangeSliderComponent)),
+        row(
+          named('rating()', initialView(components.ratingComponent)),
+          text('    '),
+          named('segmentedControl()', initialView(components.segmentedControlComponent)),
+        ),
+        named('tagInput()', initialView(components.tagInputComponent)),
+        named('colorPicker()', initialView(components.colorPickerComponent)),
+        named(
+          'formField()',
+          formField({
+            label: 'Release channel',
+            required: true,
+            child: text('[ preview ]'),
+            success: 'Validated against the public boundary',
+            validationState: 'valid',
+          }),
+        ),
+      );
+    case 3:
+      return column(
+        galleryHeader(3, 'Navigation - 5 builders'),
         named('tabs()', focusable('tabs', 'Navigation tabs', components.tabsComponent.view(model.tabs))),
         named('breadcrumb()', components.breadcrumbComponent.view(model.breadcrumb)),
         named('pagination()', focusable('pagination', 'Pagination control', components.paginationComponent.view(model.pagination))),
         named('commandPalette()', action(model, 'palette', 'Open command palette', 'info')),
+        named('optionListView()', initialView(components.optionListComponent)),
         text('Mouse selects tabs/pages. Arrow keys operate the focused control.', mutedStyle, { wrap: true }),
       );
-    case 2:
+    case 4:
       return column(
-        galleryHeader(2, 'Data structures - 3 builders'),
+        galleryHeader(4, 'Data structures - 3 builders'),
         named('dataTable()', focusable('table', 'Preview contract table', components.tableComponent.view(model.table))),
         row(
           named('tree()', focusable('tree', 'Package tree', components.treeComponent.view(model.tree))),
@@ -380,9 +614,9 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           named('list()', list({ items: ['deterministic runtime', 'semantic components', 'headless receipts'], ordered: true, maxRenderedItems: 3 })),
         ),
       );
-    case 3:
+    case 5:
       return column(
-        galleryHeader(3, 'Display - 5 builders'),
+        galleryHeader(5, 'Display - 5 builders'),
         named('progressBar()', progressBar({ label: 'Preview', value: model.completed.size / 8, width: 24, showPercentage: true })),
         named('spinner()', row(components.spinnerComponent.view({ frame: model.tick }), text(' capability probe', mutedStyle))),
         named(
@@ -398,13 +632,13 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           }),
         ),
         named('divider()', divider({ label: 'Preview boundary', width: 42, tone: 'accent' })),
-        named('emptyState()', emptyState({ title: 'No private dependencies', description: 'The supported demo stays inside the reduced preview.', width: 42 })),
+        named('emptyState()', emptyState({ title: 'No private dependencies', description: 'The supported demo stays inside the focused preview.', width: 42 })),
       );
-    default:
+    case 6:
       return column(
-        galleryHeader(4, 'Feedback and layers - 7 builders'),
+        galleryHeader(6, 'Feedback and layers - 7 builders'),
         row(
-          named('badge()', badge({ label: '27/27 curated', variant: 'success', size: 'sm' }).view({ visible: true })),
+          named('badge()', badge({ label: '44/44 curated', variant: 'success', size: 'sm' }).view({ visible: true })),
           text('    '),
           named(
             'alert()',
@@ -425,5 +659,41 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
         ),
         text('Each layered builder opens as a real stacked surface; Escape always dismisses.', mutedStyle, { wrap: true }),
       );
+    default: {
+      const contextState = contextMenuUpdate(
+        {
+          type: 'ctx-open',
+          x: 0,
+          y: 0,
+          items: [
+            { label: 'Open', shortcut: 'Enter', msg: 'open' },
+            { label: 'Inspect', shortcut: 'I', msg: 'inspect' },
+          ],
+        },
+        createContextMenuState<string>(),
+      );
+      const contextNode = contextMenuView({
+        state: contextState,
+        width: 22,
+        viewport: { cols: Math.max(24, model.cols - 8), rows: Math.max(8, model.rows - 8) },
+        tokens: {
+          background: defaultTheme.colors.surface,
+          border: defaultTheme.colors.border,
+          text: defaultTheme.colors.text,
+          textMuted: defaultTheme.colors.muted,
+          selectedBackground: defaultTheme.states.active.bg ?? defaultTheme.colors.interactive,
+          selectedText: defaultTheme.colors.text,
+          separator: defaultTheme.colors.border,
+          shortcut: defaultTheme.colors.textSoft,
+        },
+      });
+      return column(
+        galleryHeader(7, 'Contextual surfaces - 3 builders'),
+        named('contextMenuView()', contextNode ?? text('Context menu closed', mutedStyle)),
+        named('popover()', initialView(components.popoverComponent, { visible: true, viewportCols: Math.max(36, model.cols - 8) })),
+        named('hovercard()', initialView(components.hovercardComponent, { state: 'open', viewportCols: Math.max(36, model.cols - 8) })),
+        text('Context surfaces expose visible close controls and Escape dismissal contracts.', mutedStyle, { wrap: true }),
+      );
+    }
   }
 }

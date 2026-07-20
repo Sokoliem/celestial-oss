@@ -1,7 +1,8 @@
 import type { Color, SemanticTheme, StatusKind, ThemeInput, TokenContract } from '@celestial/core/corona';
-import { border, style, visualWidth, wrap } from '@celestial/core/corona';
+import { border, style, visualWidth } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, event, flex, layerStack, overlay, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
+import { wrapCellText } from '@celestial/rosetta';
 import { generateFocusGroupId } from './focus-group.js';
 import { statusGlyph, statusIcon } from './status-icon.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
@@ -95,7 +96,7 @@ function measureToast(message: string, level: ToastLevel, width: number): { comp
   const fixedRowWidth = iconWidth + 1 + 1 + visualWidth('[x]');
   const compact = innerWidth - fixedRowWidth < 8;
   const messageWidth = Math.max(1, compact ? innerWidth : innerWidth - fixedRowWidth);
-  const lines = wrap(message, messageWidth).split('\n');
+  const lines = wrapCellText(message, messageWidth);
   return { compact, height: lines.length + (compact ? 3 : 2), lines };
 }
 

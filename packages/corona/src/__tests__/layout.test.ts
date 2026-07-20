@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { joinH, joinV, place, table, wrap } from '../layout.js';
+import { visualWidth } from '../utils.js';
 
 describe('layout', () => {
   describe('joinH', () => {
@@ -191,6 +192,14 @@ describe('layout', () => {
       expect(lines[1]).toBe('supercalif');
       expect(lines[2]).toBe('ragilistic');
       expect(lines[3]).toBe('ok');
+    });
+
+    it('does not divide joined emoji or flags while breaking long tokens', () => {
+      const units = ['👨‍👩‍👧‍👦', '🇺🇸', '👨‍👩‍👧‍👦', '🇨🇦'];
+      const lines = wrap(units.join(''), 4).split('\n');
+
+      expect(lines).toEqual([units.slice(0, 2).join(''), units.slice(2).join('')]);
+      expect(lines.every((line) => visualWidth(line) <= 4)).toBe(true);
     });
 
     it('should not consume visible characters after non-SGR CSI in overlong word break', () => {

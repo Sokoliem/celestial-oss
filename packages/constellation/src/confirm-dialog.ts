@@ -7,9 +7,10 @@
  */
 
 import type { Color, SemanticTheme, StateToken, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { border, style, visualWidth } from '@celestial/core/corona';
+import { border, style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, component, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
+import { measureTextWidth } from '@celestial/rosetta';
 import { generateFocusGroupId } from './focus-group.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
 import { applyState, applyTypography, resolveAnimatedBorderColor, resolveTheme, useTokens } from './theme.js';
@@ -81,6 +82,8 @@ export interface ConfirmDialogModel {
   selectedButton: 'confirm' | 'cancel';
   hoveredButton?: 'confirm' | 'cancel' | null;
   borderTick?: number;
+  viewportCols?: number;
+  viewportRows?: number;
 }
 
 export type ConfirmDialogMsg =
@@ -93,6 +96,7 @@ export type ConfirmDialogMsg =
   | { type: 'open' }
   | { type: 'close' }
   | { type: 'tick' }
+  | { type: 'resize'; cols: number; rows: number }
   | { type: 'panic' }
   | { type: 'noop' };
 
@@ -145,11 +149,13 @@ export function confirmDialog(config: ConfirmDialogConfig): ComponentDescriptor<
         case 'leave-button':
           return [model.hoveredButton === msg.button ? { ...model, hoveredButton: null } : model, Cmd.none()];
         case 'open':
-          return [{ open: true, selectedButton: 'cancel', hoveredButton: null, borderTick: 0 }, Cmd.pushFocusGroup(groupId)];
+          return [{ ...model, open: true, selectedButton: 'cancel', hoveredButton: null, borderTick: 0 }, Cmd.pushFocusGroup(groupId)];
         case 'close':
           return [{ ...model, open: false }, model.open ? Cmd.popFocusGroup() : Cmd.none()];
         case 'tick':
           return model.open ? [{ ...model, borderTick: (model.borderTick ?? 0) + 1 }, Cmd.none()] : [model, Cmd.none()];
+        case 'resize':
+          return [{ ...model, viewportCols: Math.max(1, Math.floor(msg.cols)), viewportRows: Math.max(1, Math.floor(msg.rows)) }, Cmd.none()];
         case 'panic': {
           if (!model.open) return [model, Cmd.none()];
           broadcastSurfacePanic();
@@ -197,21 +203,21 @@ export function confirmDialog(config: ConfirmDialogConfig): ComponentDescriptor<
 
       const cancelButton = event(
         `${groupId}:cancel`,
-        text(`[${cancelLabel}]`, cancelStyle),
+        text(`[${cancelLabel}]`, cancelStyle, { wrap: true }),
         { onClick: cancelTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
         { label: cancelLabel, intent: 'cancel', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'N or Escape' },
       );
       setVNodeMeta(cancelButton, { a11y: { role: 'button', label: cancelLabel } });
       const confirmButton = event(
         `${groupId}:confirm`,
-        text(`[${confirmLabel}]`, confirmStyle),
+        text(`[${confirmLabel}]`, confirmStyle, { wrap: true }),
         { onClick: confirmTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
         { label: confirmLabel, intent: 'confirm', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Y or Enter' },
       );
       setVNodeMeta(confirmButton, { a11y: { role: 'button', label: confirmLabel } });
       const buttonRow = component((context) => {
         const availableWidth = context?.container.cols ?? 46;
-        const horizontalWidth = visualWidth(`[${cancelLabel}]   [${confirmLabel}]`);
+        const horizontalWidth = measureTextWidth(`[${cancelLabel}]   [${confirmLabel}]`);
         return availableWidth >= horizontalWidth ? row(cancelButton, text('   '), confirmButton) : column(cancelButton, confirmButton);
       });
 
@@ -222,7 +228,9 @@ export function confirmDialog(config: ConfirmDialogConfig): ComponentDescriptor<
         style({ padding: 1, background: tokens.bg }),
       );
 
-      const width = Math.max(20, Math.floor(config.width ?? 46));
+      const preferredWidth = Math.max(20, Math.floor(config.width ?? 46));
+      const viewportWidth = model.viewportCols === undefined ? preferredWidth : Math.max(1, model.viewportCols - 2);
+      const width = Math.max(1, Math.min(preferredWidth, viewportWidth));
 
       const borderStyle = style({
         border: border.double,
@@ -262,6 +270,7 @@ export function confirmDialog(config: ConfirmDialogConfig): ComponentDescriptor<
         Sub.key('tab', toggleMsg),
         Sub.key('left', { type: 'select-cancel' }),
         Sub.key('right', { type: 'select-confirm' }),
+        Sub.resize((cols, rows) => ({ type: 'resize', cols, rows })),
         surfaceContractSubs<ConfirmDialogMsg>({ id: groupId, onPanic: { type: 'panic' } }),
         ...(resolveTheme(config).motion.reduceMotion ? [] : [Sub.timer<ConfirmDialogMsg>(160, () => ({ type: 'tick' }))]),
       );

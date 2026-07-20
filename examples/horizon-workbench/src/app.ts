@@ -1,17 +1,4 @@
-import {
-  type AppConfig,
-  Cmd,
-  column,
-  defaultTheme,
-  event,
-  getTerminalSize,
-  row,
-  runtime,
-  style,
-  Sub,
-  text,
-  type VNode,
-} from '@celestial/core';
+import { type AppConfig, Cmd, column, defaultTheme, event, getTerminalSize, row, runtime, style, Sub, text, type VNode } from '@celestial/core';
 import {
   createTabBar,
   createWindowManager,
@@ -48,6 +35,7 @@ export interface HorizonWorkbenchModel {
   cols: number;
   rows: number;
   palette: CommandPaletteModel;
+  lastAction: string;
 }
 
 export type HorizonWorkbenchMsg =
@@ -144,7 +132,10 @@ function pipelineContent(model: HorizonWorkbenchModel): VNode {
   return column(
     row(text('compile  '), badge({ label: 'ready', variant: 'success', size: 'sm' }).view({ visible: true })),
     progressBar({ value: completed, width: 24, label: 'tests' }),
-    row(text('package  '), badge({ label: completed > 0.8 ? 'ready' : 'waiting', variant: completed > 0.8 ? 'success' : 'info', size: 'sm' }).view({ visible: true })),
+    row(
+      text('package  '),
+      badge({ label: completed > 0.8 ? 'ready' : 'waiting', variant: completed > 0.8 ? 'success' : 'info', size: 'sm' }).view({ visible: true }),
+    ),
   );
 }
 
@@ -161,11 +152,19 @@ function workspaceTabContent(model: HorizonWorkbenchModel, workspace: WorkbenchW
           progressBar({ value: 0.58 + (model.tick % 4) / 20, width: 24, label: 'CPU' }),
           progressBar({ value: 0.42 + (model.tick % 3) / 20, width: 24, label: 'heap' }),
         )
-      : column(text('Deterministic event stream', headingStyle), ...Array.from({ length: 6 }, (_, offset) => text(`event ${Math.max(0, model.tick - offset)}: frame committed`)));
+      : column(
+          text('Deterministic event stream', headingStyle),
+          ...Array.from({ length: 6 }, (_, offset) => text(`event ${Math.max(0, model.tick - offset)}: frame committed`)),
+        );
   }
   return index === 0
     ? column(text('M  examples/horizon-workbench/src/app.ts', warningStyle), text('A  responsive workspaces'), text('A  PTY validation'))
-    : column(text('Preview checklist', headingStyle), text('[x] root-only imports', successStyle), text('[x] Escape dismissal', successStyle), text('[x] responsive breakpoints', successStyle));
+    : column(
+        text('Preview checklist', headingStyle),
+        text('[x] root-only imports', successStyle),
+        text('[x] Escape dismissal', successStyle),
+        text('[x] responsive breakpoints', successStyle),
+      );
 }
 
 function tabbedWorkspace(model: HorizonWorkbenchModel): VNode {
@@ -232,6 +231,7 @@ export function createHorizonWorkbenchApp(options: HorizonWorkbenchOptions = {})
     cols: terminalSize.cols,
     rows: terminalSize.rows,
     palette: initialPalette,
+    lastAction: 'Ready.',
   });
 
   return {
@@ -302,16 +302,19 @@ export function createHorizonWorkbenchApp(options: HorizonWorkbenchOptions = {})
           const windows: WindowManager = {
             ...model.windows,
             bounds: { cols: message.cols, rows: message.rows },
-            windows: model.windows.windows.map((window) =>
-              window.mode === 'maximized' ? { ...window, width: message.cols, height: message.rows } : window,
-            ),
+            windows: model.windows.windows.map((window) => (window.mode === 'maximized' ? { ...window, width: message.cols, height: message.rows } : window)),
           };
           return [{ ...model, cols: message.cols, rows: message.rows, windows }, Cmd.none()];
         }
         case 'escape':
-          return model.inspectorOpen ? [{ ...model, inspectorOpen: false, windows: closeInspector(model.windows) }, Cmd.none()] : [model, Cmd.none()];
+          return model.inspectorOpen
+            ? [{ ...model, inspectorOpen: false, windows: closeInspector(model.windows), lastAction: 'Inspector dismissed with Escape.' }, Cmd.none()]
+            : [model, Cmd.none()];
         case 'reset':
-          return [{ ...freshModel(), cols: model.cols, rows: model.rows, windows: createWindowManager([], { cols: model.cols, rows: model.rows }) }, Cmd.none()];
+          return [
+            { ...freshModel(), cols: model.cols, rows: model.rows, windows: createWindowManager([], { cols: model.cols, rows: model.rows }) },
+            Cmd.none(),
+          ];
         case 'quit':
           return [model, Cmd.quit()];
         case 'noop':
@@ -323,12 +326,19 @@ export function createHorizonWorkbenchApp(options: HorizonWorkbenchOptions = {})
       const workspace = activeWorkspace(model);
       const primary = panel({ title: `${workspace.name} workspace`, content: tabbedWorkspace(model), focused: model.focusedPane === 0, fill: true });
       const secondaryContent = model.cols < 120 && model.inspectorOpen ? inspectorContent(model) : activityPane(model);
-      const secondary = panel({ title: model.cols < 120 && model.inspectorOpen ? 'Inspector' : 'Activity', content: secondaryContent, focused: model.focusedPane === 1, fill: true });
+      const secondary = panel({
+        title: model.cols < 120 && model.inspectorOpen ? 'Inspector' : 'Activity',
+        content: secondaryContent,
+        focused: model.focusedPane === 1,
+        fill: true,
+      });
       const split = splitPane({ direction: 'horizontal', ratio: model.ratio, first: primary, second: secondary, minSize: 24 });
       const sidebar = panel({
         title: 'Navigator',
         content: column(
-          ...workspaceDefinitions.map((definition, index) => text(`${index + 1}  ${definition.name}`, definition.id === workspace.id ? actionStyle : undefined)),
+          ...workspaceDefinitions.map((definition, index) =>
+            text(`${index + 1}  ${definition.name}`, definition.id === workspace.id ? actionStyle : undefined),
+          ),
           text(''),
           text('Tab moves focus', mutedStyle),
           text('[ and ] resize', mutedStyle),
@@ -337,14 +347,25 @@ export function createHorizonWorkbenchApp(options: HorizonWorkbenchOptions = {})
       });
       const content = model.cols < 80 ? primary : split;
       const shell = shellLayout({
-        header: column(row(text('Celestial Horizon Workbench', headingStyle), text('  '), badge({ label: 'Horizon beta', variant: 'warning', size: 'sm' }).view({ visible: true })), workspaceBar(model)),
+        header: column(
+          row(
+            text('Celestial Horizon Workbench', headingStyle),
+            text('  '),
+            badge({ label: 'Horizon beta', variant: 'warning', size: 'sm' }).view({ visible: true }),
+          ),
+          workspaceBar(model),
+        ),
         sidebar: model.cols >= 120 ? sidebar : undefined,
         content,
         statusBar: row(
+          text(`${model.lastAction}  `, mutedStyle),
           action('inspector', model.inspectorOpen ? 'Close inspector' : 'Open inspector', 'I'),
           text(' '),
           action('commands', 'Commands', 'Ctrl+P'),
-          text(`  ${model.cols}x${model.rows} | ratio ${Math.round(model.ratio * 100)}% | 1-3 workspace | Tab focus | [/] resize | I inspector | M max | R reset | Q quit`, mutedStyle),
+          text(
+            `  ${model.cols}x${model.rows} | ratio ${Math.round(model.ratio * 100)}% | 1-3 workspace | Tab focus | [/] resize | I inspector | M max | R reset | Q quit`,
+            mutedStyle,
+          ),
         ),
         sidebarRatio: 0.2,
       });

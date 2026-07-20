@@ -49,9 +49,14 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
-    "@celestial/core": "workspace:*"
+    "@celestial/core": "workspace:*",
+    "@celestial/corona": "workspace:*",
+    "@celestial/gravity": "workspace:*",
+    "@celestial/nebula": "workspace:*",
+    "@celestial/rosetta": "workspace:*"
   },
   "devDependencies": {
+    "@celestial/nebula": "workspace:*",
     "@celestial/test": "workspace:*",
     "tsup": "^8.3.0",
     "typescript": "^5.7.0",

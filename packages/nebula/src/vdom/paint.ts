@@ -2,10 +2,11 @@
  * Extracted from ../vdom.ts. Behavior-preserving split.
  */
 
+import { segmentGraphemes } from '@celestial/rosetta';
 import type { Cell, CellGrid } from './cells.js';
 import type { TextNode } from './nodes.js';
 import type { ResolvedStyleAttrs } from './style.js';
-import { charWidth, visualWidth, wrapText } from './visual-width.js';
+import { visualWidth, wrapText } from './visual-width.js';
 
 export function setCellTransparent(grid: CellGrid, row: number, col: number, char: string, style: ResolvedStyleAttrs): void {
   if (row >= 0 && row < grid.height && col >= 0 && col < grid.width) {
@@ -21,40 +22,6 @@ export function setCell(grid: CellGrid, row: number, col: number, char: string, 
     if (href) cell.href = href;
     grid.cells[row]![col] = cell;
   }
-}
-
-function nextDisplayUnit(line: string, start: number): { text: string; nextIndex: number } {
-  let index = start;
-  let unit = '';
-  let prevCodePoint: number | null = null;
-
-  while (index < line.length) {
-    const codePoint = line.codePointAt(index)!;
-    const charLen = codePoint > 0xffff ? 2 : 1;
-    const chunk = line.slice(index, index + charLen);
-
-    if (unit === '') {
-      unit = chunk;
-      index += charLen;
-      prevCodePoint = codePoint;
-      continue;
-    }
-
-    if (codePoint === 0x1b) {
-      break;
-    }
-
-    if (charWidth(codePoint) === 0 || prevCodePoint === 0x200d) {
-      unit += chunk;
-      index += charLen;
-      prevCodePoint = codePoint;
-      continue;
-    }
-
-    break;
-  }
-
-  return { text: unit, nextIndex: index };
 }
 
 export function writeRenderedCell(
@@ -123,9 +90,19 @@ export function parseAnsiLine(line: string, baseStyle: ResolvedStyleAttrs): Arra
       i = j;
       continue;
     }
-    const unit = nextDisplayUnit(line, i);
-    result.push({ char: unit.text, style: { ...currentStyle } });
-    i = unit.nextIndex;
+    const nextEscape = line.indexOf('\x1b', i);
+    const plainEnd = nextEscape === -1 ? line.length : nextEscape;
+    if (plainEnd === i) {
+      // Preserve malformed or unsupported escapes as a zero-width/control
+      // unit while guaranteeing progress through the input.
+      result.push({ char: line[i]!, style: { ...currentStyle } });
+      i++;
+      continue;
+    }
+    for (const grapheme of segmentGraphemes(line.slice(i, plainEnd))) {
+      result.push({ char: grapheme, style: { ...currentStyle } });
+    }
+    i = plainEnd;
   }
 
   return result;

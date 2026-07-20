@@ -49,8 +49,18 @@ export interface ModalModel {
   open: boolean;
   hoveredClose?: boolean;
   borderTick?: number;
+  viewportCols?: number;
+  viewportRows?: number;
 }
-export type ModalMsg = Msg<'close'> | Msg<'open'> | Msg<'hover-close'> | Msg<'leave-close'> | Msg<'tick'> | Msg<'panic'> | Msg<'noop'>;
+export type ModalMsg =
+  | Msg<'close'>
+  | Msg<'open'>
+  | Msg<'hover-close'>
+  | Msg<'leave-close'>
+  | Msg<'tick'>
+  | Msg<'resize', { cols: number; rows: number }>
+  | Msg<'panic'>
+  | Msg<'noop'>;
 
 export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, ModalMsg> {
   const slug = config.title.replace(/\s+/g, '-').toLowerCase() || 'modal';
@@ -72,15 +82,17 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
           } catch {
             // best-effort; never let a host onClose strand the surface
           }
-          return [{ open: false }, Cmd.popFocusGroup()];
+          return [{ ...model, open: false, hoveredClose: false }, Cmd.popFocusGroup()];
         case 'open':
-          return [{ open: true, hoveredClose: false, borderTick: 0 }, Cmd.pushFocusGroup(groupId)];
+          return [{ ...model, open: true, hoveredClose: false, borderTick: 0 }, Cmd.pushFocusGroup(groupId)];
         case 'hover-close':
           return [{ ...model, hoveredClose: true }, Cmd.none()];
         case 'leave-close':
           return [{ ...model, hoveredClose: false }, Cmd.none()];
         case 'tick':
           return model.open ? [{ ...model, borderTick: (model.borderTick ?? 0) + 1 }, Cmd.none()] : [model, Cmd.none()];
+        case 'resize':
+          return [{ ...model, viewportCols: Math.max(1, Math.floor(msg.cols)), viewportRows: Math.max(1, Math.floor(msg.rows)) }, Cmd.none()];
         case 'panic':
           if (!model.open) return [model, Cmd.none()];
           // Fan out to other registered surfaces before closing self.
@@ -90,7 +102,7 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
           } catch {
             // best-effort
           }
-          return [{ open: false }, Cmd.popFocusGroup()];
+          return [{ ...model, open: false, hoveredClose: false }, Cmd.popFocusGroup()];
         case 'noop':
           return [model, Cmd.none()];
       }
@@ -99,7 +111,12 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
       if (!model.open) return text('');
       const tokens = useTokens(modalContract, config, 'Modal');
       const theme = resolveTheme(config);
-      const width = Math.max(32, Math.floor(config.width ?? 52));
+      const preferredWidth = Math.max(32, Math.floor(config.width ?? 52));
+      const viewportWidth = model.viewportCols === undefined ? preferredWidth : Math.max(1, model.viewportCols - 2);
+      const width = Math.max(1, Math.min(preferredWidth, viewportWidth));
+      const preferredHeight = config.height === undefined ? undefined : Math.max(1, Math.floor(config.height));
+      const viewportHeight = model.viewportRows === undefined ? preferredHeight : Math.max(1, model.viewportRows - 2);
+      const height = preferredHeight === undefined ? undefined : Math.max(1, Math.min(preferredHeight, viewportHeight ?? preferredHeight));
       const borderColor = resolveAnimatedBorderColor(theme, theme.colors.borderHover, tokens.border, model.borderTick ?? 0);
       const titleStyle = applyTypography(tokens.titleStyle, { color: tokens.title });
       const hintStyle = applyTypography(tokens.hintStyle, { color: tokens.hint });
@@ -124,7 +141,7 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
         style({ padding: 1, background: tokens.bg }),
       );
 
-      const node = box(modalContent, borderStyle, { width, height: config.height, fit: 'content' });
+      const node = box(modalContent, borderStyle, { width, height, fit: 'content' });
       setVNodeMeta(node, {
         testId: `modal-${slug}`,
         a11y: { role: 'dialog', label: config.title },
@@ -145,6 +162,7 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
                 : { type: 'noop' },
         ),
         Sub.key('escape', { type: 'close' }),
+        Sub.resize((cols, rows) => ({ type: 'resize', cols, rows })),
         surfaceContractSubs<ModalMsg>({ id: groupId, onPanic: { type: 'panic' } }),
       ];
       if (!theme.motion.reduceMotion) {

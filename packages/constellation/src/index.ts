@@ -53,16 +53,73 @@ export type { TextInputConfig, TextInputModel, TextInputMsg, TextInputTokens } f
 export { textInput, textInputContract } from './text-input.js';
 export type { TextareaConfig, TextareaModel, TextareaMsg, TextareaTokens } from './textarea.js';
 export { textarea, textareaContract } from './textarea.js';
-export type { CheckboxConfig, CheckboxModel, CheckboxMsg, CheckboxTokens } from './checkbox.js';
-export { checkbox, checkboxContract } from './checkbox.js';
+export type {
+  CheckboxConfig,
+  CheckboxGroupConfig,
+  CheckboxGroupModel,
+  CheckboxGroupMsg,
+  CheckboxGroupOption,
+  CheckboxModel,
+  CheckboxMsg,
+  CheckboxTokens,
+} from './checkbox.js';
+export { checkbox, checkboxContract, checkboxGroup } from './checkbox.js';
 export type { RadioGroupConfig, RadioGroupModel, RadioGroupMsg, RadioOption, RadioTokens } from './radio.js';
 export { radioContract, radioGroup } from './radio.js';
 export type { SelectConfig, SelectDisplay, SelectModel, SelectMsg, SelectOption, SelectTokens } from './select.js';
 export { select, selectContract } from './select.js';
-export type { ToggleConfig, ToggleModel, ToggleMsg, ToggleTokens } from './toggle.js';
-export { toggle, toggleContract } from './toggle.js';
+export type { ToggleConfig, ToggleGroupConfig, ToggleGroupModel, ToggleGroupMsg, ToggleModel, ToggleMsg, ToggleTokens } from './toggle.js';
+export { toggle, toggleContract, toggleGroup } from './toggle.js';
 export type { SliderConfig, SliderModel, SliderMsg, SliderTokens } from './slider.js';
 export { slider, sliderContract } from './slider.js';
+export type { AutocompleteConfig, AutocompleteModel, AutocompleteMsg, AutocompleteTokens } from './autocomplete.js';
+export { autocomplete, autocompleteContract } from './autocomplete.js';
+export type { ComboboxConfig, ComboboxModel, ComboboxMsg, ComboboxOption, ComboboxTokens } from './combobox.js';
+export { combobox, comboboxContract } from './combobox.js';
+export type { DatePickerConfig, DatePickerModel, DatePickerMsg, DatePickerTokens, SimpleDate } from './date-picker.js';
+export { datePicker, datePickerContract, daysInMonth, firstDayOfMonth, getToday, isSameDay } from './date-picker.js';
+export type { MultiSelectConfig, MultiSelectModel, MultiSelectMsg, MultiSelectOption, MultiSelectTokens } from './multi-select.js';
+export { multiSelect, multiSelectContract } from './multi-select.js';
+export type { NumberInputConfig, NumberInputModel, NumberInputMsg, NumberInputTokens } from './number-input.js';
+export { numberInput, numberInputContract } from './number-input.js';
+export type { RangeSliderConfig, RangeSliderModel, RangeSliderMsg, RangeSliderTokens } from './range-slider.js';
+export { rangeSlider, rangeSliderContract, rangeSliderDragTest, rangeSliderHitTest } from './range-slider.js';
+export type { RatingConfig, RatingModel, RatingMsg, RatingTokens } from './rating.js';
+export { rating, ratingContract } from './rating.js';
+export type { SegmentedControlConfig, SegmentedControlModel, SegmentedControlMsg, SegmentedControlTokens } from './segmented-control.js';
+export { segmentedControl, segmentedControlContract, segmentedControlHitTest } from './segmented-control.js';
+export type { TagInputConfig, TagInputModel, TagInputMsg, TagInputTokens } from './tag-input.js';
+export { tagInput, tagInputContract, tagInputHitTest } from './tag-input.js';
+export type {
+  ColorPickerBounds,
+  ColorPickerConfig,
+  ColorPickerField,
+  ColorPickerHelpInfo,
+  ColorPickerHit,
+  ColorPickerHoverTarget,
+  ColorPickerLayout,
+  ColorPickerModel,
+  ColorPickerMsg,
+  ColorPickerSliderField,
+  ColorPickerTokens,
+  HSL,
+  RGB,
+} from './color-picker.js';
+export {
+  colorPicker,
+  colorPickerContract,
+  getColorPickerHelp,
+  getColorPickerHelpWithLabels,
+  getColorPickerHit,
+  getColorPickerLayout,
+  getColorPickerSliderValue,
+  hexToRgb,
+  hslToRgb,
+  rgbToHex,
+  rgbToHsl,
+} from './color-picker.js';
+export type { FormFieldConfig, FormFieldTokens } from './form-field.js';
+export { formField, formFieldContract } from './form-field.js';
 
 // Navigation
 export type { TabsConfig, TabsModel, TabsMsg, TabsTokens } from './tabs.js';
@@ -81,6 +138,8 @@ export type {
 } from './command-palette.js';
 export { commandPalette, commandPaletteContract } from './command-palette.js';
 export type { Command } from './palette.js';
+export type { OptionListConfig, OptionListFilter, OptionListItem, OptionListModel, OptionListMsg, OptionListTokens } from './option-list-view.js';
+export { filterByFuzzy, filterByLabel, optionListContract, optionListView } from './option-list-view.js';
 
 // Data and display
 export type { DataColumn, DataTableConfig, DataTableModel, DataTableMsg, DataTableTokens, SortState } from './data-table.js';
@@ -145,3 +204,11 @@ export type { ConfirmDialogConfig, ConfirmDialogModel, ConfirmDialogMsg, Confirm
 export { confirmDialog, confirmDialogContract } from './confirm-dialog.js';
 export type { DrawerBackdrop, DrawerConfig, DrawerModel, DrawerMsg, DrawerPosition, DrawerTokens, DrawerVariant } from './drawer.js';
 export { drawer, drawerContract } from './drawer.js';
+export type { ContextMenuMsg, ContextMenuState, MenuItem, SubmenuStackEntry } from './context-menu.js';
+export { contextMenuUpdate, createContextMenuState, getActiveItems, getSelectedItem } from './context-menu.js';
+export type { ContextMenuLayout, ContextMenuLayoutOptions, ContextMenuViewOptions, ContextMenuViewTokens, MeasureContextMenuItemWidthOptions } from './context-menu-view.js';
+export { contextMenuView, measureContextMenuItemWidth, measureContextMenuLayout } from './context-menu-view.js';
+export type { PopoverConfig, PopoverGroupConfig, PopoverModel, PopoverMsg, PopoverPosition, PopoverTokens, PopoverVariant } from './popover.js';
+export { popover, popoverContract, popoverGroup } from './popover.js';
+export type { HovercardConfig, HovercardModel, HovercardMsg } from './hovercard.js';
+export { hovercard } from './hovercard.js';

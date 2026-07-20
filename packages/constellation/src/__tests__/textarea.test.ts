@@ -664,7 +664,7 @@ describe('textarea', () => {
 
   // ─── subscriptions ──────────────────────────────────────────────────────
 
-  it('subscriptions: returns key subs when focused', () => {
+  it('subscriptions: returns Unicode key and paste subscriptions when focused', () => {
     const component = textarea({});
     const model = {
       lines: [''],
@@ -681,24 +681,8 @@ describe('textarea', () => {
     expect(kind.kind).toBe('batch');
     if (kind.kind !== 'batch') return;
 
-    // Should have printable chars + navigation keys
-    const keyBindings = kind.subs.flatMap((entry) => {
-      const entryKind = subKind(entry);
-      if (entryKind.kind !== 'key') return [];
-      return [entryKind.key];
-    });
-
-    expect(keyBindings).toContain('up');
-    expect(keyBindings).toContain('down');
-    expect(keyBindings).toContain('left');
-    expect(keyBindings).toContain('right');
-    expect(keyBindings).toContain('backspace');
-    expect(keyBindings).toContain('delete');
-    expect(keyBindings).toContain('home');
-    expect(keyBindings).toContain('end');
-    expect(keyBindings).toContain('enter');
-    expect(keyBindings).toContain('pageup');
-    expect(keyBindings).toContain('pagedown');
+    expect(kind.subs.some((entry) => subKind(entry).kind === 'keyEvent')).toBe(true);
+    expect(kind.subs.some((entry) => subKind(entry).kind === 'paste')).toBe(true);
   });
 
   it('subscriptions: keeps pointer focus and hover active when not focused', () => {
@@ -717,7 +701,7 @@ describe('textarea', () => {
     expect(kind.kind).toBe('elementMouse');
   });
 
-  it('subscriptions: includes ctrl+enter for submit', () => {
+  it('subscriptions: maps ctrl+enter to submit', () => {
     const component = textarea({});
     const model = {
       lines: [''],
@@ -731,11 +715,17 @@ describe('textarea', () => {
     const kind = subKind(sub);
     if (kind.kind !== 'batch') return;
 
-    const ctrlEnter = kind.subs.find((entry) => {
+    const keyEvent = kind.subs.find((entry) => {
       const entryKind = subKind(entry);
-      return entryKind.kind === 'keyWithModifiers' && entryKind.key === 'enter' && entryKind.modifiers.ctrl === true;
+      return entryKind.kind === 'keyEvent';
     });
-    expect(ctrlEnter).toBeDefined();
+    expect(keyEvent).toBeDefined();
+    if (keyEvent) {
+      const entryKind = subKind(keyEvent);
+      if (entryKind.kind === 'keyEvent') {
+        expect(entryKind.toMsg({ key: 'enter', ctrl: true, alt: false, shift: false })).toEqual({ type: 'key', event: { key: 'enter', ctrl: true, alt: false, shift: false } });
+      }
+    }
   });
 
   // ─── getValue helper ─────────────────────────────────────────────────────

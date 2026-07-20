@@ -15,9 +15,9 @@
  * Phase 3 of the constellation primitive-hardening PRD (N2).
  */
 
-import type { Color, SemanticTheme, ThemeInput, TokenContract } from '@celestial/core/corona';
-import { style } from '@celestial/core/corona';
-import { Cmd, column, type Msg, row, Sub, type ThemeContext, text, type VNode } from '@celestial/core/nebula';
+import type { Color, SemanticTheme, ThemeInput, TokenContract } from '@celestial/corona';
+import { style } from '@celestial/corona';
+import { Cmd, column, type Msg, row, Sub, type ThemeContext, text, type VNode } from '@celestial/nebula';
 import { resolveTheme, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
