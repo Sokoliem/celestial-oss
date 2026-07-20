@@ -307,6 +307,78 @@ describe('phase runtime ownership', () => {
     handle.stop();
   });
 
+  it('uses the latest phase mapper and filter without restarting the service', async () => {
+    const { state, app, Cmd, Sub } = await loadRuntime();
+    const testRegistry = createTestRegistry();
+    const machineRef = { id: 'latest' };
+    const entry = new FakeMachineEntry(machineRef);
+    testRegistry.set('phase-1', entry);
+    const received: string[] = [];
+
+    type Msg = { type: 'advance' } | { type: 'phase'; value: string };
+    const handle = app<{ version: number }, Msg>({
+      init: () => [{ version: 0 }, Cmd.none()],
+      update: (message, model) => {
+        if (message.type === 'advance') return [{ version: 1 }, Cmd.none()];
+        received.push(message.value);
+        return [model, Cmd.none()];
+      },
+      view: () => ({ kind: 'text', content: 'ok' }),
+      subscriptions: (model) =>
+        Sub.batch(
+          Sub.key('a', { type: 'advance' as const }),
+          Sub.phase<Msg>({
+            id: 'phase-1',
+            registry: testRegistry.registry,
+            machineRef,
+            filter: (phaseState) => (phaseState as { minimum: number }).minimum <= model.version,
+            toMsg: (phaseState) => ({ type: 'phase', value: `${model.version}:${String((phaseState as { value: string }).value)}` }),
+          }),
+        ),
+    });
+
+    entry.emit({ value: 'blocked', minimum: 1 });
+    state.inputHandler?.(Buffer.from('a'));
+    entry.emit({ value: 'accepted', minimum: 1 });
+
+    expect(received).toEqual(['1:accepted']);
+    expect(entry.startCalls).toBe(1);
+    expect(entry.unsubscribeCalls).toBe(0);
+    handle.stop();
+  });
+
+  it('re-subscribes when the registry replaces an entry under the same machine reference', async () => {
+    const { state, app, Cmd, Sub } = await loadRuntime();
+    const testRegistry = createTestRegistry();
+    const machineRef = { id: 'stable-ref' };
+    const firstEntry = new FakeMachineEntry(machineRef);
+    const secondEntry = new FakeMachineEntry(machineRef);
+    testRegistry.set('phase-1', firstEntry);
+
+    type Msg = { type: 'replace' } | { type: 'phase' };
+    const handle = app<{}, Msg>({
+      init: () => [{}, Cmd.none()],
+      update: (message, model) => {
+        if (message.type === 'replace') testRegistry.set('phase-1', secondEntry);
+        return [model, Cmd.none()];
+      },
+      view: () => ({ kind: 'text', content: 'ok' }),
+      subscriptions: () =>
+        Sub.batch(
+          Sub.key('r', { type: 'replace' as const }),
+          Sub.phase<Msg>({ id: 'phase-1', registry: testRegistry.registry, machineRef, toMsg: () => ({ type: 'phase' }) }),
+        ),
+    });
+
+    state.inputHandler?.(Buffer.from('r'));
+
+    expect(firstEntry.stopCalls).toBe(1);
+    expect(firstEntry.unsubscribeCalls).toBe(1);
+    expect(secondEntry.startCalls).toBe(1);
+    expect(secondEntry.listenerCount()).toBe(1);
+    handle.stop();
+  });
+
   it('cleans up active phase services on shutdown', async () => {
     const { app, Cmd, Sub } = await loadRuntime();
     const testRegistry = createTestRegistry();

@@ -6,7 +6,7 @@
  * and focus groups (traps) for modal-style navigation.
  */
 
-import type { EchoHint, VNode } from './vdom.js';
+import { type EchoHint, resolveMemo, type VNode } from './vdom.js';
 
 // --- Focus State ---
 
@@ -98,7 +98,7 @@ function walkTree(node: VNode, acc: FocusNodeInfo[]): void {
       break;
     case 'memo':
       // Memo nodes resolve lazily; walk the render result
-      walkTree(node.render(), acc);
+      walkTree(resolveMemo(node), acc);
       break;
     case 'suspense':
       // Only walk the active branch

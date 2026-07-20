@@ -2,27 +2,27 @@ import type { AgentEvent, RetryPolicy, TransportConfig } from '../agent-types.js
 import type { MachineRegistry } from '../machine-registry.js';
 import { type StreamSource, type Sub, subKind } from '../types.js';
 import type { RuntimeContext } from './runtime-context.js';
-import { applySubMap } from './sub-map.js';
+import { walkSubscriptionLeaves } from './subscription-walk.js';
 
-export interface AgentSub<M> {
+export interface AgentSub {
   id: string;
   transport: TransportConfig;
-  toMsg: (event: AgentEvent) => M;
+  handle: (event: AgentEvent) => void;
   retryPolicy?: RetryPolicy;
 }
 
-export interface PhaseSub<M> {
+export interface PhaseSub {
   id: string;
   registry: MachineRegistry;
   machineRef: unknown;
-  toMsg: (state: unknown, prev: unknown | null) => M;
-  filter?: (state: unknown) => boolean;
+  handle: (state: unknown, prev: unknown | null) => boolean;
 }
 
-export interface StreamSub<M> {
+export interface StreamSub {
   id: string;
   setup: () => StreamSource;
-  toMsg: (data: unknown) => M;
+  handle: (data: unknown) => void;
+  restartKey?: string | number;
 }
 
 export function hasPasteSub<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>): boolean {
@@ -33,7 +33,7 @@ export function hasPasteSub<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>
     case 'batch':
       return kind.subs.some((s) => hasPasteSub(ctx, s));
     case 'map':
-      return hasPasteSub(ctx, applySubMap(kind.sub, kind.fn));
+      return hasPasteSub(ctx, kind.sub as Sub<M>);
     case 'debounce':
     case 'throttle':
     case 'filter':
@@ -53,7 +53,7 @@ export function hasMouseSub<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>
     case 'batch':
       return kind.subs.some((s) => hasMouseSub(ctx, s));
     case 'map':
-      return hasMouseSub(ctx, applySubMap(kind.sub, kind.fn));
+      return hasMouseSub(ctx, kind.sub as Sub<M>);
     case 'debounce':
     case 'throttle':
     case 'filter':
@@ -72,7 +72,7 @@ export function hasResizeSub<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M
     case 'batch':
       return kind.subs.some((s) => hasResizeSub(ctx, s));
     case 'map':
-      return hasResizeSub(ctx, applySubMap(kind.sub, kind.fn));
+      return hasResizeSub(ctx, kind.sub as Sub<M>);
     case 'debounce':
     case 'throttle':
     case 'filter':
@@ -91,7 +91,7 @@ export function hasWindowFocusSub<Model, M>(ctx: RuntimeContext<Model, M>, sub: 
     case 'batch':
       return kind.subs.some((s) => hasWindowFocusSub(ctx, s));
     case 'map':
-      return hasWindowFocusSub(ctx, applySubMap(kind.sub, kind.fn));
+      return hasWindowFocusSub(ctx, kind.sub as Sub<M>);
     case 'debounce':
     case 'throttle':
     case 'filter':
@@ -102,78 +102,87 @@ export function hasWindowFocusSub<Model, M>(ctx: RuntimeContext<Model, M>, sub: 
   }
 }
 
-export function collectIdleSubs<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>): Array<{ ms: number; msg: M }> {
-  const kind = subKind(sub);
-  switch (kind.kind) {
-    case 'idle':
-      return [{ ms: kind.ms, msg: kind.msg }];
-    case 'batch':
-      return kind.subs.flatMap((s) => collectIdleSubs(ctx, s));
-    case 'map':
-      return collectIdleSubs(ctx, applySubMap(kind.sub, kind.fn));
-    case 'debounce':
-    case 'throttle':
-    case 'filter':
-    case 'distinct':
-      return collectIdleSubs(ctx, ctx.combinatorInnerSub(kind));
-    default:
-      return [];
-  }
+export function collectIdleSubs<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>): Array<{ ms: number; fire: () => void }> {
+  const result: Array<{ ms: number; fire: () => void }> = [];
+  walkSubscriptionLeaves(ctx, sub, 'subscriptions', (kind, emit) => {
+    if (kind.kind === 'idle') {
+      result.push({
+        ms: kind.ms,
+        fire: () => {
+          try {
+            emit(kind.msg);
+          } catch (error: unknown) {
+            ctx.notifyRenderError(error);
+          }
+        },
+      });
+    }
+  });
+  return result;
 }
 
-export function collectAgentSubs<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>): AgentSub<M>[] {
-  const kind = subKind(sub);
-  switch (kind.kind) {
-    case 'agent':
-      return [{ id: kind.id, transport: kind.transport, toMsg: kind.toMsg, retryPolicy: kind.retryPolicy }];
-    case 'batch':
-      return kind.subs.flatMap((s) => collectAgentSubs(ctx, s));
-    case 'map':
-      return collectAgentSubs(ctx, applySubMap(kind.sub, kind.fn));
-    case 'debounce':
-    case 'throttle':
-    case 'filter':
-    case 'distinct':
-      return collectAgentSubs(ctx, ctx.combinatorInnerSub(kind));
-    default:
-      return [];
-  }
+export function collectAgentSubs<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>): AgentSub[] {
+  const result: AgentSub[] = [];
+  walkSubscriptionLeaves(ctx, sub, 'subscriptions', (kind, emit) => {
+    if (kind.kind === 'agent') {
+      result.push({
+        id: kind.id,
+        transport: kind.transport,
+        retryPolicy: kind.retryPolicy,
+        handle: (event) => {
+          try {
+            emit(kind.toMsg(event));
+          } catch (error: unknown) {
+            ctx.notifyRenderError(error);
+          }
+        },
+      });
+    }
+  });
+  return result;
 }
 
-export function collectPhaseSubs<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>): PhaseSub<M>[] {
-  const kind = subKind(sub);
-  switch (kind.kind) {
-    case 'phase':
-      return [{ id: kind.id, registry: kind.registry, machineRef: kind.machineRef, toMsg: kind.toMsg, filter: kind.filter }];
-    case 'batch':
-      return kind.subs.flatMap((s) => collectPhaseSubs(ctx, s));
-    case 'map':
-      return collectPhaseSubs(ctx, applySubMap(kind.sub, kind.fn));
-    case 'debounce':
-    case 'throttle':
-    case 'filter':
-    case 'distinct':
-      return collectPhaseSubs(ctx, ctx.combinatorInnerSub(kind));
-    default:
-      return [];
-  }
+export function collectPhaseSubs<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>): PhaseSub[] {
+  const result: PhaseSub[] = [];
+  walkSubscriptionLeaves(ctx, sub, 'subscriptions', (kind, emit) => {
+    if (kind.kind === 'phase') {
+      result.push({
+        id: kind.id,
+        registry: kind.registry,
+        machineRef: kind.machineRef,
+        handle: (state, prev) => {
+          try {
+            if (kind.filter && !kind.filter(state)) return false;
+            emit(kind.toMsg(state, prev));
+            return true;
+          } catch (error: unknown) {
+            ctx.notifyRenderError(error);
+            return false;
+          }
+        },
+      });
+    }
+  });
+  return result;
 }
 
-export function collectStreamSubs<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>): StreamSub<M>[] {
-  const kind = subKind(sub);
-  switch (kind.kind) {
-    case 'stream':
-      return [{ id: kind.id, setup: kind.setup, toMsg: kind.toMsg }];
-    case 'batch':
-      return kind.subs.flatMap((s) => collectStreamSubs(ctx, s));
-    case 'map':
-      return collectStreamSubs(ctx, applySubMap(kind.sub, kind.fn));
-    case 'debounce':
-    case 'throttle':
-    case 'filter':
-    case 'distinct':
-      return collectStreamSubs(ctx, ctx.combinatorInnerSub(kind));
-    default:
-      return [];
-  }
+export function collectStreamSubs<Model, M>(ctx: RuntimeContext<Model, M>, sub: Sub<M>): StreamSub[] {
+  const result: StreamSub[] = [];
+  walkSubscriptionLeaves(ctx, sub, 'subscriptions', (kind, emit) => {
+    if (kind.kind === 'stream') {
+      result.push({
+        id: kind.id,
+        setup: kind.setup,
+        restartKey: kind.restartKey,
+        handle: (data) => {
+          try {
+            emit(kind.toMsg(data));
+          } catch (error: unknown) {
+            ctx.notifyRenderError(error);
+          }
+        },
+      });
+    }
+  });
+  return result;
 }

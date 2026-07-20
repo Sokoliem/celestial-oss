@@ -96,7 +96,11 @@ export function buildFastEchoPatches(
   if (event.ctrl || event.alt) return null;
   // Fast echo patches one terminal cell per character. Defer Unicode,
   // combining, wide, and multi-cell input to the normal grapheme-aware render.
-  if (!/^[\x20-\x7e]*$/.test(hint.value) || (event.char !== undefined && !/^[\x20-\x7e]$/.test(event.char)) || (hint.mask && !/^[\x20-\x7e]$/.test(hint.mask))) {
+  if (
+    !/^[\x20-\x7e]*$/.test(hint.value) ||
+    (event.char !== undefined && !/^[\x20-\x7e]$/.test(event.char)) ||
+    (hint.mask && !/^[\x20-\x7e]$/.test(hint.mask))
+  ) {
     return null;
   }
 

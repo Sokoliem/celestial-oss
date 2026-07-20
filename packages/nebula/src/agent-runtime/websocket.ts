@@ -1,11 +1,19 @@
 import type { WebSocketTransportConfig } from '../agent-types.js';
-import type { AgentTransport, CloseEvent } from './contracts.js';
+import { type AgentTransport, type CloseEvent, MAX_AGENT_MESSAGE_BYTES } from './contracts.js';
 
 export function createWebSocketTransport(config: WebSocketTransportConfig): AgentTransport {
+  const parsedUrl = new URL(config.url);
+  if ((parsedUrl.protocol !== 'ws:' && parsedUrl.protocol !== 'wss:') || parsedUrl.username || parsedUrl.password) {
+    throw new Error('WebSocket URL must be a ws(s) URL without embedded credentials');
+  }
   const reconnect = config.reconnect ?? true;
   const reconnectInterval = config.reconnectInterval ?? 3000;
+  if (!Number.isFinite(reconnectInterval) || reconnectInterval < 0) {
+    throw new RangeError('WebSocket reconnectInterval must be a finite, non-negative number');
+  }
 
   let socket: WebSocket | null = null;
+  let connectPromise: Promise<void> | null = null;
   let disconnectedByUser = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -30,7 +38,7 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Agen
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       if (disconnectedByUser) return;
-      void connectSocket().catch((error) => {
+      void connect().catch((error) => {
         emitError(error instanceof Error ? error : new Error(String(error)));
         if (!disconnectedByUser && reconnect) scheduleReconnect();
       });
@@ -47,29 +55,55 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Agen
 
       const ws = new WebSocketCtor(config.url);
       socket = ws;
+      let opened = false;
+      let settled = false;
 
       const onOpen = () => {
+        if (socket !== ws || disconnectedByUser) {
+          ws.close();
+          return;
+        }
+        opened = true;
+        settled = true;
         if (config.auth) ws.send(config.auth);
         resolve();
       };
 
       const onMessage = (event: MessageEvent) => {
         if (typeof event.data === 'string') {
-          emitMessage(event.data);
+          if (Buffer.byteLength(event.data, 'utf8') <= MAX_AGENT_MESSAGE_BYTES) emitMessage(event.data);
+          else emitError(new Error(`WebSocket message exceeded ${MAX_AGENT_MESSAGE_BYTES} bytes`));
         } else if (event.data instanceof ArrayBuffer) {
-          emitMessage(Buffer.from(event.data).toString('utf8'));
+          if (event.data.byteLength <= MAX_AGENT_MESSAGE_BYTES) emitMessage(Buffer.from(event.data).toString('utf8'));
+          else emitError(new Error(`WebSocket message exceeded ${MAX_AGENT_MESSAGE_BYTES} bytes`));
+        } else if (typeof Blob !== 'undefined' && event.data instanceof Blob) {
+          if (event.data.size > MAX_AGENT_MESSAGE_BYTES) {
+            emitError(new Error(`WebSocket message exceeded ${MAX_AGENT_MESSAGE_BYTES} bytes`));
+          } else {
+            void event.data.text().then(emitMessage, (error: unknown) => emitError(error instanceof Error ? error : new Error(String(error))));
+          }
         }
       };
 
       const onError = () => {
-        reject(new Error('WebSocket connection failed'));
+        const error = new Error('WebSocket connection failed');
+        if (!settled) {
+          settled = true;
+          reject(error);
+        } else {
+          emitError(error);
+        }
       };
 
       const onClose = (event: CloseEvent) => {
         if (socket === ws) socket = null;
+        if (!settled) {
+          settled = true;
+          reject(new Error(event.reason || `WebSocket closed before opening (${event.code})`));
+        }
         if (!disconnectedByUser) {
-          emitClose(event.reason || `WebSocket closed (${event.code})`);
-          if (reconnect) scheduleReconnect();
+          if (opened) emitClose(event.reason || `WebSocket closed (${event.code})`);
+          if (opened && reconnect) scheduleReconnect();
         }
       };
 
@@ -80,18 +114,27 @@ export function createWebSocketTransport(config: WebSocketTransportConfig): Agen
     });
   }
 
+  function connect(): Promise<void> {
+    if (socket?.readyState === 1) return Promise.resolve();
+    if (connectPromise) return connectPromise;
+    disconnectedByUser = false;
+    const attempt = connectSocket();
+    connectPromise = attempt.finally(() => {
+      connectPromise = null;
+    });
+    return connectPromise;
+  }
+
   return {
     get connected() {
-      return socket?.readyState === WebSocket.OPEN;
+      return socket?.readyState === 1;
     },
-    connect() {
-      disconnectedByUser = false;
-      return connectSocket();
-    },
+    connect,
     send(message: string) {
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        emitError(new Error('Cannot send: transport is not connected'));
-        return;
+      if (!socket || socket.readyState !== 1) {
+        const error = new Error('Cannot send: transport is not connected');
+        emitError(error);
+        throw error;
       }
       socket.send(message);
     },

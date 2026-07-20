@@ -298,6 +298,32 @@ describe('bracketed paste in app runtime', () => {
     handle.stop();
   });
 
+  it('removes a timed-out clipboard request before a later request is queued', async () => {
+    const terminal = createMockTerminal();
+    const received: string[] = [];
+    type Msg = { type: 'timeout' } | { type: 'clipboard'; result: Result<string, Error> };
+    const request = () => ClipboardCmd.requestPaste<Msg>((result) => ({ type: 'clipboard', result }));
+    const handle = app<{}, Msg>(
+      {
+        init: () => [{}, Cmd.timeout(request(), 5, { type: 'timeout' })],
+        update: (message, model) => {
+          if (message.type === 'timeout') return [model, request()];
+          if (message.result.ok) received.push(message.result.value);
+          return [model, Cmd.none()];
+        },
+        view: () => text('test'),
+        subscriptions: () => Sub.none(),
+      },
+      { terminal },
+    );
+
+    await vi.waitFor(() => expect(terminal.written.filter((value) => value === osc52PasteRequest())).toHaveLength(2));
+    const encoded = Buffer.from('second request', 'utf8').toString('base64');
+    terminal.simulateInput(`\x1b]52;c;${encoded}\x07`);
+    await vi.waitFor(() => expect(received).toEqual(['second request']));
+    handle.stop();
+  });
+
   it('delivers multiple clipboard requests in response order', async () => {
     const terminal = createMockTerminal();
     const received: string[] = [];

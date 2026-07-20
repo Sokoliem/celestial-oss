@@ -1,12 +1,14 @@
 import { type ChildProcess, spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import type { StdioTransportConfig } from '../agent-types.js';
-import type { AgentTransport } from './contracts.js';
+import { type AgentTransport, MAX_AGENT_MESSAGE_BYTES } from './contracts.js';
 import { killProcessTree, splitLines } from './utils.js';
 
 export function createStdioTransport(config: StdioTransportConfig): AgentTransport {
   let child: ChildProcess | null = null;
   let isConnected = false;
   let stdoutBuffer = '';
+  let stdoutDecoder = new StringDecoder('utf8');
 
   const messageHandlers: Array<(message: string) => void> = [];
   const closeHandlers: Array<(reason?: string) => void> = [];
@@ -60,11 +62,25 @@ export function createStdioTransport(config: StdioTransportConfig): AgentTranspo
         });
 
         child.stdout?.on('data', (chunk: Buffer) => {
-          stdoutBuffer += chunk.toString('utf8');
+          stdoutBuffer += stdoutDecoder.write(chunk);
           const [lines, remainder] = splitLines(stdoutBuffer);
           stdoutBuffer = remainder;
+          if (Buffer.byteLength(stdoutBuffer, 'utf8') > MAX_AGENT_MESSAGE_BYTES) {
+            const error = new Error(`Stdio message exceeded ${MAX_AGENT_MESSAGE_BYTES} bytes without a line delimiter`);
+            stdoutBuffer = '';
+            stdoutDecoder = new StringDecoder('utf8');
+            emitError(error);
+            if (child) killProcessTree(child);
+            return;
+          }
           for (const line of lines) {
-            if (line.trim().length > 0) emitMessage(line);
+            if (line.trim().length === 0) continue;
+            if (Buffer.byteLength(line, 'utf8') > MAX_AGENT_MESSAGE_BYTES) {
+              emitError(new Error(`Stdio message exceeded ${MAX_AGENT_MESSAGE_BYTES} bytes`));
+              if (child) killProcessTree(child);
+              return;
+            }
+            emitMessage(line);
           }
         });
 
@@ -76,6 +92,7 @@ export function createStdioTransport(config: StdioTransportConfig): AgentTranspo
           isConnected = false;
           child = null;
           stdoutBuffer = '';
+          stdoutDecoder = new StringDecoder('utf8');
           emitClose(signal ? `Process killed by signal ${signal}` : `Process exited with code ${code ?? 1}`);
         });
 
@@ -89,8 +106,9 @@ export function createStdioTransport(config: StdioTransportConfig): AgentTranspo
     },
     send(message: string) {
       if (!isConnected || !child?.stdin || child.stdin.destroyed) {
-        emitError(new Error('Cannot send: transport is not connected'));
-        return;
+        const error = new Error('Cannot send: transport is not connected');
+        emitError(error);
+        throw error;
       }
       child.stdin.write(message + '\n');
     },
@@ -110,6 +128,7 @@ export function createStdioTransport(config: StdioTransportConfig): AgentTranspo
       }
       isConnected = false;
       stdoutBuffer = '';
+      stdoutDecoder = new StringDecoder('utf8');
     },
   };
 }
