@@ -50,6 +50,9 @@
   },
   "dependencies": {
     "@celestial/core": "workspace:*",
+    "@celestial/corona": "workspace:*",
+    "@celestial/gravity": "workspace:*",
+    "@celestial/nebula": "workspace:*",
     "@celestial/rosetta": "workspace:*"
   },
   "devDependencies": {

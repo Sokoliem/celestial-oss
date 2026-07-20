@@ -184,13 +184,19 @@ importers:
       '@celestial/core':
         specifier: workspace:*
         version: link:../core
+      '@celestial/corona':
+        specifier: workspace:*
+        version: link:../corona
+      '@celestial/gravity':
+        specifier: workspace:*
+        version: link:../gravity
+      '@celestial/nebula':
+        specifier: workspace:*
+        version: link:../nebula
       '@celestial/rosetta':
         specifier: workspace:*
         version: link:../rosetta
     devDependencies:
-      '@celestial/nebula':
-        specifier: workspace:*
-        version: link:../nebula
       '@celestial/test':
         specifier: workspace:*
         version: link:../telescope

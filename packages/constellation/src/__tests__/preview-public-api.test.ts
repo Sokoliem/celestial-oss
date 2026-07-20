@@ -1,32 +1,49 @@
 import { describe, expect, it } from 'vitest';
 import {
   alert,
+  autocomplete,
   badge,
   breadcrumb,
   button,
   card,
   checkbox,
+  checkboxGroup,
+  colorPicker,
+  combobox,
   commandPalette,
   confirmDialog,
   createToastManager,
   dataTable,
+  datePicker,
   divider,
   drawer,
   emptyState,
   list,
   modal,
+  multiSelect,
+  numberInput,
+  optionListView,
   pagination,
   progressBar,
   radioGroup,
+  rangeSlider,
+  rating,
+  segmentedControl,
   select,
   slider,
   spinner,
   tabs,
+  tagInput,
   textarea,
   textInput,
   toggle,
+  toggleGroup,
   tooltip,
   tree,
+  formField,
+  hovercard,
+  popover,
+  popoverGroup,
 } from '../index.js';
 import * as ui from '../index.js';
 
@@ -35,14 +52,27 @@ const componentBuilders = [
   textInput,
   textarea,
   checkbox,
+  checkboxGroup,
   radioGroup,
   select,
   toggle,
   slider,
+  autocomplete,
+  combobox,
+  datePicker,
+  multiSelect,
+  numberInput,
+  rangeSlider,
+  rating,
+  segmentedControl,
+  tagInput,
+  colorPicker,
+  formField,
   tabs,
   breadcrumb,
   pagination,
   commandPalette,
+  optionListView,
   dataTable,
   tree,
   list,
@@ -58,13 +88,17 @@ const componentBuilders = [
   modal,
   confirmDialog,
   drawer,
+  popover,
+  popoverGroup,
+  hovercard,
+  toggleGroup,
 ];
 
 const excludedBuilders = ['fileExplorer', 'markdownViewer', 'terminal', 'kanbanBoard', 'imageViewer', 'notificationCenter'] as const;
 
 describe('@celestial/ui preview surface', () => {
-  it('exports the curated 27 component builders', () => {
-    expect(componentBuilders).toHaveLength(27);
+  it('exports the curated 44 component builders', () => {
+    expect(componentBuilders).toHaveLength(44);
     for (const builder of componentBuilders) expect(builder).toBeTypeOf('function');
   });
 
