@@ -28,6 +28,10 @@ describe('Celestial Flight Deck PTY', () => {
       harness.write('?');
       await harness.waitForText('Windows help');
       harness.write('\u001b');
+      // Wait for Escape to be consumed before sending q. Without an output
+      // receipt ConPTY may coalesce the writes into Alt+Q, which correctly
+      // does not match the plain quit binding.
+      await harness.waitForText('Closed contextual help.');
       harness.write('q');
       const exit = await harness.waitForExit();
       expect(exit.exitCode).toBe(0);
