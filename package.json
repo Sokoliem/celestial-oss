@@ -1,0 +1,55 @@
+{
+  "name": "celestial-oss",
+  "private": true,
+  "description": "Focused open-source preview of the Celestial TypeScript TUI framework",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sokoliem/celestial-oss.git"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.mjs",
+    "build": "pnpm run preview:build",
+    "dev": "turbo run dev --parallel",
+    "test": "pnpm run preview:test",
+    "test:watch": "vitest",
+    "lint": "pnpm run preview:lint",
+    "lint:fix": "biome check --write .",
+    "typecheck": "pnpm run preview:typecheck",
+    "clean": "pnpm run preview:clean",
+    "preview:boundary": "node scripts/check-preview-boundary.mjs",
+    "preview:licenses": "node scripts/check-preview-licenses.mjs",
+    "preview:lint": "biome check --formatter-enabled=false --assist-enabled=false packages/atlas/src packages/corona/src packages/aurora/src packages/nebula/src packages/gravity/src packages/nexus/src packages/core/src packages/constellation/src packages/telescope/src packages/horizon/src examples/task-console/src examples/api-inspector/src examples/horizon-workbench/src examples/celestial-showcase/src scripts/preview-packages.mjs scripts/check-preview-boundary.mjs scripts/check-preview-licenses.mjs scripts/check-preview-packages.mjs scripts/publish-preview.mjs",
+    "preview:build": "turbo run build --filter=@celestial/atlas --filter=@celestial/corona --filter=@celestial/aurora --filter=@celestial/nebula --filter=@celestial/gravity --filter=@celestial/nexus --filter=@celestial/core --filter=@celestial/ui --filter=@celestial/test --filter=@celestial/horizon",
+    "preview:test": "turbo run test --filter=@celestial/atlas --filter=@celestial/corona --filter=@celestial/aurora --filter=@celestial/nebula --filter=@celestial/gravity --filter=@celestial/nexus --filter=@celestial/core --filter=@celestial/ui --filter=@celestial/test --filter=@celestial/horizon",
+    "preview:test:framework": "turbo run test --filter=@celestial/atlas --filter=@celestial/corona --filter=@celestial/aurora --filter=@celestial/gravity --filter=@celestial/nexus --filter=@celestial/core --filter=@celestial/ui --filter=@celestial/test --filter=@celestial/horizon",
+    "preview:test:pty": "pnpm --filter @celestial/test exec vitest run --config vitest.preview.config.ts src/__tests__/preview-pty.test.ts src/__tests__/preview-pty-lifecycle.test.ts",
+    "preview:typecheck": "turbo run typecheck --filter=@celestial/atlas --filter=@celestial/corona --filter=@celestial/aurora --filter=@celestial/nebula --filter=@celestial/gravity --filter=@celestial/nexus --filter=@celestial/core --filter=@celestial/ui --filter=@celestial/test --filter=@celestial/horizon",
+    "preview:clean": "turbo run clean --filter=@celestial/atlas --filter=@celestial/corona --filter=@celestial/aurora --filter=@celestial/nebula --filter=@celestial/gravity --filter=@celestial/nexus --filter=@celestial/core --filter=@celestial/ui --filter=@celestial/test --filter=@celestial/horizon",
+    "demo:tasks": "pnpm --filter @celestial/demo-task-console dev",
+    "demo:api": "pnpm --filter @celestial/demo-api-inspector dev",
+    "demo:horizon": "pnpm --filter @celestial/demo-horizon-workbench dev",
+    "demo:showcase": "pnpm --filter @celestial/demo-showcase dev",
+    "demos:build": "turbo run build --filter=@celestial/demo-task-console --filter=@celestial/demo-api-inspector --filter=@celestial/demo-horizon-workbench --filter=@celestial/demo-showcase",
+    "demos:typecheck": "turbo run typecheck --filter=@celestial/demo-task-console --filter=@celestial/demo-api-inspector --filter=@celestial/demo-horizon-workbench --filter=@celestial/demo-showcase",
+    "demos:test": "turbo run test --filter=@celestial/demo-task-console --filter=@celestial/demo-api-inspector --filter=@celestial/demo-horizon-workbench --filter=@celestial/demo-showcase",
+    "demos:test:pty": "pnpm --filter @celestial/demo-task-console test:pty && pnpm --filter @celestial/demo-api-inspector test:pty && pnpm --filter @celestial/demo-horizon-workbench test:pty && pnpm --filter @celestial/demo-showcase test:pty",
+    "preview:pack:check": "node scripts/check-preview-packages.mjs",
+    "preview:publish:dry-run": "node scripts/publish-preview.mjs",
+    "preview:validate": "pnpm run preview:boundary && pnpm run preview:licenses && pnpm run preview:lint && pnpm run preview:build && pnpm run preview:typecheck && pnpm run preview:test && pnpm run demos:typecheck && pnpm run demos:build && pnpm run demos:test && pnpm run preview:test:pty && pnpm run demos:test:pty && pnpm run preview:pack:check"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.10",
+    "@changesets/cli": "^2.27.0",
+    "@types/node": "^25.5.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.0.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

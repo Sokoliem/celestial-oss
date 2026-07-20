@@ -1,0 +1,11 @@
+import './shader/01-parseansitorgb.suite.js';
+import './shader/02-rgbtofgansi.suite.js';
+import './shader/03-rgbtobgansi.suite.js';
+import './shader/04-celltoshadercell.suite.js';
+import './shader/05-applyshaderoutput.suite.js';
+import './shader/06-createparsecache.suite.js';
+import './shader/07-applyshaders.suite.js';
+import './shader/08-applyshaders-region-targeting.suite.js';
+import './shader/09-applyshaders-opaqueid-handling.suite.js';
+import './shader/10-applyshaders-neighbors.suite.js';
+import './shader/11-built-in-shaders.suite.js';

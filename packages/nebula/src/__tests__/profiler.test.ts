@@ -1,0 +1,13 @@
+import './profiler/01-createprofiler.suite.js';
+import './profiler/02-profiler-measure.suite.js';
+import './profiler/03-profiler-startmeasure-endmeasure.suite.js';
+import './profiler/04-frame-tracking.suite.js';
+import './profiler/05-profiler-getstats.suite.js';
+import './profiler/06-profiler-reset.suite.js';
+import './profiler/07-measurerender.suite.js';
+import './profiler/08-measurelayout.suite.js';
+import './profiler/09-measurediff.suite.js';
+import './profiler/10-profilerplugin.suite.js';
+import './profiler/11-createrendertracer.suite.js';
+import './profiler/12-profiler-with-tracing-enabled.suite.js';
+import './profiler/13-rendertracer-in-app.suite.js';

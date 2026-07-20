@@ -1,0 +1,84 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.10/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "packages/*/src/**/*.ts",
+      "examples/**/*.ts",
+      "scripts/preview-packages.mjs",
+      "scripts/check-preview-boundary.mjs",
+      "scripts/check-preview-licenses.mjs",
+      "scripts/check-preview-packages.mjs",
+      "scripts/publish-preview.mjs",
+      "!**/fixtures"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 160,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUnusedImports": "warn",
+        "noUnusedVariables": "warn",
+        "noVoidTypeReturn": "warn"
+      },
+      "style": {
+        "useConst": "error",
+        "noNonNullAssertion": "off",
+        "useTemplate": "off",
+        "useExponentiationOperator": "off",
+        "useNodejsImportProtocol": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "off",
+        "noConsole": "off",
+        "noControlCharactersInRegex": "off",
+        "noGlobalIsNan": "warn",
+        "noGlobalIsFinite": "warn",
+        "noImplicitAnyLet": "warn",
+        "noAssignInExpressions": "off",
+        "useIterableCallbackReturn": "off",
+        "noTemplateCurlyInString": "off",
+        "noFallthroughSwitchClause": "off",
+        "noNonNullAssertedOptionalChain": "warn",
+        "noMisleadingCharacterClass": "off",
+        "noConfusingVoidType": "off"
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "off",
+        "useLiteralKeys": "off",
+        "noUselessSwitchCase": "off",
+        "noArguments": "warn",
+        "useOptionalChain": "warn",
+        "noBannedTypes": "off"
+      }
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}

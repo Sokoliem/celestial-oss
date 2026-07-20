@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/index.ts",
+    "src/pty.ts",
+    "src/vitest.ts",
+    "src/__tests__/preview-*.test.ts",
+    "types/**/*.d.ts"
+  ]
+}

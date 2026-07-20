@@ -1,0 +1,87 @@
+{
+  "name": "@celestial/test",
+  "version": "0.1.0-preview.1",
+  "description": "Headless and PTY testing utilities for Celestial terminal applications",
+  "keywords": [
+    "tui",
+    "terminal",
+    "cli",
+    "typescript",
+    "celestial",
+    "testing",
+    "test-utilities",
+    "assertions",
+    "helpers"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sokoliem/celestial-oss.git",
+    "directory": "packages/telescope"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./pty": {
+      "types": "./dist/pty.d.ts",
+      "import": "./dist/pty.js",
+      "require": "./dist/pty.cjs"
+    },
+    "./vitest": {
+      "types": "./dist/vitest.d.ts",
+      "import": "./dist/vitest.js",
+      "require": "./dist/vitest.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --config vitest.preview.config.ts",
+    "test:all": "vitest run",
+    "test:watch": "vitest --config vitest.preview.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.preview.json",
+    "typecheck:all": "tsc --noEmit",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@celestial/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "node-pty": ">=1.1.0 <2",
+    "vitest": ">=2.0.0"
+  },
+  "devDependencies": {
+    "node-pty": "^1.1.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "peerDependenciesMeta": {
+    "node-pty": {
+      "optional": true
+    },
+    "vitest": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "sideEffects": [
+    "./dist/vitest.js",
+    "./dist/vitest.cjs"
+  ]
+}

@@ -1,0 +1,14 @@
+import './automation/01-setvnodemeta-getvnodemeta.suite.js';
+import './automation/02-extractautomationtextruns.suite.js';
+import './automation/03-gridtotext-via-buildautomationsnapshot.suite.js';
+import './automation/04-buildelementid-buildactionid-via-snapshot.suite.js';
+import './automation/05-dedupeactions-via-snapshot.suite.js';
+import './automation/06-findbesttextrun-via-snapshot.suite.js';
+import './automation/07-collectannotatednodes-via-snapshot-elements.suite.js';
+import './automation/08-collectfocuscandidates-via-snapshot-actions.suite.js';
+import './automation/09-buildautomationsnapshot.suite.js';
+import './automation/10-audita11ytree.suite.js';
+import './automation/11-fingerprintautomationsnapshot.suite.js';
+import './automation/12-buildautomationsnapshot-integration.suite.js';
+import './automation/13-focus-auto-annotation.suite.js';
+import './automation/14-extractnodetext.suite.js';

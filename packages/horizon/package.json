@@ -1,0 +1,92 @@
+{
+  "name": "@celestial/horizon",
+  "version": "0.1.0-beta.1",
+  "description": "Window and pane management for Celestial TUI apps",
+  "keywords": [
+    "tui",
+    "terminal",
+    "cli",
+    "typescript",
+    "celestial",
+    "window-manager",
+    "splits",
+    "tabs",
+    "floating",
+    "workspaces"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sokoliem/celestial-oss.git",
+    "directory": "packages/horizon"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
+      "require": "./dist/core/index.cjs"
+    },
+    "./animation": {
+      "types": "./dist/animation.d.ts",
+      "import": "./dist/animation.js",
+      "require": "./dist/animation.cjs"
+    },
+    "./floating-window-drag": {
+      "types": "./dist/floating-window-drag.d.ts",
+      "import": "./dist/floating-window-drag.js",
+      "require": "./dist/floating-window-drag.cjs"
+    },
+    "./state": {
+      "types": "./dist/state/index.d.ts",
+      "import": "./dist/state/index.js",
+      "require": "./dist/state/index.cjs"
+    },
+    "./compat": {
+      "types": "./dist/compat/index.d.ts",
+      "import": "./dist/compat/index.js",
+      "require": "./dist/compat/index.cjs"
+    },
+    "./primitives": {
+      "types": "./dist/primitives/index.d.ts",
+      "import": "./dist/primitives/index.js",
+      "require": "./dist/primitives/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --config vitest.preview.config.ts",
+    "test:all": "vitest run",
+    "test:watch": "vitest --config vitest.preview.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.preview.json",
+    "typecheck:all": "tsc --noEmit",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@celestial/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "sideEffects": false
+}

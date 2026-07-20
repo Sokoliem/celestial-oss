@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@celestial/core": ["./packages/core/src/index.ts"],
+      "@celestial/core/*": ["./packages/core/src/*.ts"],
+      "@celestial/ui": ["./packages/constellation/src/index.ts"],
+      "@celestial/test": ["./packages/telescope/src/index.ts"],
+      "@celestial/test/*": ["./packages/telescope/src/*.ts"],
+      "@celestial/nebula": ["./packages/nebula/src/index.ts"],
+      "@celestial/corona": ["./packages/corona/src/index.ts"],
+      "@celestial/aurora": ["./packages/aurora/src/index.ts"],
+      "@celestial/atlas": ["./packages/atlas/src/index.ts"],
+      "@celestial/gravity": ["./packages/gravity/src/index.ts"],
+      "@celestial/nexus": ["./packages/nexus/src/index.ts"],
+      "@celestial/horizon": ["./packages/horizon/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*.ts", "examples/*/src/**/*.ts"]
+}

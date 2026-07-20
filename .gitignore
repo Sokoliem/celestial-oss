@@ -1,0 +1,19 @@
+# Dependencies and build output
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# Test and tool output
+coverage/
+.tmp/
+*.log
+*.out
+
+# Local environment and editor state
+.env
+.env.*
+!.env.example
+.DS_Store
+.vscode/
+.idea/

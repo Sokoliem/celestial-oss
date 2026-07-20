@@ -1,0 +1,9 @@
+import './signals/01-signal.suite.js';
+import './signals/02-computed.suite.js';
+import './signals/03-effect.suite.js';
+import './signals/04-batch.suite.js';
+import './signals/05-diamond-dependency.suite.js';
+import './signals/06-possiblydirty-optimization.suite.js';
+import './signals/07-nested-effects.suite.js';
+import './signals/08-edge-cases.suite.js';
+import './signals/09-createsignalcontext.suite.js';
