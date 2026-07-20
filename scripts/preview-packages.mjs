@@ -33,3 +33,25 @@ export const previewPackageDirectories = Object.freeze({
 export const previewPackageSet = new Set(previewPackages);
 
 export const previewTurboFilters = Object.freeze(previewPackages.map((name) => `--filter=${name}`));
+
+export const previewDemos = Object.freeze({
+  '@celestial/demo-task-console': Object.freeze({
+    directory: 'examples/task-console',
+    runtimePackages: Object.freeze(['@celestial/core', '@celestial/ui']),
+  }),
+  '@celestial/demo-api-inspector': Object.freeze({
+    directory: 'examples/api-inspector',
+    runtimePackages: Object.freeze(['@celestial/core', '@celestial/ui']),
+  }),
+  '@celestial/demo-horizon-workbench': Object.freeze({
+    directory: 'examples/horizon-workbench',
+    runtimePackages: Object.freeze(['@celestial/core', '@celestial/ui', '@celestial/horizon']),
+  }),
+  '@celestial/demo-showcase': Object.freeze({
+    directory: 'examples/celestial-showcase',
+    runtimePackages: Object.freeze(['@celestial/core', '@celestial/ui', '@celestial/horizon']),
+  }),
+});
+
+export const previewDemoNames = Object.freeze(Object.keys(previewDemos));
+export const previewDemoDirectories = Object.freeze(Object.values(previewDemos).map(({ directory }) => directory));

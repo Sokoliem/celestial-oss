@@ -185,6 +185,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@celestial/nebula':
+        specifier: workspace:*
+        version: link:../nebula
       '@celestial/test':
         specifier: workspace:*
         version: link:../telescope

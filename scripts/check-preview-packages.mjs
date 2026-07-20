@@ -50,6 +50,37 @@ function packedManifest(tarball) {
   return JSON.parse(run('tar', ['-xOf', tarball, 'package/package.json']));
 }
 
+function exportTargets(value) {
+  if (typeof value === 'string') return [value];
+  if (!value || typeof value !== 'object') return [];
+  return Object.values(value).flatMap(exportTargets);
+}
+
+function exportSpecifiers(packageName, manifest) {
+  return Object.keys(manifest.exports ?? { '.': manifest.main })
+    .filter((subpath) => !subpath.includes('*') && subpath !== './package.json')
+    .map((subpath) => (subpath === '.' ? packageName : `${packageName}/${subpath.slice(2)}`));
+}
+
+function assertPackedReferences(packageName, tarball, result) {
+  const textArtifacts = result.files
+    .map((file) => file.path.replaceAll('\\', '/'))
+    .filter((path) => path.startsWith('dist/') && /(?:\.[cm]?js|\.d\.ts)$/.test(path));
+
+  for (const path of textArtifacts) {
+    const content = run('tar', ['-xOf', tarball, `package/${path}`]);
+    let cursor = 0;
+    while (cursor < content.length) {
+      const start = content.indexOf('@celestial/', cursor);
+      if (start < 0) break;
+      const match = /^@celestial\/[a-z0-9_-]+/i.exec(content.slice(start));
+      if (!match) throw new Error(`${packageName} ${path} contains an unresolved or computed Celestial package reference.`);
+      if (!previewPackageSet.has(match[0])) throw new Error(`${packageName} ${path} leaks unpublished package ${match[0]}.`);
+      cursor = start + match[0].length;
+    }
+  }
+}
+
 function assertPackedPackage(packageName, result, manifest) {
   const serialized = JSON.stringify(manifest);
   if (serialized.includes('workspace:')) throw new Error(`${packageName} packed manifest still contains workspace: ranges.`);
@@ -68,12 +99,18 @@ function assertPackedPackage(packageName, result, manifest) {
   for (const requiredPath of ['package.json', 'README.md', 'dist/index.js', 'dist/index.cjs', 'dist/index.d.ts']) {
     if (!paths.has(requiredPath)) throw new Error(`${packageName} tarball is missing ${requiredPath}.`);
   }
+
+  for (const target of exportTargets(manifest.exports)) {
+    if (!target.startsWith('./dist/')) continue;
+    const path = target.slice(2);
+    if (!paths.has(path)) throw new Error(`${packageName} export target ${target} is missing from its tarball.`);
+  }
 }
 
 try {
   run('node', ['scripts/check-preview-boundary.mjs']);
 
-  const tarballs = [];
+  const packedPackages = [];
   for (const packageName of previewPackages) {
     const packageDirectory = previewPackageDirectories[packageName];
     const sourceManifest = JSON.parse(readFileSync(join(repositoryRoot, packageDirectory, 'package.json'), 'utf8'));
@@ -84,10 +121,14 @@ try {
     if (result.name !== packageName) throw new Error(`Packed ${result.name} from ${packageDirectory}; expected ${packageName}.`);
     const manifest = packedManifest(result.filename);
     assertPackedPackage(packageName, result, manifest);
-    tarballs.push(result.filename);
+    assertPackedReferences(packageName, result.filename, result);
+    packedPackages.push({ manifest, name: packageName, tarball: result.filename });
   }
 
-  if (tarballs.length === 0) throw new Error('No preview packages were packed.');
+  if (packedPackages.length === 0) throw new Error('No preview packages were packed.');
+  const tarballs = packedPackages.map(({ tarball }) => tarball);
+  const moduleSpecifiers = packedPackages.flatMap(({ manifest, name }) => exportSpecifiers(name, manifest));
+  const runtimeModuleSpecifiers = moduleSpecifiers.filter((specifier) => specifier !== '@celestial/test/vitest');
 
   mkdirSync(fixtureDirectory, { recursive: true });
   writeFileSync(
@@ -100,7 +141,8 @@ try {
 
   writeFileSync(
     join(fixtureDirectory, 'smoke.mjs'),
-    `const core = await import('@celestial/core');
+    `for (const specifier of ${JSON.stringify(runtimeModuleSpecifiers)}) await import(specifier);
+const core = await import('@celestial/core');
 const ui = await import('@celestial/ui');
 const test = await import('@celestial/test');
 const horizon = await import('@celestial/horizon');
@@ -124,7 +166,8 @@ for (const [name, value] of Object.entries(esmExports)) {
   );
   writeFileSync(
     join(fixtureDirectory, 'smoke.cjs'),
-    `const core = require('@celestial/core');
+    `for (const specifier of ${JSON.stringify(runtimeModuleSpecifiers)}) require(specifier);
+const core = require('@celestial/core');
 const ui = require('@celestial/ui');
 const test = require('@celestial/test');
 const horizon = require('@celestial/horizon');
@@ -143,7 +186,8 @@ for (const [name, value] of Object.entries(cjsExports)) {
   );
   writeFileSync(
     join(fixtureDirectory, 'smoke.ts'),
-    `import { type AppConfig, Cmd, Sub, text } from '@celestial/core';
+    `${moduleSpecifiers.map((specifier, index) => `import * as packedModule${index} from '${specifier}';`).join('\n')}
+import { type AppConfig, Cmd, Sub, text } from '@celestial/core';
 import { modal } from '@celestial/ui';
 import { createTestApp } from '@celestial/test';
 import '@celestial/test/vitest';
@@ -161,6 +205,7 @@ const handle = createTestApp(config);
 handle.stop();
 void surface;
 void horizon;
+void [${moduleSpecifiers.map((_specifier, index) => `packedModule${index}`).join(', ')}];
 `,
   );
   writeFileSync(
@@ -186,7 +231,7 @@ void horizon;
   run('node', ['smoke.cjs'], { cwd: fixtureDirectory });
   run('pnpm', ['exec', 'tsc', '--noEmit', '-p', join(fixtureDirectory, 'tsconfig.json')]);
 
-  console.log(`Preview package smoke test passed for ${tarballs.length} tarballs.`);
+  console.log(`Preview package smoke test passed for ${tarballs.length} tarballs and ${moduleSpecifiers.length} export surfaces.`);
   if (keep || requestedOutput) console.log(`Artifacts: ${temporaryRoot}`);
 } finally {
   if (ownsTemporaryRoot && !keep) rmSync(temporaryRoot, { recursive: true, force: true });
