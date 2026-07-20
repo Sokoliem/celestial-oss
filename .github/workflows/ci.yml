@@ -1,0 +1,192 @@
+name: Preview CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: preview-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PNPM_VERSION: 9.15.0
+  NODE_VERSION: 22
+
+jobs:
+  boundary-and-lint:
+    name: Boundary and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run preview:boundary
+      - run: pnpm run preview:licenses
+      - run: pnpm run preview:lint
+
+  build-and-typecheck:
+    name: Build and typecheck preview plus demos
+    needs: boundary-and-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: preview-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: preview-build-${{ runner.os }}-
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run preview:build
+      - run: pnpm run preview:typecheck
+      - run: pnpm run demos:typecheck
+      - run: pnpm run demos:build
+
+  demo-headless:
+    name: Demo headless and integration tests
+    needs: boundary-and-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run demos:test
+        env:
+          CELESTIAL_DEMO_FAST: 1
+
+  framework-tests:
+    name: Framework tests
+    needs: boundary-and-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: preview-tests-${{ runner.os }}-${{ github.sha }}
+          restore-keys: preview-tests-${{ runner.os }}-
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run preview:test:framework
+
+  nebula-tests:
+    name: Nebula tests (${{ matrix.shard }}/2)
+    needs: boundary-and-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec turbo run build --filter=@celestial/nebula
+      - run: pnpm --filter @celestial/nebula exec vitest run --shard=${{ matrix.shard }}/2
+
+  pty-smoke:
+    name: PTY smoke (${{ matrix.os }})
+    needs: boundary-and-lint
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec turbo run build --filter=@celestial/test
+      - run: pnpm run demos:build
+      - run: pnpm run preview:test:pty
+      - run: pnpm run demos:test:pty
+        env:
+          CELESTIAL_DEMO_FAST: 1
+
+  package-smoke:
+    name: Packed package smoke test
+    needs: [build-and-typecheck, demo-headless, framework-tests, nebula-tests, pty-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run preview:build
+      - run: pnpm run preview:pack:check
