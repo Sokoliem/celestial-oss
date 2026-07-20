@@ -22,7 +22,7 @@ import type {
 } from './types.js';
 
 function stateSignature(state: TokenizerState): string {
-  return state.stack.join('\u001f');
+  return JSON.stringify(state.stack);
 }
 
 function hashText(text: string): string {
@@ -84,10 +84,27 @@ function canReuseLine(previous: TokenizedLine, next: TokenizedLine): boolean {
   );
 }
 
-function applyLineChange(previous: TokenizedDocument, change: LineChange): string[] {
+interface NormalizedLineChange {
+  readonly startLine: number;
+  readonly deleteCount: number;
+  readonly insertLines: readonly string[];
+}
+
+function normalizeLineChange(previous: TokenizedDocument, change: LineChange): NormalizedLineChange {
   const previousLines = previous.source.split('\n');
-  const startLine = Math.max(0, Math.min(change.startLine, previousLines.length));
-  const deleteCount = Math.max(0, change.deleteCount);
+  const rawStart = Number.isFinite(change.startLine) ? Math.floor(change.startLine) : 0;
+  const startLine = Math.max(0, Math.min(rawStart, previousLines.length, previous.lines.length));
+  const rawDelete = Number.isFinite(change.deleteCount) ? Math.floor(change.deleteCount) : 0;
+  const deleteCount = Math.max(0, Math.min(rawDelete, previousLines.length - startLine));
+  if (!Array.isArray(change.insertLines) || change.insertLines.some((line) => typeof line !== 'string' || /[\r\n]/.test(line))) {
+    throw new TypeError('retokenizeDocument: insertLines must contain newline-free strings');
+  }
+  return { startLine, deleteCount, insertLines: [...change.insertLines] };
+}
+
+function applyLineChange(previous: TokenizedDocument, change: NormalizedLineChange): string[] {
+  const previousLines = previous.source.split('\n');
+  const { startLine, deleteCount } = change;
   return [...previousLines.slice(0, startLine), ...change.insertLines, ...previousLines.slice(startLine + deleteCount)];
 }
 
@@ -237,9 +254,10 @@ export function retokenizeDocument(previous: TokenizedDocument, change: LineChan
   const grammar = getLanguageGrammar(previous.language);
   if (!grammar) return previous;
 
-  const startLine = Math.max(0, Math.min(change.startLine, previous.lines.length));
-  const nextLineTexts = applyLineChange(previous, change);
-  const delta = Math.max(0, change.deleteCount) - change.insertLines.length;
+  const normalized = normalizeLineChange(previous, change);
+  const { startLine } = normalized;
+  const nextLineTexts = applyLineChange(previous, normalized);
+  const delta = normalized.deleteCount - normalized.insertLines.length;
   const nextLines: TokenizedLine[] = previous.lines.slice(0, startLine);
   let state = startLine > 0 ? previous.lines[startLine - 1]!.stateAfter : initialState();
 

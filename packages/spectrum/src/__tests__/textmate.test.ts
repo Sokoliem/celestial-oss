@@ -41,6 +41,12 @@ describe('parseTextMateGrammar', () => {
 </plist>`) as { name?: string };
     expect(parsed.name).toBe('plist-demo');
   });
+
+  it('uses prototype-safe dictionaries for plist keys', () => {
+    const parsed = parseTextMateGrammar(`<plist><dict><key>__proto__</key><string>safe</string></dict></plist>`) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(parsed)).toBeNull();
+    expect(parsed.__proto__).toBe('safe');
+  });
 });
 
 describe('importTextMateGrammar', () => {
@@ -95,5 +101,62 @@ describe('importTextMateGrammar', () => {
 
     const tokens = tokenize(grammar, 'alpha beta');
     expect(tokens[0]!.some((token) => token.category === 'keyword')).toBe(true);
+  });
+
+  it('terminates cyclic repository and self includes', () => {
+    const grammar = importTextMateGrammar({
+      name: 'cyclic',
+      patterns: [{ include: '#loop' }, { include: '$self' }, { match: 'ok', name: 'keyword.control' }],
+      repository: {
+        loop: { include: '#loop' },
+      },
+    });
+
+    const [tokens] = tokenizeLine('ok', grammar, initialState());
+    expect(tokens).toEqual([{ category: 'keyword', text: 'ok' }]);
+  });
+
+  it('terminates cyclic object pattern graphs', () => {
+    const node: Record<string, unknown> = {};
+    node.patterns = [node];
+
+    const grammar = importTextMateGrammar({ name: 'object-cycle', patterns: [node] });
+    expect(grammar.rules).toEqual([]);
+  });
+
+  it('rejects non-dictionary roots', () => {
+    expect(() => importTextMateGrammar('null')).toThrow(/root must be a dictionary/);
+    expect(() => importTextMateGrammar('[]')).toThrow(/root must be a dictionary/);
+  });
+
+  it('ignores malformed capture keys without producing invalid group indices', () => {
+    const grammar = importTextMateGrammar({
+      name: 'captures',
+      patterns: [
+        {
+          match: '(foo)',
+          name: 'variable',
+          captures: {
+            nope: { name: 'keyword.control' },
+            1: { name: 'function.call' },
+          },
+        },
+      ],
+    });
+
+    const [tokens] = tokenizeLine('foo', grammar, initialState());
+    expect(tokens).toEqual([{ category: 'function', text: 'foo' }]);
+  });
+
+  it('bounds deeply nested object grammars', () => {
+    const root: Record<string, unknown> = { name: 'deep' };
+    let node = root;
+    for (let depth = 0; depth < 140; depth++) {
+      const child: Record<string, unknown> = {};
+      node.patterns = [child];
+      node = child;
+    }
+
+    expect(() => importTextMateGrammar(root)).toThrow(/nesting/);
   });
 });

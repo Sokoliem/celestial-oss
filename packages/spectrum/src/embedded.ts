@@ -118,7 +118,7 @@ function buildLine(lineText: string, grammar: LanguageGrammar, stateBefore: Toke
 }
 
 function stateSignature(state: TokenizerState): string {
-  return state.stack.join('');
+  return JSON.stringify(state.stack);
 }
 
 function hashText(text: string): string {
@@ -138,7 +138,20 @@ function hashText(text: string): string {
  * loud failure during development is more useful than silent fallback.
  */
 function sortAndValidate(regions: readonly EmbeddedRegion[], totalLines: number): EmbeddedRegion[] {
-  const sorted = [...regions].sort((a, b) => a.startLine - b.startLine);
+  if (regions.length > 100_000) {
+    throw new Error('tokenizeDocumentEmbedded: region count exceeds 100000');
+  }
+
+  const normalized = regions.map((region) => {
+    if (!Number.isSafeInteger(region.startLine) || !Number.isSafeInteger(region.endLine)) {
+      throw new Error('tokenizeDocumentEmbedded: region line indices must be safe integers');
+    }
+    if (typeof region.lang !== 'string' || region.lang.trim().length === 0) {
+      throw new Error('tokenizeDocumentEmbedded: region language must be a non-empty string');
+    }
+    return { startLine: region.startLine, endLine: region.endLine, lang: region.lang };
+  });
+  const sorted = normalized.sort((a, b) => a.startLine - b.startLine);
   let prevEnd = -1;
   for (const region of sorted) {
     if (region.startLine < 0 || region.endLine >= totalLines) {
