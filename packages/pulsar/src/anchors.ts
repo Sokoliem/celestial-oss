@@ -73,6 +73,13 @@ export const ANCHOR_SCROLL_SPRING = {
 } as const;
 
 const FIXED_DT_MS = 16;
+const MAX_SCROLL_COORDINATE = 1_000_000_000;
+const MAX_SCROLL_ELAPSED_MS = 60_000;
+
+function normalizeCoordinate(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(-MAX_SCROLL_COORDINATE, Math.min(MAX_SCROLL_COORDINATE, value));
+}
 
 export interface AnchorScrollAnimation {
   readonly from: number;
@@ -83,10 +90,12 @@ export interface AnchorScrollAnimation {
 
 /** Start a new anchor-scroll animation from `from` to `to`. */
 export function startAnchorScroll(from: number, to: number): AnchorScrollAnimation {
+  const safeFrom = normalizeCoordinate(from);
+  const safeTo = normalizeCoordinate(to);
   return {
-    from,
-    to,
-    active: from !== to,
+    from: safeFrom,
+    to: safeTo,
+    active: safeFrom !== safeTo,
     startTime: Date.now(),
   };
 }
@@ -98,18 +107,21 @@ export function startAnchorScroll(from: number, to: number): AnchorScrollAnimati
  * tests.
  */
 export function tickAnchorScroll(anim: AnchorScrollAnimation, elapsed: number): { value: number; done: boolean } {
-  if (anim.from === anim.to) return { value: anim.to, done: true };
-  if (elapsed <= 0) return { value: anim.from, done: false };
+  const from = normalizeCoordinate(anim.from);
+  const to = normalizeCoordinate(anim.to);
+  const safeElapsed = Number.isFinite(elapsed) ? Math.max(0, Math.min(MAX_SCROLL_ELAPSED_MS, elapsed)) : elapsed === Number.POSITIVE_INFINITY ? MAX_SCROLL_ELAPSED_MS : 0;
+  if (!anim.active || from === to) return { value: to, done: true };
+  if (safeElapsed <= 0) return { value: from, done: false };
 
-  const s = createSpring(anim.to, {
-    from: anim.from,
+  const s = createSpring(to, {
+    from,
     stiffness: ANCHOR_SCROLL_SPRING.stiffness,
     damping: ANCHOR_SCROLL_SPRING.damping,
     mass: ANCHOR_SCROLL_SPRING.mass,
   });
 
   s.tick(0);
-  for (let t = FIXED_DT_MS; t <= elapsed; t += FIXED_DT_MS) {
+  for (let t = FIXED_DT_MS; t <= safeElapsed; t += FIXED_DT_MS) {
     s.tick(t);
     if (s.done()) break;
   }

@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { bestImageProtocol, renderImage, renderImageAsync } from '../image-render.js';
 import { defaultTheme } from '../theme.js';
+import { visualWidth } from '../renderer/width.js';
 
 function ctx(overrides?: Partial<Parameters<typeof renderImage>[1]>) {
   return {
@@ -63,6 +64,11 @@ describe('renderImage', () => {
       }),
     );
     expect(out).toContain('cat');
+  });
+
+  it('wraps long placeholder words to the available cell width', () => {
+    const out = renderImage({ alt: 'averyveryverylongdescription', url: 'https://example.test/averyveryverylongpath' }, ctx({ width: 12 }));
+    expect(out.split('\n').every((line) => visualWidth(line) <= 12)).toBe(true);
   });
 });
 

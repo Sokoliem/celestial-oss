@@ -10,10 +10,12 @@
 
 import { highlight } from '../highlight.js';
 import type { FenceRenderContext } from '../types.js';
+import { wrapFenceBlock, wrapFenceLine } from './layout.js';
 
 interface ParsedHTTP {
   firstLine: string;
-  headers: Record<string, string>;
+  headers: Array<{ name: string; value: string }>;
+  headerValues: Record<string, string>;
   body: string;
 }
 
@@ -25,10 +27,11 @@ function parseHTTP(text: string): ParsedHTTP | null {
   const firstLine = lines[0]?.trim() ?? '';
   if (!firstLine.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|CONNECT|TRACE)\s/)) {
     // Try response format
-    if (!firstLine.match(/^HTTP\/\d\.\d\s/)) return null;
+    if (!firstLine.match(/^HTTP\/\d(?:\.\d)?\s/)) return null;
   }
 
-  const headers: Record<string, string> = {};
+  const headers: Array<{ name: string; value: string }> = [];
+  const headerValues = Object.create(null) as Record<string, string>;
   let bodyStart = -1;
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i]!;
@@ -38,14 +41,16 @@ function parseHTTP(text: string): ParsedHTTP | null {
     }
     const colonIdx = line.indexOf(':');
     if (colonIdx > 0) {
+      if (headers.length >= 10_000) return null;
       const key = line.slice(0, colonIdx).trim();
       const value = line.slice(colonIdx + 1).trim();
-      headers[key] = value;
+      headers.push({ name: key, value });
+      headerValues[key.toLowerCase()] = value;
     }
   }
 
   const body = bodyStart > 0 ? lines.slice(bodyStart).join('\n').trim() : '';
-  return { firstLine, headers, body };
+  return { firstLine, headers, headerValues, body };
 }
 
 export function httpFenceRenderer(token: Extract<import('../types.js').Token, { type: 'code-block' }>, ctx: FenceRenderContext): string | null {
@@ -55,32 +60,27 @@ export function httpFenceRenderer(token: Extract<import('../types.js').Token, { 
   const { theme } = ctx;
   const lines: string[] = [];
 
-  lines.push('  ' + theme.bold(parsed.firstLine));
+  lines.push(...wrapFenceLine(theme.bold(parsed.firstLine), ctx.width));
   lines.push('');
 
-  for (const [key, value] of Object.entries(parsed.headers)) {
-    lines.push('  ' + theme.bold(key + ':') + ' ' + value);
+  for (const header of parsed.headers) {
+    lines.push(...wrapFenceLine(theme.bold(header.name + ':') + ' ' + header.value, ctx.width));
   }
 
   if (parsed.body) {
     lines.push('');
     let body = parsed.body;
-    if (parsed.headers['content-type']?.includes('json')) {
+    if (parsed.headerValues['content-type']?.toLowerCase().includes('json')) {
       try {
         body = JSON.stringify(JSON.parse(body), null, 2);
         body = highlight(body, 'json', ctx.options.highlightTheme as Parameters<typeof highlight>[2]);
       } catch {
         // leave body as-is
       }
-    } else if (parsed.headers['content-type']?.includes('xml')) {
+    } else if (parsed.headerValues['content-type']?.toLowerCase().includes('xml')) {
       body = highlight(body, 'xml', ctx.options.highlightTheme as Parameters<typeof highlight>[2]);
     }
-    lines.push(
-      body
-        .split('\n')
-        .map((l) => '  ' + l)
-        .join('\n'),
-    );
+    lines.push(...wrapFenceBlock(body, ctx.width));
   }
 
   return theme.codeBlockFrame(lines.join('\n'), 'http', ctx.width);

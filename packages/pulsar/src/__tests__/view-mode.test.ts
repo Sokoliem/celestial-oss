@@ -48,6 +48,13 @@ describe('markdownView', () => {
     }
   });
 
+  it('fails safe to full mode for an invalid runtime value', () => {
+    const vnode = markdownView(source, 'invalid' as never);
+    expect(vnode.kind).toBe('column');
+    if (vnode.kind !== 'column') return;
+    expect(vnode.children.length).toBeGreaterThan(3);
+  });
+
   it('summary mode with heading having no following paragraph', () => {
     const src = `# Title\n\n## Subtitle`;
     const vnode = markdownView(src, 'summary');

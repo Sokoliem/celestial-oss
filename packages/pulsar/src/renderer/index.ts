@@ -7,10 +7,11 @@
  */
 
 import { hyperlink } from '@celestial/nexus';
-import { detectDirection, reorderBidi, toBidiVisual } from '@celestial/rosetta';
+import { detectDirection, reorderBidi, toBidiVisual, truncateText } from '@celestial/rosetta';
 import { highlight } from '../highlight.js';
 import { renderImage } from '../image-render.js';
 import { createRenderContext, type RenderContext, withIndent } from '../internal/context.js';
+import { markdownGlyph } from '../markdown-glyphs.js';
 import { mathToUnicode } from '../math-unicode.js';
 import { parseMarkdown } from '../parser/index.js';
 import { defaultTheme } from '../theme.js';
@@ -51,7 +52,7 @@ function applySearchHighlights(rendered: string, _token: Token, ctx: RenderConte
   const isCurrent = currentMatch?.blockIndex === blockIndex;
 
   const markStyle = ctx.theme.mark ?? ctx.theme.bold;
-  const border = isCurrent ? '▎ ' : '';
+  const border = isCurrent ? `${ctx.theme.searchCurrentMarker ?? markdownGlyph('active-rail')} ` : '';
 
   return rendered
     .split('\n')
@@ -275,7 +276,7 @@ function renderFootnoteDef(token: Extract<Token, { type: 'footnote-def' }>, ctx:
  */
 function renderTable(token: Extract<Token, { type: 'table' }>, ctx: RenderContext, prefix: string): string {
   const { theme, width: ctxWidth, indent } = ctx;
-  const budget = Math.max(0, ctxWidth - indent);
+  const budget = Math.max(1, ctxWidth - indent);
 
   interface RenderedCell {
     styled: string;
@@ -293,6 +294,23 @@ function renderTable(token: Extract<Token, { type: 'table' }>, ctx: RenderContex
 
   const colCount = headers.length;
   if (colCount === 0) return prefix;
+
+  // When separators alone would overflow, switch to a label/value layout.
+  // This keeps every cell readable on narrow terminals instead of forcing a
+  // mathematically impossible side-by-side table.
+  const minimumTableWidth = colCount + Math.max(0, colCount - 1) * 3;
+  if (minimumTableWidth > budget) {
+    const bodyRows = rows.length > 0 ? rows : [headers];
+    return bodyRows
+      .flatMap((row) =>
+        headers.map((header, column) => {
+          const value = rows.length > 0 ? (row[column]?.plain ?? '') : header.plain;
+          const label = rows.length > 0 ? header.plain : `Column ${column + 1}`;
+          return prefix + theme.tableCell(truncateToWidth(`${label}: ${value}`, budget));
+        }),
+      )
+      .join('\n');
+  }
 
   const align: TableAlign[] = (token.align ?? []).slice(0, colCount);
   while (align.length < colCount) align.push('default');
@@ -315,7 +333,7 @@ function renderTable(token: Extract<Token, { type: 'table' }>, ctx: RenderContex
   const interColumn = 3;
   const overhead = (colCount - 1) * interColumn;
   const naturalTotal = naturalWidths.reduce((a, b) => a + b, 0);
-  const colWidths = naturalTotal + overhead <= budget ? naturalWidths : shrinkWidths(naturalWidths, Math.max(colCount * 3, budget - overhead));
+  const colWidths = naturalTotal + overhead <= budget ? naturalWidths : shrinkWidths(naturalWidths, Math.max(colCount, budget - overhead));
 
   const padCell = (cell: RenderedCell, colIndex: number): string => {
     const target = colWidths[colIndex] ?? 0;
@@ -340,8 +358,9 @@ function renderTable(token: Extract<Token, { type: 'table' }>, ctx: RenderContex
   const headerCells = headers.map((cell, i) => theme.tableHeader(padCell(cell, i)));
   const separator = colWidths.map((w) => '─'.repeat(Math.max(1, w))).join('─┼─');
 
+  const emptyCell: RenderedCell = { styled: '', plain: '', width: 0 };
   const renderedRows = rows.map((row) => {
-    const cells = row.map((cell, i) => theme.tableCell(padCell(cell, i)));
+    const cells = Array.from({ length: colCount }, (_, index) => theme.tableCell(padCell(row[index] ?? emptyCell, index)));
     return prefix + cells.join(' ' + theme.tableBorder + ' ');
   });
 
@@ -350,11 +369,10 @@ function renderTable(token: Extract<Token, { type: 'table' }>, ctx: RenderContex
 
 /**
  * Shrink a list of column widths so their sum fits in `budget`,
- * proportionally to natural size, with a minimum of 3 per column to leave
- * room for at least an ellipsis.
+ * proportionally to natural size, with a minimum of one cell per column.
  */
 function shrinkWidths(natural: number[], budget: number): number[] {
-  const minPerCol = 3;
+  const minPerCol = 1;
   const totalNatural = natural.reduce((a, b) => a + b, 0);
   if (totalNatural === 0) return natural.map(() => minPerCol);
 
@@ -380,21 +398,12 @@ function shrinkWidths(natural: number[], budget: number): number[] {
  */
 function truncateToWidth(plain: string, target: number): string {
   if (target <= 0) return '';
-  if (target === 1) return '…';
-  let out = '';
-  let w = 0;
-  for (const ch of plain) {
-    const cw = visualWidth(ch);
-    if (w + cw > target - 1) break;
-    out += ch;
-    w += cw;
-  }
-  return out + '…' + ' '.repeat(Math.max(0, target - w - 1));
+  const clipped = truncateText(plain, target);
+  return clipped + ' '.repeat(Math.max(0, target - visualWidth(clipped)));
 }
 
 // ── Code Block Rendering ────────────────────────────────────────────────
 
-const HIGHLIGHT_MARKER = '▎';
 const DIFF_ADD_PREFIX = '+';
 const DIFF_DEL_PREFIX = '-';
 
@@ -409,16 +418,22 @@ const DIFF_DEL_PREFIX = '-';
  * lines without `wrap` will still overflow the frame width by design.
  */
 function renderCodeBlock(token: Extract<Token, { type: 'code-block' }>, ctx: RenderContext, prefix: string): string {
-  const { theme, width, options } = ctx;
+  const { theme, width, indent, options } = ctx;
+  const availableWidth = Math.max(1, width - indent);
 
   const fenceRenderer = token.language ? options.fenceRenderers?.[token.language] : undefined;
-  if (fenceRenderer) {
-    const custom = fenceRenderer(token, { theme: ctx.theme, options: ctx.options, width: ctx.width, indent: ctx.indent });
-    if (custom !== null) {
-      return custom
-        .split('\n')
-        .map((line) => prefix + line)
-        .join('\n');
+  if (typeof fenceRenderer === 'function') {
+    try {
+      const custom = fenceRenderer(token, { theme: ctx.theme, options: ctx.options, width: Math.max(1, ctx.width - ctx.indent), indent: ctx.indent });
+      if (typeof custom === 'string') {
+        return custom
+          .split('\n')
+          .map((line) => prefix + line)
+          .join('\n');
+      }
+    } catch {
+      // A host renderer is an optional enhancement. Fall through to the
+      // built-in code path so one plugin cannot blank the whole document.
     }
   }
 
@@ -431,9 +446,11 @@ function renderCodeBlock(token: Extract<Token, { type: 'code-block' }>, ctx: Ren
   const lineCount = Math.max(rawLines.length, styledLines.length);
 
   const showNumbers = meta?.showLineNumbers === true;
-  const startLine = meta?.startLine ?? 1;
-  const highlightSet = new Set(meta?.highlightLines ?? []);
+  const requestedStartLine = meta?.startLine;
+  const startLine = Number.isSafeInteger(requestedStartLine) ? Math.max(1, Math.min(1_000_000_000, requestedStartLine!)) : 1;
+  const highlightSet = new Set((meta?.highlightLines ?? []).filter((line) => Number.isSafeInteger(line) && line > 0).slice(0, 100_000));
   const diffMode = meta?.diff === true || token.language === 'diff';
+  const shouldWrap = meta?.wrap === true || meta?.wrap === 'soft' || meta?.wraps === 'soft' || meta?.wraps === 'wrap';
 
   // Compute gutter width for line numbers if needed.
   const lastLineNumber = startLine + lineCount - 1;
@@ -442,7 +459,7 @@ function renderCodeBlock(token: Extract<Token, { type: 'code-block' }>, ctx: Ren
   // Determine fold threshold
   let foldThreshold = 25;
   if (meta?.fold === false) foldThreshold = Infinity;
-  else if (typeof meta?.fold === 'number') foldThreshold = meta.fold;
+  else if (typeof meta?.fold === 'number' && Number.isFinite(meta.fold)) foldThreshold = Math.max(2, Math.min(1_000_000, Math.floor(meta.fold)));
 
   let folded = false;
   let visibleCount = lineCount;
@@ -462,9 +479,9 @@ function renderCodeBlock(token: Extract<Token, { type: 'code-block' }>, ctx: Ren
     if (diffMode) {
       const trimmed = raw.trimStart();
       if (trimmed.startsWith(DIFF_ADD_PREFIX)) {
-        body = colorise(body, 'add');
+        body = colorise(body, 'add', theme);
       } else if (trimmed.startsWith(DIFF_DEL_PREFIX)) {
-        body = colorise(body, 'del');
+        body = colorise(body, 'del', theme);
       }
     }
 
@@ -473,30 +490,40 @@ function renderCodeBlock(token: Extract<Token, { type: 'code-block' }>, ctx: Ren
       gutter = String(lineNo).padStart(gutterWidth, ' ') + ' │ ';
     }
 
-    const marker = isHighlighted ? HIGHLIGHT_MARKER + ' ' : showNumbers ? '' : '  ';
-    out.push(prefix + marker + gutter + body);
+    const marker = isHighlighted ? `${theme.codeHighlightMarker ?? markdownGlyph('active-rail')} ` : showNumbers ? '' : '  ';
+    const leading = marker + gutter;
+    if (shouldWrap && visualWidth(leading + body) > availableWidth) {
+      const bodyWidth = Math.max(1, availableWidth - visualWidth(leading));
+      const wrappedBody = wrapText(body, bodyWidth, '').split('\n');
+      out.push(leading + (wrappedBody[0] ?? ''));
+      const continuation = ' '.repeat(visualWidth(leading));
+      for (const wrappedLine of wrappedBody.slice(1)) out.push(continuation + wrappedLine);
+    } else {
+      out.push(leading + body);
+    }
   }
 
   if (folded) {
     const hidden = lineCount - visibleCount;
     const marker = showNumbers ? '' : '  ';
-    out.push(prefix + marker + `+${hidden} lines (click to expand)`);
+    out.push(marker + `+${hidden} lines (click to expand)`);
   }
 
   if (meta?.copy === true) {
     const label = '[copy]';
-    out.push(prefix + '  ' + theme.code(label));
+    out.push('  ' + theme.code(label));
   }
 
   const styled = theme.codeBlock(out.join('\n'));
-  return theme.codeBlockFrame(styled, token.language, width);
+  return theme
+    .codeBlockFrame(styled, token.language, availableWidth)
+    .split('\n')
+    .map((line) => prefix + line)
+    .join('\n');
 }
 
-function colorise(text: string, kind: 'add' | 'del'): string {
-  // ANSI green / red. Kept inline (not in theme) because diff colouring is
-  // a content-level signal, not a theme decision.
-  const code = kind === 'add' ? '\x1b[32m' : '\x1b[31m';
-  return code + text + '\x1b[0m';
+function colorise(text: string, kind: 'add' | 'del', theme: MarkdownTheme): string {
+  return kind === 'add' ? (theme.diffAdded?.(text) ?? theme.code(text)) : (theme.diffRemoved?.(text) ?? theme.code(text));
 }
 
 // ── Heading Helper ──────────────────────────────────────────────────────
@@ -574,7 +601,7 @@ function renderInlineToken(token: InlineToken, ctx: RenderContext): string {
     case 'wiki-link':
       return theme.link(token.alias ?? token.target, token.target);
     case 'image-inline':
-      return renderImage(token, { theme, options, width: options.width ?? 80 });
+      return renderImage(token, { theme, options, width: ctx.width - ctx.indent });
     case 'hard-break':
       return '\n';
   }

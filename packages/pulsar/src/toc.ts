@@ -89,8 +89,6 @@ export interface TocOptions {
   readonly indentGlyph?: (level: number) => string;
 }
 
-const DEFAULT_GLYPH = (level: number): string => '  '.repeat(Math.max(0, level - 1)) + '• ';
-
 /**
  * Build a TOC VNode column from a markdown source. Each entry is a
  * link-tagged text node carrying `data.kind === 'link'` so consumers
@@ -98,25 +96,35 @@ const DEFAULT_GLYPH = (level: number): string => '  '.repeat(Math.max(0, level -
  */
 export function toc(input: string, options?: TocOptions): ColumnVNode {
   const entries = extractToc(input);
-  const min = options?.minLevel ?? 1;
-  const max = options?.maxLevel ?? 6;
+  const min = Number.isSafeInteger(options?.minLevel) ? Math.max(1, Math.min(6, options!.minLevel!)) : 1;
+  const max = Number.isSafeInteger(options?.maxLevel) ? Math.max(min, Math.min(6, options!.maxLevel!)) : 6;
   const prefix = options?.anchorPrefix ?? '#';
-  const glyph = options?.indentGlyph ?? DEFAULT_GLYPH;
+  const theme = defaultTheme();
+  const glyph = options?.indentGlyph ?? ((level: number) => '  '.repeat(Math.max(0, level - 1)) + theme.listBullet + ' ');
 
   const filtered = entries.filter((e) => e.level >= min && e.level <= max);
-  const linkStyle = defaultTheme().linkText ?? ((t: string) => t);
+  const linkStyle = theme.linkText ?? ((t: string) => t);
 
   const children: TextVNode[] = filtered.map((entry) => {
     const url = `${prefix}${entry.slug}`;
     return {
       kind: 'text',
-      content: glyph(entry.level - min + 1) + linkStyle(entry.text),
+      content: safeGlyph(glyph, entry.level - min + 1) + linkStyle(entry.text),
       href: url,
       data: { kind: 'link', url, text: entry.text },
     };
   });
 
   return { kind: 'column', children };
+}
+
+function safeGlyph(glyph: (level: number) => string, level: number): string {
+  try {
+    const value = glyph(level);
+    return typeof value === 'string' ? value : '';
+  } catch {
+    return '';
+  }
 }
 
 // Re-export the slug helper so consumers can derive matching slugs for

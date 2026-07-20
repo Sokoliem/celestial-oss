@@ -18,13 +18,16 @@
 
 import type { CodeBlockMeta } from '../types.js';
 
+const MAX_INFO_STRING_LENGTH = 100_000;
+const MAX_HIGHLIGHT_LINES = 100_000;
+
 interface InfoStringParseResult {
   readonly language: string;
   readonly meta?: CodeBlockMeta;
 }
 
 export function parseCodeBlockInfoString(rawInfo: string): InfoStringParseResult {
-  const trimmed = rawInfo.trim();
+  const trimmed = rawInfo.slice(0, MAX_INFO_STRING_LENGTH).trim();
   if (!trimmed) return { language: '' };
 
   // CommonMark: language is everything up to the first whitespace.
@@ -65,7 +68,9 @@ export function parseCodeBlockInfoString(rawInfo: string): InfoStringParseResult
     meta.copy !== undefined ||
     meta.wrap !== undefined ||
     meta.diff !== undefined ||
-    meta.fold !== undefined;
+    meta.fold !== undefined ||
+    meta.view !== undefined ||
+    meta.wraps !== undefined;
 
   return { language, ...(hasContent ? { meta } : {}) };
 }
@@ -95,7 +100,7 @@ function applyMetaKey(meta: Mutable<CodeBlockMeta>, key: string, value: boolean 
       break;
     case 'start':
     case 'startLine':
-      if (typeof value === 'number') meta.startLine = value;
+      if (typeof value === 'number') meta.startLine = Math.max(1, Math.min(1_000_000_000, Math.floor(value)));
       break;
     case 'copy':
       if (typeof value === 'boolean') meta.copy = value;
@@ -103,11 +108,18 @@ function applyMetaKey(meta: Mutable<CodeBlockMeta>, key: string, value: boolean 
     case 'wrap':
       if (typeof value === 'boolean' || value === 'soft') meta.wrap = value !== false;
       break;
+    case 'wraps':
+      if (value === 'none' || value === 'soft' || value === 'wrap') meta.wraps = value;
+      break;
     case 'diff':
       if (typeof value === 'boolean') meta.diff = value;
       break;
+    case 'view':
+      if (value === 'unified' || value === 'split') meta.view = value;
+      break;
     case 'fold':
-      if (typeof value === 'boolean' || typeof value === 'number') meta.fold = value;
+      if (typeof value === 'boolean') meta.fold = value;
+      else if (typeof value === 'number') meta.fold = Math.max(2, Math.min(1_000_000, Math.floor(value)));
       break;
     default:
       // Ignore unknown keys — see file header for rationale.
@@ -132,9 +144,11 @@ function parseLineRanges(spec: string): number[] {
       const a = Number(part.slice(0, dash));
       const b = Number(part.slice(dash + 1));
       if (Number.isInteger(a) && Number.isInteger(b) && a > 0 && b >= a) {
-        for (let i = a; i <= b; i++) out.add(i);
+        const boundedEnd = Math.min(b, a + Math.max(0, MAX_HIGHLIGHT_LINES - out.size) - 1);
+        for (let i = a; i <= boundedEnd; i++) out.add(i);
       }
     }
+    if (out.size >= MAX_HIGHLIGHT_LINES) break;
   }
   return [...out].sort((a, b) => a - b);
 }

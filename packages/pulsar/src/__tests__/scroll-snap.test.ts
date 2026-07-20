@@ -122,4 +122,15 @@ describe('createBlockSnapScroll', () => {
     expect(done).toBe(true);
     expect(line).toBe(20);
   });
+
+  it('normalizes malformed blocks, indices, dimensions, and elapsed time', () => {
+    const overlay = makeOverlay(Number.NaN, Number.POSITIVE_INFINITY, Number.NaN);
+    const ctrl = createBlockSnapScroll(overlay, [
+      { startLine: Number.NaN, endLine: 4 },
+      { startLine: 10.9, endLine: 5 },
+    ]);
+    expect(() => ctrl.snapToBlock(Number.POSITIVE_INFINITY)).not.toThrow();
+    const sample = ctrl.tick(Number.POSITIVE_INFINITY);
+    expect(Number.isFinite(sample.line)).toBe(true);
+  });
 });

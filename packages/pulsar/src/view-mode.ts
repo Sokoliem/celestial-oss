@@ -24,7 +24,7 @@ export type ViewMode = 'outline' | 'summary' | 'full';
  * @param options Standard RenderOptions
  */
 export function markdownView(input: string, mode: ViewMode, options?: RenderOptions): ReturnType<typeof markdown> {
-  if (mode === 'full' || !input.trim()) {
+  if ((mode !== 'outline' && mode !== 'summary') || !input.trim()) {
     return markdown(input, options);
   }
 

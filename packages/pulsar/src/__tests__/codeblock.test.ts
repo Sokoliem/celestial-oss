@@ -1,13 +1,25 @@
+import { measureTextWidth } from '@celestial/rosetta';
 import { describe, expect, it } from 'vitest';
+import { findInteractiveNodes } from '../interactions.js';
 import { parseCodeBlockInfoString } from '../parser/codeblock-meta.js';
 import { parseMarkdown } from '../parser/index.js';
 import { renderMarkdown } from '../renderer.js';
-import type { Token } from '../types.js';
-import { markdown } from '../vnode.js';
+import { createTheme } from '../theme.js';
+import type { RenderOptions, Token } from '../types.js';
+import { markdown, type VNode } from '../vnode.js';
 
 function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
   return str.replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
+}
+
+function resolveFirstBlock(source: string, width: number, options?: RenderOptions): VNode {
+  const vnode = markdown(source, options);
+  if (vnode.kind !== 'column') throw new Error('expected document column');
+  const block = vnode.children[0]!;
+  if (block.kind !== 'component') return block;
+  const space = { cols: width, rows: 100 };
+  return block.render({ terminal: space, available: space, container: space });
 }
 
 describe('parseCodeBlockInfoString', () => {
@@ -36,6 +48,19 @@ describe('parseCodeBlockInfoString', () => {
     // Explicit diff=false records the literal false (caller can distinguish
     // "explicitly disabled" from "not set" if they care).
     expect(result.meta?.diff).toBe(false);
+  });
+
+  it('parses split-view and explicit wrapping modes', () => {
+    const result = parseCodeBlockInfoString('diff view=split wraps=soft');
+    expect(result.meta?.view).toBe('split');
+    expect(result.meta?.wraps).toBe('soft');
+  });
+
+  it('bounds hostile numeric metadata', () => {
+    const result = parseCodeBlockInfoString('ts {1-999999999} start=-5 fold=-10');
+    expect(result.meta?.highlightLines?.length).toBeLessThanOrEqual(100_000);
+    expect(result.meta?.startLine).toBe(1);
+    expect(result.meta?.fold).toBe(2);
   });
 
   it('ignores unknown tokens', () => {
@@ -91,28 +116,78 @@ describe('renderMarkdown code-block enrichment', () => {
     expect(out).not.toMatch(/^\s*1 │/);
     expect(out).not.toContain('[copy]');
   });
+
+  it('soft-wraps long code lines without dropping content', () => {
+    const source = 'abcdefghijklmnopqrstuvwxyz';
+    const out = stripAnsi(renderMarkdown(`\`\`\`text wrap\n${source}\n\`\`\``, { width: 12 }));
+    const body = out
+      .split('\n')
+      .filter((line) => !line.startsWith('┌') && !line.startsWith('└'))
+      .map((line) => line.trim())
+      .join('');
+    expect(body).toBe(source);
+    expect(out.split('\n').every((line) => line.length <= 12)).toBe(true);
+  });
+
+  it('indents the entire built-in frame within the render width', () => {
+    const out = stripAnsi(renderMarkdown('```text copy\nvalue\n```', { width: 16, indent: 4 }));
+    expect(out.split('\n').every((line) => line.startsWith('    '))).toBe(true);
+    expect(out.split('\n').every((line) => line.length <= 16)).toBe(true);
+  });
 });
 
 describe('markdown() VNode code-block enrichment', () => {
-  it('emits a single text node for a plain code block (back-compat)', () => {
+  it('emits a live-width component for a plain code block', () => {
     const vnode = markdown('```ts\nconst a = 1;\n```');
     if (vnode.kind !== 'column') throw new Error('expected column');
     const block = vnode.children[0]!;
-    expect(block.kind).toBe('text');
+    expect(block.kind).toBe('component');
+    if (block.kind !== 'component') return;
+    const space = { cols: 24, rows: 20 };
+    const rendered = block.render({ terminal: space, available: space, container: space });
+    expect(rendered.kind).toBe('text');
+    if (rendered.kind === 'text') expect(stripAnsi(rendered.content)).toContain('const a = 1;');
   });
 
-  it('emits a column with a copy-tagged VNode when meta.copy is true', () => {
+  it('keeps copy metadata discoverable through the responsive component', () => {
     const vnode = markdown('```ts copy\nconst a = 1;\n```');
-    if (vnode.kind !== 'column') throw new Error('expected column');
-    const block = vnode.children[0]!;
-    expect(block.kind).toBe('column');
-    if (block.kind !== 'column') return;
-    const copyNode = block.children.find((n) => n.kind === 'text' && n.data?.kind === 'copy');
-    expect(copyNode).toBeDefined();
-    if (copyNode && copyNode.kind === 'text' && copyNode.data?.kind === 'copy') {
-      expect(copyNode.data.code).toBe('const a = 1;');
-      expect(copyNode.data.language).toBe('ts');
-    }
+    const copy = findInteractiveNodes(vnode).find(({ data }) => data.kind === 'copy');
+    expect(copy?.data).toEqual({ kind: 'copy', code: 'const a = 1;', language: 'ts' });
+  });
+
+  it('passes the live width to custom fence renderers', () => {
+    const rendered = resolveFirstBlock('```custom\nvalue\n```', 17, {
+      fenceRenderers: { custom: (_token, context) => `custom:${context.width}` },
+    });
+    expect(rendered).toMatchObject({ kind: 'text', content: 'custom:17' });
+  });
+
+  it('soft-wraps VNode code without dropping the final character', () => {
+    const source = 'abcdefghijklmnopq';
+    const rendered = resolveFirstBlock(`\`\`\`text wrap\n${source}\n\`\`\``, 12);
+    expect(rendered.kind).toBe('column');
+    if (rendered.kind !== 'column') return;
+    const plainLines = rendered.children.map((node) => (node.kind === 'text' ? stripAnsi(node.content) : ''));
+    expect(plainLines.every((line) => measureTextWidth(line) <= 12)).toBe(true);
+    expect(plainLines.slice(1, -1).join('').replace(/\s/gu, '')).toBe(source);
+  });
+
+  it('prioritizes code content over gutters at one-cell widths', () => {
+    const rendered = resolveFirstBlock('```text numbers wrap {1}\nab\n```', 1);
+    expect(rendered.kind).toBe('column');
+    if (rendered.kind !== 'column') return;
+    const plainLines = rendered.children.map((node) => (node.kind === 'text' ? stripAnsi(node.content) : ''));
+
+    expect(plainLines.every((line) => measureTextWidth(line) <= 1)).toBe(true);
+    expect(plainLines.slice(1, -1).join('')).toBe('ab');
+  });
+
+  it('uses semantic diff styles in VNode mode', () => {
+    const theme = createTheme({ diffAdded: (line) => `ADD:${line}` });
+    const rendered = resolveFirstBlock('```diff\n+added\n```', 30, { theme });
+    expect(rendered.kind).toBe('column');
+    if (rendered.kind !== 'column') return;
+    expect(rendered.children.some((node) => node.kind === 'text' && node.content.includes('ADD:'))).toBe(true);
   });
 });
 
@@ -139,11 +214,7 @@ describe('code-block fold', () => {
   it('emits fold-toggle data in VNode mode', () => {
     const lines = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
     const vnode = markdown('```ts fold\n' + lines.join('\n') + '\n```');
-    if (vnode.kind !== 'column') throw new Error('expected column');
-    const block = vnode.children[0]!;
-    expect(block.kind).toBe('column');
-    if (block.kind !== 'column') return;
-    const foldNode = block.children.find((n) => n.kind === 'text' && n.data?.kind === 'fold-toggle');
+    const foldNode = findInteractiveNodes(vnode).find(({ data }) => data.kind === 'fold-toggle');
     expect(foldNode).toBeDefined();
   });
 });

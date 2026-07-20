@@ -1,6 +1,8 @@
 import type { SemanticTheme } from '@celestial/corona';
 import { color } from '@celestial/corona';
+import { measureTextWidth } from '@celestial/rosetta';
 import { describe, expect, it } from 'vitest';
+import { markdownGlyph } from '../markdown-glyphs.js';
 import { createMarkdownTheme, createTheme, defaultTheme, fromSemanticTheme, lightTheme } from '../theme.js';
 
 /** Check if string contains ANSI codes */
@@ -188,13 +190,13 @@ describe('defaultTheme - extended properties', () => {
     expect(result).toContain('hello');
   });
 
-  it('codeBlockFrame defaults to width 80 (78 dash chars)', () => {
+  it('codeBlockFrame defaults to an exact width of 80 cells', () => {
     const theme = defaultTheme();
     const result = theme.codeBlockFrame('code', '', undefined);
     const plain = stripAnsi(result);
     const topLine = plain.split('\n')[0]!;
-    // Corner '┌' + 78 dashes = 79 chars total
-    expect(topLine).toBe('┌' + '─'.repeat(78));
+    expect(topLine).toBe('┌' + '─'.repeat(79));
+    expect(measureTextWidth(topLine)).toBe(80);
   });
 
   it('codeBlockFrame respects explicit width', () => {
@@ -202,7 +204,8 @@ describe('defaultTheme - extended properties', () => {
     const result = theme.codeBlockFrame('code', '', 120);
     const plain = stripAnsi(result);
     const topLine = plain.split('\n')[0]!;
-    expect(topLine).toBe('┌' + '─'.repeat(118));
+    expect(topLine).toBe('┌' + '─'.repeat(119));
+    expect(measureTextWidth(topLine)).toBe(120);
   });
 
   it('codeBlockFrame respects small width', () => {
@@ -210,7 +213,24 @@ describe('defaultTheme - extended properties', () => {
     const result = theme.codeBlockFrame('code', '', 40);
     const plain = stripAnsi(result);
     const topLine = plain.split('\n')[0]!;
-    expect(topLine).toBe('┌' + '─'.repeat(38));
+    expect(topLine).toBe('┌' + '─'.repeat(39));
+    expect(measureTextWidth(topLine)).toBe(40);
+  });
+
+  it('bounds invalid public width inputs', () => {
+    const theme = defaultTheme();
+    expect(stripAnsi(theme.hr(Number.NaN))).toBe('');
+    expect(stripAnsi(theme.hr(-10))).toBe('');
+    const frame = stripAnsi(theme.codeBlockFrame('code', '', Number.POSITIVE_INFINITY));
+    expect(measureTextWidth(frame.split('\n')[0]!)).toBe(80);
+  });
+});
+
+describe('markdown glyph tokens', () => {
+  it('provide ASCII and Unicode fallbacks for semantic marks', () => {
+    expect(markdownGlyph('active-rail', 1)).toBe('|');
+    expect(markdownGlyph('active-rail', 2)).toBe('▎');
+    expect(markdownGlyph('image', 1)).toBe('[img]');
   });
 });
 
@@ -498,12 +518,13 @@ describe('fromSemanticTheme', () => {
     expect(result).toBe('🔥');
   });
 
-  it('codeBlockFrame defaults to width 80 (78 dash chars)', () => {
+  it('codeBlockFrame defaults to an exact width of 80 cells', () => {
     const theme = fromSemanticTheme(mockSemanticTheme);
     const result = theme.codeBlockFrame('code', '', undefined);
     const plain = stripAnsi(result);
     const topLine = plain.split('\n')[0]!;
-    expect(topLine).toBe('┌' + '─'.repeat(78));
+    expect(topLine).toBe('┌' + '─'.repeat(79));
+    expect(measureTextWidth(topLine)).toBe(80);
   });
 
   it('codeBlockFrame respects explicit width', () => {
@@ -511,6 +532,7 @@ describe('fromSemanticTheme', () => {
     const result = theme.codeBlockFrame('code', '', 100);
     const plain = stripAnsi(result);
     const topLine = plain.split('\n')[0]!;
-    expect(topLine).toBe('┌' + '─'.repeat(98));
+    expect(topLine).toBe('┌' + '─'.repeat(99));
+    expect(measureTextWidth(topLine)).toBe(100);
   });
 });

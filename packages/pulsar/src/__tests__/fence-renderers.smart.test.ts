@@ -9,6 +9,8 @@ import { httpFenceRenderer } from '../fence-renderers/http.js';
 import { jsonFenceRenderer } from '../fence-renderers/json.js';
 import { sqlFenceRenderer } from '../fence-renderers/sql.js';
 import { defaultTheme } from '../theme.js';
+import { stripAnsi } from '../renderer/ansi.js';
+import { visualWidth } from '../renderer/width.js';
 
 function ctx(overrides?: Partial<Parameters<typeof jsonFenceRenderer>[1]>) {
   return {
@@ -46,6 +48,23 @@ describe('csvFenceRenderer', () => {
   it('returns null for empty CSV', () => {
     const out = csvFenceRenderer({ type: 'code-block', language: 'csv', content: '' }, ctx());
     expect(out).toBeNull();
+  });
+
+  it('supports quoted multiline cells and rejects unclosed quotes', () => {
+    const out = csvFenceRenderer({ type: 'code-block', language: 'csv', content: 'name,note\nalpha,"line one\nline two"' }, ctx());
+    expect(stripAnsi(out ?? '')).toContain('line one line two');
+    expect(csvFenceRenderer({ type: 'code-block', language: 'csv', content: 'a,"unclosed' }, ctx())).toBeNull();
+  });
+
+  it('keeps CSV output within a narrow Unicode cell budget', () => {
+    const out = csvFenceRenderer({ type: 'code-block', language: 'csv', content: 'name,value\n界界界,abcdef' }, ctx({ width: 10 }));
+    expect(out).not.toBeNull();
+    expect(
+      (out ?? '')
+        .split('\n')
+        .map(stripAnsi)
+        .every((line) => visualWidth(line) <= 10),
+    ).toBe(true);
   });
 });
 

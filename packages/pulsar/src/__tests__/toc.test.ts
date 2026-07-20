@@ -87,4 +87,14 @@ describe('toc()', () => {
     const node = toc('# Top', { anchorPrefix: '/docs/' });
     expect(node.children[0]?.href).toBe('/docs/top');
   });
+
+  it('contains custom indentation callback failures', () => {
+    expect(() =>
+      toc('# Top', {
+        indentGlyph: () => {
+          throw new Error('host callback failed');
+        },
+      }),
+    ).not.toThrow();
+  });
 });

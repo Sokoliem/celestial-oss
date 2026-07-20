@@ -6,7 +6,9 @@
  */
 
 import type { SemanticTheme } from '@celestial/corona';
-import { color, style } from '@celestial/corona';
+import { applyVariant, color, defaultTheme as defaultSemanticTheme, diffTokens, lightVariant, resolveDomainTokens, style } from '@celestial/corona';
+import { measureTextWidth, truncateText } from '@celestial/rosetta';
+import { markdownGlyph } from './markdown-glyphs.js';
 import type { AdmonitionKind, MarkdownTheme } from './types.js';
 
 // ── Admonition Colors ───────────────────────────────────────────────────
@@ -23,15 +25,22 @@ const ADMONITION_COLORS: Record<AdmonitionKind, () => ReturnType<typeof color.he
 };
 
 const ADMONITION_ICONS: Record<AdmonitionKind, string> = {
-  note: 'ℹ',
-  tip: '💡',
-  important: '❗',
-  warning: '⚠',
-  caution: '🔥',
-  'ai-thinking': '◈',
-  'tool-call': '⚙',
-  citation: '◆',
+  note: markdownGlyph('note'),
+  tip: markdownGlyph('tip'),
+  important: markdownGlyph('important'),
+  warning: markdownGlyph('warning'),
+  caution: markdownGlyph('caution'),
+  'ai-thinking': markdownGlyph('ai-thinking'),
+  'tool-call': markdownGlyph('tool-call'),
+  citation: markdownGlyph('citation'),
 };
+
+const MAX_THEME_WIDTH = 1_000_000;
+
+function normalizeThemeWidth(value: number | undefined, fallback: number, minimum: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.min(MAX_THEME_WIDTH, Math.max(minimum, Math.floor(value)));
+}
 
 // ── Default Theme ───────────────────────────────────────────────────────
 
@@ -39,6 +48,7 @@ const ADMONITION_ICONS: Record<AdmonitionKind, string> = {
  * Create the default markdown theme using corona styling.
  */
 export function defaultTheme(): MarkdownTheme {
+  const diff = resolveDomainTokens(diffTokens, defaultSemanticTheme);
   const h1Style = style({ color: color.cyan, bold: true });
   const h2Style = style({ color: color.blue, bold: true });
   const h3Style = style({ color: color.green, bold: true });
@@ -61,6 +71,10 @@ export function defaultTheme(): MarkdownTheme {
   const footnoteStyle = style({ color: color.yellow, dim: true });
   const emojiStyle = style({});
   const imagePlaceholderStyle = style({ color: color.magenta, dim: true });
+  const diffAddedStyle = style({ color: diff.added });
+  const diffRemovedStyle = style({ color: diff.removed });
+  const diffContextStyle = style({ color: diff.context });
+  const diffHeaderStyle = style({ color: diff.header, bold: true });
 
   return {
     heading1: (text: string) => h1Style.render(text),
@@ -81,31 +95,40 @@ export function defaultTheme(): MarkdownTheme {
     },
     listBullet: bulletStyle.render('•'),
     listNumber: (n: number) => tableBorderStyle.render(`${n}.`),
-    hr: (width: number) => hrStyle.render('─'.repeat(width)),
+    hr: (width: number) => hrStyle.render(markdownGlyph('rule').repeat(normalizeThemeWidth(width, 0, 0))),
     strikethrough: (text: string) => strikethroughStyle.render(text),
     tableHeader: (text: string) => tableHeaderStyle.render(text),
     tableCell: (text: string) => tableCellStyle.render(text),
     tableBorder: tableBorderStyle.render('│'),
+    diffAdded: (text: string) => diffAddedStyle.render(text),
+    diffRemoved: (text: string) => diffRemovedStyle.render(text),
+    diffContext: (text: string) => diffContextStyle.render(text),
+    diffHeader: (text: string) => diffHeaderStyle.render(text),
+    searchCurrentMarker: markdownGlyph('active-rail'),
+    codeHighlightMarker: markdownGlyph('active-rail'),
     taskChecked: style({ color: color.green }).render('[x]'),
     taskUnchecked: style({ dim: true }).render('[ ]'),
     admonitionTitle: (kind: AdmonitionKind, title: string) => {
       const colorFn = ADMONITION_COLORS[kind] ?? (() => color.gray);
-      const icon = ADMONITION_ICONS[kind] ?? '◈';
+      const icon = ADMONITION_ICONS[kind] ?? markdownGlyph('ai-thinking');
       return style({ color: colorFn(), bold: true }).render(`${icon} ${title}`);
     },
     admonitionBorder: (kind: AdmonitionKind) => {
       const colorFn = ADMONITION_COLORS[kind] ?? (() => color.gray);
-      return style({ color: colorFn() }).render('▌');
+      return style({ color: colorFn() }).render(markdownGlyph('admonition-rail'));
     },
     footnoteRef: (label: string) => footnoteStyle.render(`[${label}]`),
     footnoteDef: (label: string) => footnoteStyle.render(`[${label}]:`),
-    imagePlaceholder: (alt: string, url: string) => imagePlaceholderStyle.render(`🖼  ${alt}`) + ' ' + linkUrlStyle.render(`(${url})`),
+    imagePlaceholder: (alt: string, url: string) => imagePlaceholderStyle.render(`${markdownGlyph('image')}  ${alt}`) + ' ' + linkUrlStyle.render(`(${url})`),
     emoji: (_name: string, unicode: string) => emojiStyle.render(unicode),
     codeBlockFrame: (content: string, language: string, width?: number) => {
-      const frameWidth = (width ?? 80) - 2;
-      const langLabel = language ? style({ dim: true }).render(` ${language} `) : '';
-      const topBorder = style({ dim: true }).render('┌' + '─'.repeat(frameWidth)) + langLabel;
-      const bottomBorder = style({ dim: true }).render('└' + '─'.repeat(frameWidth));
+      const safeWidth = normalizeThemeWidth(width, 80, 1);
+      const rawLabel = language ? truncateText(` ${language} `, safeWidth - 1, '') : '';
+      const labelWidth = measureTextWidth(rawLabel);
+      const langLabel = rawLabel ? style({ dim: true }).render(rawLabel) : '';
+      const rule = markdownGlyph('rule');
+      const topBorder = style({ dim: true }).render(markdownGlyph('code-top-left') + rule.repeat(Math.max(0, safeWidth - 1 - labelWidth))) + langLabel;
+      const bottomBorder = style({ dim: true }).render(markdownGlyph('code-bottom-left') + rule.repeat(Math.max(0, safeWidth - 1)));
       return topBorder + '\n' + content + '\n' + bottomBorder;
     },
   };
@@ -117,22 +140,7 @@ export function defaultTheme(): MarkdownTheme {
  * Create a light-background-optimized theme.
  */
 export function lightTheme(): MarkdownTheme {
-  const base = defaultTheme();
-  const h1Style = style({ color: color.hex('#0550AE'), bold: true });
-  const h2Style = style({ color: color.hex('#0969DA'), bold: true });
-  const h3Style = style({ color: color.hex('#1A7F37'), bold: true });
-  const linkTextStyle = style({ color: color.hex('#0969DA'), underline: true });
-  const codeStyle = style({ color: color.hex('#953800') });
-
-  return {
-    ...base,
-    heading1: (text: string) => h1Style.render(text),
-    heading2: (text: string) => h2Style.render(text),
-    heading3: (text: string) => h3Style.render(text),
-    code: (text: string) => codeStyle.render(text),
-    link: (text: string, url: string) => linkTextStyle.render(text) + ' ' + style({ dim: true }).render(`(${url})`),
-    linkText: (text: string) => linkTextStyle.render(text),
-  };
+  return fromSemanticTheme(applyVariant(defaultSemanticTheme, lightVariant));
 }
 
 // ── Theme Creation ──────────────────────────────────────────────────────
@@ -152,6 +160,7 @@ export function createTheme(overrides: Partial<MarkdownTheme>): MarkdownTheme {
  */
 export function fromSemanticTheme(semanticTheme: SemanticTheme): MarkdownTheme {
   const { colors, glyphs } = semanticTheme;
+  const diff = resolveDomainTokens(diffTokens, semanticTheme);
 
   const h1Style = style({ color: colors.tones.accent, bold: true });
   const h2Style = style({ color: colors.tones.info, bold: true });
@@ -204,11 +213,17 @@ export function fromSemanticTheme(semanticTheme: SemanticTheme): MarkdownTheme {
     },
     listBullet: style({ color: colors.tones.accent }).render(glyphs.bullet ?? '•'),
     listNumber: (n: number) => tableBorderStyle.render(`${n}.`),
-    hr: (width: number) => hrStyle.render('─'.repeat(width)),
+    hr: (width: number) => hrStyle.render(markdownGlyph('rule').repeat(normalizeThemeWidth(width, 0, 0))),
     strikethrough: (text: string) => strikethroughStyle.render(text),
     tableHeader: (text: string) => tableHeaderStyle.render(text),
     tableCell: (text: string) => tableCellStyle.render(text),
     tableBorder: tableBorderStyle.render(glyphs.pipe ?? '│'),
+    diffAdded: (text: string) => style({ color: diff.added }).render(text),
+    diffRemoved: (text: string) => style({ color: diff.removed }).render(text),
+    diffContext: (text: string) => style({ color: diff.context }).render(text),
+    diffHeader: (text: string) => style({ color: diff.header, bold: true }).render(text),
+    searchCurrentMarker: markdownGlyph('active-rail'),
+    codeHighlightMarker: markdownGlyph('active-rail'),
     taskChecked: style({ color: colors.tones.success }).render(glyphs.checked ?? '[x]'),
     taskUnchecked: style({ color: colors.muted }).render(glyphs.unchecked ?? '[ ]'),
     admonitionTitle: (kind: AdmonitionKind, title: string) => {
@@ -218,18 +233,21 @@ export function fromSemanticTheme(semanticTheme: SemanticTheme): MarkdownTheme {
     },
     admonitionBorder: (kind: AdmonitionKind) => {
       const c = semanticAdmonitionColors[kind];
-      return style({ color: c }).render('▌');
+      return style({ color: c }).render(markdownGlyph('admonition-rail'));
     },
     footnoteRef: (label: string) => footnoteStyle.render(`[${label}]`),
     footnoteDef: (label: string) => footnoteStyle.render(`[${label}]:`),
-    imagePlaceholder: (alt: string, url: string) => imagePlaceholderStyle.render(`🖼  ${alt}`) + ' ' + linkUrlStyle.render(`(${url})`),
+    imagePlaceholder: (alt: string, url: string) => imagePlaceholderStyle.render(`${markdownGlyph('image')}  ${alt}`) + ' ' + linkUrlStyle.render(`(${url})`),
     emoji: (_name: string, unicode: string) => unicode,
     codeBlockFrame: (content: string, language: string, width?: number) => {
-      const frameWidth = (width ?? 80) - 2;
-      const langLabel = language ? style({ color: colors.muted }).render(` ${language} `) : '';
+      const safeWidth = normalizeThemeWidth(width, 80, 1);
+      const rawLabel = language ? truncateText(` ${language} `, safeWidth - 1, '') : '';
+      const labelWidth = measureTextWidth(rawLabel);
+      const langLabel = rawLabel ? style({ color: colors.muted }).render(rawLabel) : '';
       const borderStyle = style({ color: colors.border });
-      const topBorder = borderStyle.render('┌' + '─'.repeat(frameWidth)) + langLabel;
-      const bottomBorder = borderStyle.render('└' + '─'.repeat(frameWidth));
+      const rule = markdownGlyph('rule');
+      const topBorder = borderStyle.render(markdownGlyph('code-top-left') + rule.repeat(Math.max(0, safeWidth - 1 - labelWidth))) + langLabel;
+      const bottomBorder = borderStyle.render(markdownGlyph('code-bottom-left') + rule.repeat(Math.max(0, safeWidth - 1)));
       return topBorder + '\n' + content + '\n' + bottomBorder;
     },
   };

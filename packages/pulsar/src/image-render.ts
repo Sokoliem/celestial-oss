@@ -10,6 +10,7 @@
  */
 
 import type { MarkdownTheme, RenderOptions, TerminalCapabilities } from './types.js';
+import { wrapText } from './renderer/wrap.js';
 
 export interface ImageRenderContext {
   readonly theme: MarkdownTheme;
@@ -24,7 +25,8 @@ export interface ImageRenderContext {
  */
 export function renderImage(token: { alt: string; url: string; title?: string }, ctx: ImageRenderContext, buffer?: Uint8Array): string {
   void buffer;
-  return ctx.theme.imagePlaceholder(token.alt, token.url);
+  const width = Number.isFinite(ctx.width) ? Math.max(1, Math.min(1_000_000, Math.floor(ctx.width))) : 80;
+  return wrapText(ctx.theme.imagePlaceholder(token.alt, token.url), width, '');
 }
 
 /**

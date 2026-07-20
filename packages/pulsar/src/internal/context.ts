@@ -49,16 +49,25 @@ export interface RenderContext {
   readonly indent: number;
 }
 
+const MAX_RENDER_DIMENSION = 1_000_000;
+
+function normalizeDimension(value: number | undefined, fallback: number, minimum: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.min(MAX_RENDER_DIMENSION, Math.max(minimum, Math.floor(value)));
+}
+
 /**
  * Build a render context from the public RenderOptions shape. Defaults
  * width=80 and indent=0 to match the existing renderMarkdown contract.
  */
 export function createRenderContext(theme: MarkdownTheme, options: RenderOptions): RenderContext {
+  const width = normalizeDimension(options.width, 80, 1);
+  const indent = Math.min(width - 1, normalizeDimension(options.indent, 0, 0));
   return {
     theme,
-    options,
-    width: options.width ?? 80,
-    indent: options.indent ?? 0,
+    options: { ...options, width, indent },
+    width,
+    indent,
   };
 }
 
@@ -68,5 +77,6 @@ export function createRenderContext(theme: MarkdownTheme, options: RenderOptions
  * indentation distinct from its own.
  */
 export function withIndent(ctx: RenderContext, indent: number): RenderContext {
-  return { ...ctx, options: { ...ctx.options, indent }, indent };
+  const normalized = Math.min(ctx.width - 1, normalizeDimension(indent, ctx.indent, 0));
+  return { ...ctx, options: { ...ctx.options, indent: normalized }, indent: normalized };
 }
