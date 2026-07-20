@@ -8,6 +8,7 @@ packages:
   - "packages/nexus"
   - "packages/core"
   - "packages/constellation"
+  - "packages/orbit"
   - "packages/telescope"
   - "packages/horizon"
   - "examples/task-console"

@@ -8,6 +8,7 @@ export const requiredPreviewPackages = Object.freeze([
   '@celestial/nexus',
   '@celestial/core',
   '@celestial/ui',
+  '@celestial/orbit',
   '@celestial/test',
 ]);
 
@@ -28,6 +29,7 @@ export const previewPackageDirectories = Object.freeze({
   '@celestial/nexus': 'packages/nexus',
   '@celestial/core': 'packages/core',
   '@celestial/ui': 'packages/constellation',
+  '@celestial/orbit': 'packages/orbit',
   '@celestial/test': 'packages/telescope',
   '@celestial/horizon': 'packages/horizon',
 });

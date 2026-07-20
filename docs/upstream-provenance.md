@@ -13,6 +13,10 @@ removed or replaced with public adapters. Public package names and manifests
 are then adapted for `Sokoliem/celestial-oss` and validated from packed
 artifacts.
 
+The Orbit extraction uses `@celestial/ui` as its only component-system
+dependency; the private `@celestial/constellation` package name and its local
+declaration shims are intentionally absent from the public package graph.
+
 The authoritative repositories are:
 
 - `C:\Users\emsok\celestial`: full source used for selective extraction.
