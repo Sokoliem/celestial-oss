@@ -68,8 +68,6 @@ export interface Screen extends QueryEngine {
  * Provides Testing Library-style queries and utilities.
  */
 export function createScreen<Model, M>(handle: TestAppHandle<Model, M>): Screen {
-  const { cols, rows } = handle.terminal.getSize();
-
   // The query engine needs a function that returns the current view
   const queryEngine = createQueryEngine(
     () => {
@@ -77,8 +75,7 @@ export function createScreen<Model, M>(handle: TestAppHandle<Model, M>): Screen 
       // We access the model and call the view function
       return (handle as unknown as { _getView(): VNode })._getView ? (handle as unknown as { _getView(): VNode })._getView() : getViewFromHandle(handle);
     },
-    cols,
-    rows,
+    () => handle.terminal.getSize(),
   );
 
   function getViewFromHandle<Mo, Mg>(h: TestAppHandle<Mo, Mg>): VNode {

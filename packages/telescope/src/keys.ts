@@ -32,6 +32,34 @@ const KEY_MAP: Record<string, Buffer> = {
   f12: Buffer.from('\x1b[24~'),
 };
 
+const CSI_LETTER_KEYS: Readonly<Record<string, string>> = {
+  up: 'A',
+  down: 'B',
+  right: 'C',
+  left: 'D',
+  home: 'H',
+  end: 'F',
+  f1: 'P',
+  f2: 'Q',
+  f3: 'R',
+  f4: 'S',
+};
+
+const CSI_TILDE_KEYS: Readonly<Record<string, string>> = {
+  insert: '2',
+  delete: '3',
+  pageup: '5',
+  pagedown: '6',
+  f5: '15',
+  f6: '17',
+  f7: '18',
+  f8: '19',
+  f9: '20',
+  f10: '21',
+  f11: '23',
+  f12: '24',
+};
+
 export function keyToBuffer(key: string, modifiers?: KeyModifiers): Buffer {
   const ctrl = modifiers?.ctrl ?? false;
   const alt = modifiers?.alt ?? false;
@@ -41,38 +69,40 @@ export function keyToBuffer(key: string, modifiers?: KeyModifiers): Buffer {
     return Buffer.from('\x1b[Z');
   }
 
-  if (ctrl && key.length === 1 && key >= 'a' && key <= 'z') {
-    const byte = key.charCodeAt(0) - 0x60;
+  const lowerKey = key.toLowerCase();
+  if (ctrl && lowerKey.length === 1 && lowerKey >= 'a' && lowerKey <= 'z') {
+    const byte = lowerKey.charCodeAt(0) - 0x60;
     if (alt) {
       return Buffer.from([0x1b, byte]);
     }
     return Buffer.from([byte]);
   }
 
-  if (alt && key.length === 1 && key.charCodeAt(0) >= 0x20 && key.charCodeAt(0) <= 0x7e) {
-    return Buffer.from([0x1b, key.charCodeAt(0)]);
+  const printableKey = shift && /^[a-z]$/.test(key) ? key.toUpperCase() : key;
+  const scalars = [...printableKey];
+  if (alt && scalars.length === 1 && scalars[0]!.codePointAt(0)! >= 0x20) {
+    return Buffer.concat([Buffer.from([0x1b]), Buffer.from(printableKey, 'utf8')]);
   }
 
-  const mapped = KEY_MAP[key.toLowerCase()];
+  const mapped = KEY_MAP[lowerKey];
   if (mapped) {
-    if (alt) {
-      return Buffer.concat([Buffer.from([0x1b]), mapped]);
+    const modifierCode = 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0);
+    if (modifierCode > 1) {
+      const letter = CSI_LETTER_KEYS[lowerKey];
+      if (letter) return Buffer.from(`\x1b[1;${modifierCode}${letter}`);
+      const tilde = CSI_TILDE_KEYS[lowerKey];
+      if (tilde) return Buffer.from(`\x1b[${tilde};${modifierCode}~`);
+      throw new Error(`telescope: Modifiers are not supported for the named key "${key}".`);
     }
-    return mapped;
+    return Buffer.from(mapped);
   }
 
-  if (key.length === 1) {
-    const code = key.charCodeAt(0);
-    if (code >= 0x20 && code <= 0x7e) {
-      if (alt) {
-        return Buffer.from([0x1b, code]);
-      }
-      return Buffer.from([code]);
-    }
+  if (scalars.length === 1 && scalars[0]!.codePointAt(0)! >= 0x20) {
+    return Buffer.from(printableKey, 'utf8');
   }
 
   throw new Error(
-    `telescope: Unknown key "${key}". Use a single printable character or a named key ` +
+    `telescope: Unknown key "${key}". Use a single printable Unicode scalar or a named key ` +
       `(enter, tab, backspace, escape, space, up, down, left, right, home, end, ` +
       `insert, delete, pageup, pagedown, f1-f12).`,
   );

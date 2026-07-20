@@ -45,6 +45,11 @@ describe('assertRenderWithinBudget', () => {
     const result = assertRenderWithinBudget(() => null, 100);
     expect(result.iterations).toBe(10);
   });
+
+  it('rejects non-finite iteration counts and invalid budgets', () => {
+    expect(() => assertRenderWithinBudget(() => null, Number.NaN)).toThrow(/budget must be/i);
+    expect(() => assertRenderWithinBudget(() => null, 10, { iterations: Number.POSITIVE_INFINITY })).toThrow(/iterations must be/i);
+  });
 });
 
 describe('assertNodeCount', () => {
@@ -137,5 +142,17 @@ describe('assertNodeCount', () => {
     const result = assertNodeCount(tree, 2);
     expect(result.passed).toBe(true);
     expect(result.count).toBe(2);
+  });
+
+  it('contains cycles while still counting shared nodes in each branch', () => {
+    const shared = { kind: 'text' };
+    const tree: { kind: string; children: object[]; child?: object } = { kind: 'row', children: [shared, shared] };
+    tree.child = tree;
+
+    expect(assertNodeCount(tree, 3)).toMatchObject({ passed: true, count: 3 });
+  });
+
+  it('rejects invalid maximum counts', () => {
+    expect(() => assertNodeCount({}, -1)).toThrow(/maximum node count/i);
   });
 });

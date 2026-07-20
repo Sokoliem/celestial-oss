@@ -40,6 +40,10 @@ const CSI_LETTER_MAP: Record<string, string> = {
   D: 'left',
   H: 'home',
   F: 'end',
+  P: 'f1',
+  Q: 'f2',
+  R: 'f3',
+  S: 'f4',
 };
 
 const SS3_MAP: Record<string, string> = {

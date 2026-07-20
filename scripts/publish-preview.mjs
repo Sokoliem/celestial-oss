@@ -10,6 +10,7 @@ const provenance = process.argv.includes('--provenance');
 const tagIndex = process.argv.indexOf('--tag');
 const tag = tagIndex >= 0 ? process.argv[tagIndex + 1] : 'preview';
 if (!tag || !/^[a-z0-9][a-z0-9._-]*$/i.test(tag)) throw new Error('The npm tag is invalid.');
+if (tag.toLowerCase() === 'latest') throw new Error('The preview publisher refuses the npm "latest" tag. Use "preview", "beta", or another prerelease tag.');
 
 function executable(name) {
   return process.platform === 'win32' && (name === 'pnpm' || name === 'npm') ? `${name}.cmd` : name;
@@ -31,6 +32,19 @@ function run(name, args) {
   }
 }
 
+function capture(name, args) {
+  const requiresWindowsShell = process.platform === 'win32' && (name === 'pnpm' || name === 'npm');
+  const result = spawnSync(executable(name), args, {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    env: process.env,
+    shell: requiresWindowsShell,
+    windowsHide: true,
+  });
+  if (result.error) throw new Error(`Unable to run ${name} ${args.join(' ')}.`, { cause: result.error });
+  return result;
+}
+
 run('node', ['scripts/check-preview-boundary.mjs']);
 
 const releases = previewPackages.flatMap((packageName) => {
@@ -39,6 +53,9 @@ const releases = previewPackages.flatMap((packageName) => {
   if (manifest.private === true) return [];
   if (manifest.name !== packageName) throw new Error(`${directory} is ${manifest.name}; expected ${packageName}.`);
   if (manifest.publishConfig?.access !== 'public') throw new Error(`${packageName} is missing publishConfig.access=public.`);
+  if (typeof manifest.version !== 'string' || !manifest.version.includes('-')) {
+    throw new Error(`${packageName} must use a prerelease version before the preview publisher can run.`);
+  }
   return [{ name: packageName, version: manifest.version, directory }];
 });
 
@@ -52,6 +69,22 @@ if (!confirm) {
 
 if (!process.env.NODE_AUTH_TOKEN && !process.env.NPM_TOKEN) {
   throw new Error('Publishing requires NODE_AUTH_TOKEN or NPM_TOKEN.');
+}
+
+run('npm', ['whoami', '--registry', 'https://registry.npmjs.org']);
+
+// Check the complete release set before publishing the first tarball. This
+// converts duplicate versions and registry outages into an all-or-nothing
+// preflight failure instead of discovering them halfway through the package
+// dependency order.
+for (const release of releases) {
+  const specifier = `${release.name}@${release.version}`;
+  const result = capture('npm', ['view', specifier, 'version', '--json', '--registry', 'https://registry.npmjs.org']);
+  if (result.status === 0) throw new Error(`${specifier} is already published; bump the preview versions before retrying.`);
+  const detail = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+  if (!/(?:\bE404\b|404 Not Found|No match found for version|is not in this registry)/i.test(detail)) {
+    throw new Error(`Registry preflight failed for ${specifier}.\n${detail.trim()}`);
+  }
 }
 
 for (const release of releases) {

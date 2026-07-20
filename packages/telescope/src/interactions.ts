@@ -10,7 +10,7 @@ export interface InteractionRecorder<Model, M> {
 }
 
 export function createInteractionRecorder<Model, M>(handle: TestAppHandle<Model, M>): InteractionRecorder<Model, M> {
-  const initialModel = cloneValue(handle.model);
+  const initialModel = cloneValue(handle.model, 'initial model');
   const steps: InteractionStep<Model, M>[] = [];
 
   return {
@@ -26,7 +26,7 @@ export function createInteractionRecorder<Model, M>(handle: TestAppHandle<Model,
       handle.dispatch(msg);
       return pushStep({
         kind: 'dispatch',
-        msg: cloneValue(msg),
+        msg: cloneValue(msg, 'dispatched message'),
       });
     },
     replay(target = handle): InteractionRecording<Model, M> {
@@ -34,7 +34,7 @@ export function createInteractionRecorder<Model, M>(handle: TestAppHandle<Model,
         if (step.kind === 'key') {
           target.pressKey(step.key, step.modifiers);
         } else {
-          target.dispatch(cloneValue(step.msg));
+          target.dispatch(cloneValue(step.msg, `message for interaction step ${step.index}`));
         }
       }
       return buildRecording(target.model);
@@ -50,7 +50,7 @@ export function createInteractionRecorder<Model, M>(handle: TestAppHandle<Model,
   function pushStep(step: { kind: 'key'; key: string; modifiers?: KeyModifiers } | { kind: 'dispatch'; msg: M }): InteractionStep<Model, M> {
     const base = {
       index: steps.length,
-      modelSnapshot: cloneValue(handle.model),
+      modelSnapshot: cloneValue(handle.model, 'model snapshot'),
       frameSnapshot: handle.lastFrame(),
     };
     const next: InteractionStep<Model, M> = step.kind === 'key' ? { ...step, ...base } : { ...step, ...base };
@@ -60,16 +60,20 @@ export function createInteractionRecorder<Model, M>(handle: TestAppHandle<Model,
 
   function buildRecording(finalModel: Model): InteractionRecording<Model, M> {
     return {
-      initialModel: cloneValue(initialModel),
-      finalModel: cloneValue(finalModel),
-      steps: steps.map((step) => cloneValue(step)),
+      initialModel: cloneValue(initialModel, 'initial model'),
+      finalModel: cloneValue(finalModel, 'final model'),
+      steps: steps.map((step) => cloneValue(step, `interaction step ${step.index}`)),
     };
   }
 }
 
-function cloneValue<T>(value: T): T {
-  if (typeof globalThis.structuredClone === 'function') {
-    return globalThis.structuredClone(value);
+function cloneValue<T>(value: T, label: string): T {
+  try {
+    if (typeof globalThis.structuredClone === 'function') {
+      return globalThis.structuredClone(value);
+    }
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch (error) {
+    throw new TypeError(`Interaction recorder could not clone the ${label}. Models and messages must be structured-cloneable.`, { cause: error });
   }
-  return JSON.parse(JSON.stringify(value)) as T;
 }

@@ -55,6 +55,8 @@ export interface WaitOptions {
   timeout?: number;
   /** Polling interval in milliseconds (default: 50) */
   interval?: number;
+  /** Abort a pending wait without leaving a timer behind. */
+  signal?: AbortSignal;
 }
 
 export interface KeyModifiers {

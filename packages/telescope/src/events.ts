@@ -13,7 +13,9 @@ import type { KeyModifiers, MouseEventOptions } from './types.js';
  * Uses SGR mouse encoding (CSI < Pb ; Px ; Py M/m).
  */
 export function fireMouse(terminal: MockTerminal, options: MouseEventOptions): void {
-  const { type, row, col, modifiers } = options;
+  const { type, modifiers } = options;
+  const row = mouseCoordinate(options.row, 'row');
+  const col = mouseCoordinate(options.col, 'column');
 
   let button = 0;
   if (options.button === 'right') button = 2;
@@ -21,6 +23,9 @@ export function fireMouse(terminal: MockTerminal, options: MouseEventOptions): v
 
   // Scroll events use button 64 (up) or 65 (down)
   if (type === 'scroll') {
+    if (options.direction !== 'up' && options.direction !== 'down') {
+      throw new Error('Mouse scroll events require a direction of "up" or "down".');
+    }
     button = options.direction === 'down' ? 65 : 64;
   }
 
@@ -64,4 +69,9 @@ export function firePaste(terminal: MockTerminal, content: string): void {
   const pasteEnd = '\x1b[201~';
   const sequence = pasteStart + content + pasteEnd;
   terminal.simulateInput(Buffer.from(sequence, 'utf8'));
+}
+
+function mouseCoordinate(value: number, label: string): number {
+  if (!Number.isFinite(value) || value < 0) throw new RangeError(`Mouse ${label} must be a non-negative finite number.`);
+  return Math.floor(value);
 }

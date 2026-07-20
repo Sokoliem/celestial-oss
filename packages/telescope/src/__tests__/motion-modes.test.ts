@@ -1,5 +1,6 @@
 import { type AppConfig, Cmd, Sub, text } from '@celestial/core/nebula';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { MockTerminal } from '../mock-terminal.js';
 import { assertFinalFramesMatchAcrossMotionModes, renderInBothMotionModes } from '../motion-modes.js';
 
 interface Model {
@@ -58,6 +59,21 @@ describe('renderInBothMotionModes', () => {
       runner.stop();
     }
   });
+
+  it('stops the first app if constructing the second mode fails', () => {
+    const exitRawMode = vi.spyOn(MockTerminal.prototype, 'exitRawMode');
+    try {
+      expect(() =>
+        renderInBothMotionModes((reduceMotion) => {
+          if (reduceMotion) throw new Error('motion-off setup failed');
+          return makeApp(false, 'settled');
+        }),
+      ).toThrow('motion-off setup failed');
+      expect(exitRawMode).toHaveBeenCalled();
+    } finally {
+      exitRawMode.mockRestore();
+    }
+  });
 });
 
 describe('assertFinalFramesMatchAcrossMotionModes', () => {
@@ -76,5 +92,12 @@ describe('assertFinalFramesMatchAcrossMotionModes', () => {
 
   it('throws when motion-on and motion-off render different final content', async () => {
     await expect(assertFinalFramesMatchAcrossMotionModes((reduceMotion) => makeApp(reduceMotion, 'settled'))).rejects.toThrow(/final frames differ/);
+  });
+
+  it('rejects invalid settle counts before creating either app', async () => {
+    const factory = vi.fn((reduceMotion: boolean) => makeApp(reduceMotion, 'settled'));
+
+    await expect(assertFinalFramesMatchAcrossMotionModes(factory, { settleTicks: Number.POSITIVE_INFINITY })).rejects.toThrow(/settleTicks/i);
+    expect(factory).not.toHaveBeenCalled();
   });
 });

@@ -161,7 +161,9 @@ export interface ReplaceConfigOptions {
   validate?: boolean;
 }
 
-export interface AppHandle {
+export interface AppHandle<M = unknown> {
+  /** Dispatch a message through the same update, command, and render path used by subscriptions. */
+  dispatch(message: M): void;
   stop(): void;
   suspend(): void;
   resume(): void;
