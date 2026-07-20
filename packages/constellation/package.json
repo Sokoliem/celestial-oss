@@ -1,0 +1,64 @@
+{
+  "name": "@celestial/ui",
+  "version": "0.1.0-preview.1",
+  "description": "Curated, accessible UI components for Celestial terminal applications",
+  "keywords": [
+    "tui",
+    "terminal",
+    "cli",
+    "typescript",
+    "celestial",
+    "components",
+    "widgets",
+    "ui-kit",
+    "select",
+    "table",
+    "modal"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sokoliem/celestial-oss.git",
+    "directory": "packages/constellation"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --config vitest.preview.config.ts",
+    "test:all": "vitest run",
+    "test:watch": "vitest --config vitest.preview.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.preview.json",
+    "typecheck:all": "tsc --noEmit",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@celestial/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@celestial/test": "workspace:*",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "sideEffects": false
+}

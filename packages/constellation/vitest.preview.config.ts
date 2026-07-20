@@ -1,0 +1,36 @@
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    include: [
+      'src/__tests__/preview-*.test.ts',
+      'src/__tests__/clickable.test.ts',
+      'src/__tests__/text-input.test.ts',
+      'src/__tests__/textarea.test.ts',
+      'src/__tests__/checkbox.test.ts',
+      'src/__tests__/radio.test.ts',
+      'src/__tests__/select.test.ts',
+      'src/__tests__/toggle.test.ts',
+      'src/__tests__/slider.test.ts',
+      'src/__tests__/tabs.test.ts',
+      'src/__tests__/breadcrumb.test.ts',
+      'src/__tests__/pagination.test.ts',
+      'src/__tests__/command-palette.test.ts',
+      'src/__tests__/data-table.test.ts',
+      'src/__tests__/tree.test.ts',
+      'src/__tests__/list.test.ts',
+      'src/__tests__/progress.test.ts',
+      'src/__tests__/card.test.ts',
+      'src/__tests__/divider.test.ts',
+      'src/__tests__/empty-state.test.ts',
+      'src/__tests__/badge.test.ts',
+      'src/__tests__/alert.test.ts',
+      'src/__tests__/tooltip.test.ts',
+      'src/__tests__/responsive-surfaces.test.ts',
+      'src/__tests__/toast.test.ts',
+      'src/__tests__/modal.test.ts',
+      'src/__tests__/confirm-dialog.test.ts',
+      'src/__tests__/drawer.test.ts',
+    ],
+  },
+});

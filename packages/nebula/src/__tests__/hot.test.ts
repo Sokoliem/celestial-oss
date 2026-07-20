@@ -1,0 +1,11 @@
+import './hot/01-ispropersub.suite.js';
+import './hot/02-ispropercmd.suite.js';
+import './hot/03-convertsub.suite.js';
+import './hot/04-wraprawconfig.suite.js';
+import './hot/05-buildmigrate.suite.js';
+import './hot/06-hotplugin-wrap.suite.js';
+import './hot/07-hotplugin-attach.suite.js';
+import './hot/08-hotplugin-error-handling.suite.js';
+import './hot/09-hotplugin-lifecycle.suite.js';
+import './hot/10-hotplugin-lkg-rollback.suite.js';
+import './hot/11-hotplugin-self-healing-watcher.suite.js';

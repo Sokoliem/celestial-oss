@@ -1,0 +1,30 @@
+{
+  "name": "@celestial/demo-api-inspector",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Supported Celestial preview demo for abortable loopback HTTP workflows",
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run src/__tests__/app.test.ts src/__tests__/server.test.ts",
+    "test:pty": "vitest run src/__tests__/pty.test.ts"
+  },
+  "dependencies": {
+    "@celestial/core": "workspace:*",
+    "@celestial/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@celestial/test": "workspace:*",
+    "@types/node": "^25.5.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

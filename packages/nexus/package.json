@@ -1,0 +1,72 @@
+{
+  "name": "@celestial/nexus",
+  "version": "0.1.0-preview.1",
+  "description": "Terminal mouse intelligence and hyperlinks",
+  "keywords": [
+    "tui",
+    "terminal",
+    "cli",
+    "typescript",
+    "celestial",
+    "mouse",
+    "input",
+    "drag",
+    "clipboard",
+    "gestures"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sokoliem/celestial-oss.git",
+    "directory": "packages/nexus"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./hover-intent": {
+      "types": "./dist/hover-intent/index.d.ts",
+      "import": "./dist/hover-intent/index.js",
+      "require": "./dist/hover-intent/index.cjs"
+    },
+    "./native": {
+      "types": "./dist/native/index.d.ts",
+      "import": "./dist/native/index.js",
+      "require": "./dist/native/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@celestial/atlas": "workspace:*",
+    "@celestial/aurora": "workspace:*",
+    "@celestial/nebula": "workspace:*",
+    "@celestial/corona": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "sideEffects": false
+}

@@ -1,0 +1,9 @@
+import './middleware/01-middlewares-logger.suite.js';
+import './middleware/02-middlewares-debounce.suite.js';
+import './middleware/03-middlewares-throttle.suite.js';
+import './middleware/04-createmiddlewarepipeline.suite.js';
+import './middleware/05-undomiddleware.suite.js';
+import './middleware/06-persistmiddleware.suite.js';
+import './middleware/07-logmiddleware.suite.js';
+import './middleware/08-composemiddleware.suite.js';
+import './middleware/09-hookmiddleware.suite.js';

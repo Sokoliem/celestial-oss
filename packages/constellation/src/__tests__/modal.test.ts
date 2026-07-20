@@ -1,0 +1,278 @@
+import { app, Cmd, cmdKind, collectFocusNodes, column, focus, Sub, text } from '@celestial/core/nebula';
+import { describe, expect, it, vi } from 'vitest';
+import { modal } from '../modal.js';
+
+describe('modal', () => {
+  class TestTerminal {
+    readonly writes: string[] = [];
+    private cols = 60;
+    private rows = 20;
+    private inputHandlers: Array<(data: Buffer) => void> = [];
+    private resizeHandlers: Array<() => void> = [];
+
+    enterRawMode(): void {}
+    exitRawMode(): void {}
+    write(data: string): void {
+      this.writes.push(data);
+    }
+    onInput(handler: (data: Buffer) => void): void {
+      this.inputHandlers.push(handler);
+    }
+    offInput(handler: (data: Buffer) => void): void {
+      this.inputHandlers = this.inputHandlers.filter((current) => current !== handler);
+    }
+    onResize(handler: () => void): void {
+      this.resizeHandlers.push(handler);
+    }
+    offResize(handler: () => void): void {
+      this.resizeHandlers = this.resizeHandlers.filter((current) => current !== handler);
+    }
+    getSize(): { cols: number; rows: number } {
+      return { cols: this.cols, rows: this.rows };
+    }
+    simulateInput(data: Buffer): void {
+      for (const handler of this.inputHandlers) {
+        handler(data);
+      }
+    }
+  }
+
+  it('init creates open modal state by default', () => {
+    const component = modal({ title: 'Test', content: text('Hello') });
+    const [model, cmd] = component.init();
+    expect(model.open).toBe(true);
+    expect(cmdKind(cmd).kind).toBe('pushFocusGroup');
+  });
+
+  it('init should accept optional open parameter to start closed', () => {
+    const component = modal({ title: 'Test', content: text('Hello'), open: false });
+    const [model, cmd] = component.init();
+    expect(model.open).toBe(false);
+    expect(cmdKind(cmd).kind).toBe('none');
+  });
+
+  it('view renders title', () => {
+    const component = modal({ title: 'My Modal', content: text('Content here') });
+    const model = { open: true };
+    const vnode = component.view(model);
+    // Modal wraps in box -> column -> first child is title text
+    expect(vnode.kind).toBe('box');
+    if (vnode.kind === 'box') {
+      const inner = vnode.children[0];
+      if (inner?.kind === 'column') {
+        const title = inner.children[0];
+        if (title?.kind === 'text') {
+          expect(title.content).toBe('My Modal');
+        }
+      }
+    }
+  });
+
+  it('view renders content', () => {
+    const component = modal({ title: 'Test', content: text('Body text') });
+    const model = { open: true };
+    const vnode = component.view(model);
+    if (vnode.kind === 'box') {
+      const inner = vnode.children[0];
+      if (inner?.kind === 'column') {
+        // title, separator, content, empty, hint
+        const content = inner.children[2];
+        if (content?.kind === 'text') {
+          expect(content.content).toBe('Body text');
+        }
+      }
+    }
+  });
+
+  it('view renders border around modal', () => {
+    const component = modal({ title: 'Test', content: text('Body') });
+    const model = { open: true };
+    const vnode = component.view(model);
+    expect(vnode.kind).toBe('box');
+    if (vnode.kind === 'box') {
+      expect(vnode.border).toBeDefined();
+    }
+  });
+
+  it('view renders close hint', () => {
+    const component = modal({ title: 'Test', content: text('Body') });
+    const model = { open: true };
+    const vnode = component.view(model);
+    if (vnode.kind === 'box') {
+      const inner = vnode.children[0];
+      if (inner?.kind === 'column') {
+        const hint = inner.children[inner.children.length - 1];
+        if (hint?.kind === 'focus' && hint.child.kind === 'text') {
+          expect(hint.child.content).toContain('esc');
+        }
+      }
+    }
+  });
+
+  it('update handles close on escape', () => {
+    const onClose = vi.fn();
+    const component = modal({ title: 'Test', content: text('Body'), onClose });
+    const model = { open: true };
+    const [updated, cmd] = component.update({ type: 'close' }, model);
+    expect(updated.open).toBe(false);
+    expect(onClose).toHaveBeenCalled();
+    expect(cmdKind(cmd).kind).toBe('popFocusGroup');
+  });
+
+  it('update handles open', () => {
+    const component = modal({ title: 'Test', content: text('Body') });
+    const model = { open: false };
+    const [updated, cmd] = component.update({ type: 'open' }, model);
+    expect(updated.open).toBe(true);
+    expect(cmdKind(cmd).kind).toBe('pushFocusGroup');
+  });
+
+  it('tracks pointer hover on the visible close action', () => {
+    const component = modal({ title: 'Test', content: text('Body') });
+    const [model] = component.init();
+    const [hovered] = component.update({ type: 'hover-close' }, model);
+    expect(hovered.hoveredClose).toBe(true);
+    const [left] = component.update({ type: 'leave-close' }, hovered);
+    expect(left.hoveredClose).toBe(false);
+  });
+
+  it('view assigns the modal focus group to nested focus nodes', () => {
+    const component = modal({
+      title: 'Test',
+      content: column(focus('field-a', text('Alpha')), focus('field-b', text('Beta'))),
+    });
+
+    const vnode = component.view({ open: true });
+    const focusNodes = collectFocusNodes(vnode);
+    const fieldA = focusNodes.find((node) => node.id === 'field-a');
+    const fieldB = focusNodes.find((node) => node.id === 'field-b');
+    expect(fieldA?.group).toBeDefined();
+    expect(fieldA?.group).toBe(fieldB?.group);
+    expect(focusNodes.find((node) => node.id.endsWith('-close'))?.group).toBe(fieldA?.group);
+  });
+
+  it('assigns modal focus groups through component children', () => {
+    const component = modal({
+      title: 'Component Content',
+      content: {
+        kind: 'component',
+        render: () => focus('component-field', text('Nested field')),
+      },
+    });
+
+    const vnode = component.view({ open: true });
+    const focusNodes = collectFocusNodes(vnode);
+    expect(focusNodes.find((node) => node.id === 'component-field')?.group).toBeDefined();
+  });
+
+  it('uses unique modal groups and close ids across instances', () => {
+    const first = modal({ title: 'Shared Title', content: focus('first-field', text('First')) });
+    const second = modal({ title: 'Shared Title', content: focus('second-field', text('Second')) });
+
+    const firstNodes = collectFocusNodes(first.view({ open: true }));
+    const secondNodes = collectFocusNodes(second.view({ open: true }));
+
+    const firstGroup = firstNodes.find((node) => node.id === 'first-field')?.group;
+    const secondGroup = secondNodes.find((node) => node.id === 'second-field')?.group;
+    const firstCloseId = firstNodes.find((node) => node.id.includes('-close'))?.id;
+    const secondCloseId = secondNodes.find((node) => node.id.includes('-close'))?.id;
+
+    expect(firstGroup).toBeDefined();
+    expect(secondGroup).toBeDefined();
+    expect(firstGroup).not.toBe(secondGroup);
+    expect(firstCloseId).not.toBe(secondCloseId);
+  });
+
+  it('traps tab navigation inside the modal group until closed', async () => {
+    const component = modal({
+      title: 'Dialog',
+      content: column(focus('field-a', text('Alpha')), focus('field-b', text('Beta'))),
+    });
+    const [initialModal, initialCmd] = component.init();
+
+    type RootMsg = { type: 'modal'; msg: import('../modal.js').ModalMsg } | { type: 'focus'; id: string | null };
+
+    const terminal = new TestTerminal();
+    const handle = app(
+      {
+        init: () => [{ modal: initialModal }, Cmd.map(initialCmd, (msg) => ({ type: 'modal', msg }) as RootMsg)],
+        update: (msg, model) => {
+          if (msg.type === 'modal') {
+            const [modalModel, cmd] = component.update(msg.msg, model.modal);
+            return [{ ...model, modal: modalModel }, Cmd.map(cmd, (inner) => ({ type: 'modal', msg: inner }) as RootMsg)];
+          }
+          return [model, Cmd.none<RootMsg>()];
+        },
+        view: (model) => column(focus('page', text('Page action')), component.view(model.modal)),
+        subscriptions: (model) =>
+          Sub.batch<RootMsg>(
+            Sub.focus((id) => ({ type: 'focus', id })),
+            Sub.map(component.subscriptions!(model.modal), (msg) => ({ type: 'modal', msg })),
+          ),
+      },
+      {
+        terminal,
+        accessibility: {
+          onAnnouncements() {},
+          onFocusChange(_description, focusedId) {
+            focusEvents.push(focusedId);
+          },
+        },
+      },
+    );
+    const focusEvents: Array<string | null> = [];
+    const flush = async () => {
+      await Promise.resolve();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
+    };
+
+    terminal.simulateInput(Buffer.from('\t', 'utf8'));
+    await flush();
+    terminal.simulateInput(Buffer.from('\t', 'utf8'));
+    await flush();
+    terminal.simulateInput(Buffer.from('\t', 'utf8'));
+    await flush();
+    terminal.simulateInput(Buffer.from('\t', 'utf8'));
+    await flush();
+
+    const trappedIds = focusEvents;
+    expect(trappedIds[0]).toBe('field-a');
+    expect(trappedIds[1]).toBe('field-b');
+    expect(trappedIds[3]).toBe('field-a');
+    expect(trappedIds).not.toContain('page');
+
+    terminal.simulateInput(Buffer.from('\x1b', 'utf8'));
+    await flush();
+    terminal.simulateInput(Buffer.from('\t', 'utf8'));
+    await flush();
+
+    expect(focusEvents.at(-1)).toBe('page');
+    handle.stop();
+  });
+
+  it('view renders empty text when closed', () => {
+    const component = modal({ title: 'Test', content: text('Body') });
+    const model = { open: false };
+    const vnode = component.view(model);
+    expect(vnode.kind).toBe('text');
+    if (vnode.kind === 'text') {
+      expect(vnode.content).toBe('');
+    }
+  });
+
+  it('subscriptions returns none when closed', () => {
+    const component = modal({ title: 'Test', content: text('Body') });
+    const model = { open: false };
+    const sub = component.subscriptions!(model);
+    // Sub.none() has _kind.kind === 'none'
+    expect((sub as any)._kind.kind).toBe('none');
+  });
+
+  it('subscriptions returns escape key when open', () => {
+    const component = modal({ title: 'Test', content: text('Body') });
+    const model = { open: true };
+    const sub = component.subscriptions!(model);
+    expect(JSON.stringify(sub)).toContain('escape');
+  });
+});
