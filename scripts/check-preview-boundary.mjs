@@ -2,20 +2,43 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import {
-  conditionalPreviewPackages,
-  previewDemos,
-  previewPackageSet,
-  requiredPreviewPackages,
-} from './preview-packages.mjs';
+import { conditionalPreviewPackages, previewDemos, previewPackageDirectories, previewPackageSet, requiredPreviewPackages } from './preview-packages.mjs';
 
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const donorLedgerPath = join(repositoryRoot, 'scripts', 'donor-imports.json');
 const workspaceRoots = ['packages', 'apps', 'examples'];
 const conditionalSet = new Set(conditionalPreviewPackages);
 const manifests = [];
 const supportedDemoNames = Object.keys(previewDemos);
 const focusedWorkspaceSet = new Set([...previewPackageSet, ...supportedDemoNames]);
 const errors = [];
+const requiredDonorReviews = ['license', 'dependencies', 'public-api', 'tests', 'security'];
+
+let donorLedger;
+try {
+  donorLedger = JSON.parse(readFileSync(donorLedgerPath, 'utf8'));
+} catch (error) {
+  errors.push(`scripts/donor-imports.json must contain valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  donorLedger = { imports: [] };
+}
+
+if (donorLedger.schemaVersion !== 1) errors.push('scripts/donor-imports.json must use schemaVersion 1');
+if (donorLedger.canonicalRepository !== 'Sokoliem/celestial-oss') {
+  errors.push('scripts/donor-imports.json must identify Sokoliem/celestial-oss as the canonical repository');
+}
+if (donorLedger.policy?.direction !== 'donor-to-public-only' || donorLedger.policy?.backportPublicFixes !== false) {
+  errors.push('scripts/donor-imports.json must enforce one-way donor-to-public migration without backports');
+}
+
+const donorEntries = new Map();
+for (const entry of Array.isArray(donorLedger.imports) ? donorLedger.imports : []) {
+  if (!entry || typeof entry !== 'object' || typeof entry.package !== 'string') {
+    errors.push('scripts/donor-imports.json contains an invalid import entry');
+    continue;
+  }
+  if (donorEntries.has(entry.package)) errors.push(`scripts/donor-imports.json contains duplicate entry ${entry.package}`);
+  donorEntries.set(entry.package, entry);
+}
 
 function normalized(path) {
   return relative(repositoryRoot, path).replaceAll('\\', '/');
@@ -144,6 +167,35 @@ for (const packageName of requiredPreviewPackages) {
   }
   if (entry.manifest.private === true) errors.push(`${packageName} must not be private`);
   if (entry.manifest.publishConfig?.access !== 'public') errors.push(`${packageName} must set publishConfig.access=public`);
+}
+
+for (const packageName of previewPackageSet) {
+  const entry = donorEntries.get(packageName);
+  if (!entry) {
+    errors.push(`missing donor provenance for ${packageName}`);
+    continue;
+  }
+  const expectedDirectory = previewPackageDirectories[packageName];
+  if (entry.publicPath !== expectedDirectory) {
+    errors.push(`${packageName} donor publicPath is ${entry.publicPath}; expected ${expectedDirectory}`);
+  }
+  if (typeof entry.donorPath !== 'string' || !entry.donorPath.startsWith('packages/')) {
+    errors.push(`${packageName} donorPath must identify a package directory`);
+  }
+  if (typeof entry.donorCommit !== 'string' || !/^[0-9a-f]{40}$/.test(entry.donorCommit)) {
+    errors.push(`${packageName} donorCommit must be a full lowercase Git commit`);
+  }
+  if (typeof entry.importedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.importedAt)) {
+    errors.push(`${packageName} importedAt must use YYYY-MM-DD`);
+  }
+  const reviews = new Set(Array.isArray(entry.reviews) ? entry.reviews : []);
+  for (const review of requiredDonorReviews) {
+    if (!reviews.has(review)) errors.push(`${packageName} donor entry is missing the ${review} review`);
+  }
+}
+
+for (const packageName of donorEntries.keys()) {
+  if (!previewPackageSet.has(packageName)) errors.push(`donor provenance includes non-public package ${packageName}`);
 }
 
 for (const entry of manifests) {

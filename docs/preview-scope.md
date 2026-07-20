@@ -1,6 +1,6 @@
 # Open-source preview scope
 
-Celestial's broader research codebase is larger than this focused public repository. This document is the release boundary.
+Celestial's earlier donor codebase is larger than this focused public repository. This document is the current release boundary while the canonical public line grows through reviewed migrations.
 
 ## Supported preview lane
 
@@ -71,7 +71,7 @@ The following areas are intentionally unpublished:
 - Binary terminal image protocols and Canvas-backed Mermaid rendering
 - Product applications under `apps/*` and legacy examples under `examples/*`, except the four supported demos above
 
-These areas are not included in this repository. They may be introduced selectively from Celestial's broader development codebase only after their dependencies, public API, tests, documentation, licensing, and release posture satisfy this repository's gates.
+These areas are not included in this repository. They may be migrated selectively from the read-only donor only after their dependencies, public API, tests, documentation, licensing, security review, and release posture satisfy this repository's gates and donor ledger.
 
 ## Release gate
 
