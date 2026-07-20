@@ -180,7 +180,12 @@ async function runOne(
   });
 }
 
-async function readOne(spawnFn: SpawnFn, command: ReadCommand, timeoutMs: number): Promise<{ ok: boolean; text?: string; error?: string; durationMs: number }> {
+async function readOne(
+  spawnFn: SpawnFn,
+  command: ReadCommand,
+  timeoutMs: number,
+  maxBytes: number,
+): Promise<{ ok: boolean; text?: string; error?: string; durationMs: number }> {
   const started = Date.now();
   return new Promise((resolve) => {
     let child: ChildHandle;
@@ -192,6 +197,7 @@ async function readOne(spawnFn: SpawnFn, command: ReadCommand, timeoutMs: number
     }
 
     let settled = false;
+    let totalBytes = 0;
     const chunks: Buffer[] = [];
     const settle = (r: { ok: boolean; text?: string; error?: string }) => {
       if (settled) return;
@@ -210,7 +216,20 @@ async function readOne(spawnFn: SpawnFn, command: ReadCommand, timeoutMs: number
     }, timeoutMs);
 
     if (child.stdout) {
-      child.stdout.on('data', (chunk) => chunks.push(chunk));
+      child.stdout.on('data', (chunk) => {
+        if (settled) return;
+        totalBytes += chunk.length;
+        if (totalBytes > maxBytes) {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            // ignore
+          }
+          settle({ ok: false, error: `${command.cmd}: clipboard output exceeded ${maxBytes} bytes` });
+          return;
+        }
+        chunks.push(chunk);
+      });
       child.stdout.on('end', () => {
         // wait for close
       });
@@ -254,6 +273,10 @@ export async function nativeClipboardRead(
 ): Promise<{ text: string | null; source: 'native' | 'none'; error?: string; durationMs?: number }> {
   const env = probe(opts);
   const timeout = opts?.nativeTimeoutMs ?? 2000;
+  const maxBytes = opts?.maxNativeBytes ?? 1024 * 1024;
+  if (!Number.isFinite(maxBytes) || maxBytes < 0) {
+    return { text: null, source: 'none', error: 'maxNativeBytes must be a non-negative finite number' };
+  }
   const spawnFn = opts?.spawn ?? (await defaultSpawn());
   const commands = readCommands(env);
   if (commands.length === 0) {
@@ -262,7 +285,7 @@ export async function nativeClipboardRead(
   let lastError: string | undefined;
   let totalDuration = 0;
   for (const command of commands) {
-    const result = await readOne(spawnFn, command, timeout);
+    const result = await readOne(spawnFn, command, timeout, Math.floor(maxBytes));
     totalDuration += result.durationMs;
     if (result.ok) {
       return { text: result.text ?? '', source: 'native', durationMs: result.durationMs };

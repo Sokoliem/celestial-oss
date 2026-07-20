@@ -4,10 +4,17 @@
  * Functions for composing terminal output spatially.
  */
 
-import { sliceByVisualWidth, visualWidth } from './utils.js';
+import { truncateCells, cellWidth as visualWidth, wrapCells } from './terminal-text.js';
+
+function nonNegativeInteger(value: number, name: string): number {
+  if (!Number.isFinite(value)) throw new TypeError(`${name} must be a finite number`);
+  if (value < 0) throw new RangeError(`${name} must be >= 0`);
+  return Math.floor(value);
+}
 
 /** Join two blocks of text horizontally */
 export function joinH(left: string, right: string, gap: number = 0): string {
+  const safeGap = nonNegativeInteger(gap, 'gap');
   const leftLines = left.split('\n');
   const rightLines = right.split('\n');
   const maxLines = Math.max(leftLines.length, rightLines.length);
@@ -20,7 +27,7 @@ export function joinH(left: string, right: string, gap: number = 0): string {
     const r = rightLines[i] ?? '';
     const paddedLeft = l + ' '.repeat(Math.max(0, leftWidth - visualWidth(l)));
     const paddedRight = r + ' '.repeat(Math.max(0, rightWidth - visualWidth(r)));
-    result.push(paddedLeft + ' '.repeat(gap) + paddedRight);
+    result.push(paddedLeft + ' '.repeat(safeGap) + paddedRight);
   }
 
   // Trim trailing lines that are whitespace-only
@@ -33,8 +40,9 @@ export function joinH(left: string, right: string, gap: number = 0): string {
 
 /** Join two blocks of text vertically */
 export function joinV(top: string, bottom: string, gap: number = 0): string {
+  const safeGap = nonNegativeInteger(gap, 'gap');
   const parts = [top];
-  for (let i = 0; i < gap; i++) parts.push('');
+  for (let i = 0; i < safeGap; i++) parts.push('');
   parts.push(bottom);
   return parts.join('\n');
 }
@@ -47,13 +55,16 @@ export function place(
   hAlign: 'left' | 'center' | 'right' = 'left',
   vAlign: 'top' | 'middle' | 'bottom' = 'top',
 ): string {
-  const lines = content.split('\n');
+  const safeWidth = nonNegativeInteger(width, 'width');
+  const safeHeight = nonNegativeInteger(height, 'height');
+  if (safeHeight === 0) return '';
+  const lines = content.split('\n').map((line) => truncateCells(line, safeWidth, ''));
 
   // Horizontal alignment
   const aligned = lines.map((line) => {
     const w = visualWidth(line);
-    if (w >= width) return line;
-    const gap = width - w;
+    if (w >= safeWidth) return line;
+    const gap = safeWidth - w;
     switch (hAlign) {
       case 'center': {
         const left = Math.floor(gap / 2);
@@ -67,9 +78,9 @@ export function place(
   });
 
   // Vertical alignment
-  const emptyLine = ' '.repeat(width);
-  const vGap = height - aligned.length;
-  if (vGap <= 0) return aligned.slice(0, height).join('\n');
+  const emptyLine = ' '.repeat(safeWidth);
+  const vGap = safeHeight - aligned.length;
+  if (vGap <= 0) return aligned.slice(0, safeHeight).join('\n');
 
   switch (vAlign) {
     case 'middle': {
@@ -89,15 +100,18 @@ export function table(rows: string[][], colWidths?: number[]): string {
   if (rows.length === 0) return '';
 
   const numCols = Math.max(...rows.map((r) => r.length));
-  const widths = colWidths ?? Array.from({ length: numCols }, (_, col) => Math.max(...rows.map((r) => visualWidth(r[col] ?? ''))));
+  const widths =
+    colWidths?.map((width, index) => nonNegativeInteger(width, `colWidths[${index}]`)) ??
+    Array.from({ length: numCols }, (_, col) => Math.max(...rows.map((r) => visualWidth(r[col] ?? ''))));
 
   return rows
     .map((row) =>
       row
         .map((cell, i) => {
           const w = widths[i] ?? visualWidth(cell);
-          const pad = Math.max(0, w - visualWidth(cell));
-          return cell + ' '.repeat(pad);
+          const clipped = truncateCells(cell, w, '');
+          const pad = Math.max(0, w - visualWidth(clipped));
+          return clipped + ' '.repeat(pad);
         })
         .join('  '),
     )
@@ -107,6 +121,8 @@ export function table(rows: string[][], colWidths?: number[]): string {
 // ─── Auto column sizing ─────────────────────────────────────────────────────
 
 export interface ColumnSizing {
+  /** Table layout when columns fit; stacked key/value layout otherwise. */
+  mode: 'table' | 'stacked';
   /** Natural width of each column (max across header + all cells) */
   naturalWidths: number[];
   /** Final widths after fitting to maxWidth constraint */
@@ -134,8 +150,13 @@ export interface AutoSizeOptions {
  *   - Any leftover space from columns at the minimum is redistributed.
  */
 export function autoSizeColumns(headers: string[], rows: string[][], maxWidth: number, options: AutoSizeOptions = {}): ColumnSizing {
-  const { minColWidth = 2, padding = 1, separatorWidth = 1 } = options;
+  const safeMaxWidth = nonNegativeInteger(maxWidth, 'maxWidth');
+  const minColWidth = nonNegativeInteger(options.minColWidth ?? 2, 'minColWidth');
+  const padding = nonNegativeInteger(options.padding ?? 1, 'padding');
+  const separatorWidth = nonNegativeInteger(options.separatorWidth ?? 1, 'separatorWidth');
   const numCols = headers.length;
+
+  if (numCols === 0) return { mode: 'table', naturalWidths: [], finalWidths: [], totalWidth: 0 };
 
   // Phase 1: measure natural widths
   const naturalWidths = headers.map((h, col) => {
@@ -149,13 +170,23 @@ export function autoSizeColumns(headers: string[], rows: string[][], maxWidth: n
 
   // Calculate overhead: padding on each side of each cell + separators between columns
   const overhead = numCols * padding * 2 + (numCols - 1) * separatorWidth;
-  const availableContent = maxWidth - overhead;
+  const availableContent = safeMaxWidth - overhead;
 
   const totalNatural = naturalWidths.reduce((s, w) => s + w, 0);
+
+  if (availableContent < minColWidth * numCols) {
+    return {
+      mode: 'stacked',
+      naturalWidths,
+      finalWidths: Array.from({ length: numCols }, () => 0),
+      totalWidth: safeMaxWidth,
+    };
+  }
 
   // If everything fits, use natural widths
   if (totalNatural <= availableContent) {
     return {
+      mode: 'table',
       naturalWidths,
       finalWidths: [...naturalWidths],
       totalWidth: totalNatural + overhead,
@@ -163,20 +194,18 @@ export function autoSizeColumns(headers: string[], rows: string[][], maxWidth: n
   }
 
   // Phase 2: proportionally shrink
-  const finalWidths = naturalWidths.map((w) => Math.max(minColWidth, Math.floor((w / totalNatural) * availableContent)));
-
-  // Distribute remaining space to largest columns
-  const assigned = finalWidths.reduce((s, w) => s + w, 0);
-  let remaining = availableContent - assigned;
+  const finalWidths = Array.from({ length: numCols }, () => minColWidth);
+  let remaining = availableContent - minColWidth * numCols;
 
   while (remaining > 0) {
-    // Find column with the largest natural width that isn't already at natural
+    // Grow the column with the largest remaining natural-width deficit.
     let bestIdx = -1;
-    let bestNatural = -1;
+    let bestDeficit = 0;
     for (let i = 0; i < numCols; i++) {
-      if (finalWidths[i]! < naturalWidths[i]! && naturalWidths[i]! > bestNatural) {
+      const deficit = naturalWidths[i]! - finalWidths[i]!;
+      if (deficit > bestDeficit) {
         bestIdx = i;
-        bestNatural = naturalWidths[i]!;
+        bestDeficit = deficit;
       }
     }
     if (bestIdx === -1) break;
@@ -185,55 +214,10 @@ export function autoSizeColumns(headers: string[], rows: string[][], maxWidth: n
   }
 
   const totalWidth = finalWidths.reduce((s, w) => s + w, 0) + overhead;
-  return { naturalWidths, finalWidths, totalWidth };
+  return { mode: 'table', naturalWidths, finalWidths, totalWidth };
 }
 
 /** Word-wrap text to a max width, preserving ANSI codes */
 export function wrap(text: string, maxWidth: number): string {
-  if (maxWidth <= 0) return text;
-
-  const lines = text.split('\n');
-  const result: string[] = [];
-
-  for (const line of lines) {
-    if (visualWidth(line) <= maxWidth) {
-      result.push(line);
-      continue;
-    }
-
-    // Simple word-wrap (splits on spaces)
-    const words = line.split(' ');
-    let current = '';
-    for (const word of words) {
-      // If the word itself exceeds maxWidth, break it into chunks
-      // while preserving ANSI escape sequences
-      if (visualWidth(word) > maxWidth) {
-        if (current) {
-          result.push(current);
-          current = '';
-        }
-        let remaining = word;
-        while (visualWidth(remaining) > maxWidth) {
-          const [chunk, rest] = sliceByVisualWidth(remaining, maxWidth);
-          if (chunk.length === 0) break;
-          result.push(chunk);
-          remaining = rest;
-        }
-        if (remaining) result.push(remaining);
-        continue;
-      }
-
-      if (current === '') {
-        current = word;
-      } else if (visualWidth(current) + 1 + visualWidth(word) <= maxWidth) {
-        current += ' ' + word;
-      } else {
-        result.push(current);
-        current = word;
-      }
-    }
-    if (current) result.push(current);
-  }
-
-  return result.join('\n');
+  return wrapCells(text, nonNegativeInteger(maxWidth, 'maxWidth'), { trimBreakWhitespace: true }).join('\n');
 }

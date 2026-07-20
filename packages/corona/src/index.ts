@@ -8,9 +8,9 @@ export {
   type DomainTokenAuditOptions,
   type DomainTokenAuditReport,
   type DomainTokenAuditViolation,
-  ensureReadableColor,
   ensureDistinctColor,
   ensureReadableBackground,
+  ensureReadableColor,
   highContrast,
   normalizeThemeContrast,
   reduceMotion,
@@ -43,10 +43,10 @@ export {
   type ActivityMotion,
   type ActivityState,
   type ActivityTokenValues,
+  type AnsiPaletteTokenValues,
   type AppChromeTokenValues,
   activityFamily,
   activityTokens,
-  type AnsiPaletteTokenValues,
   ansiPaletteTokens,
   appChromeTokens,
   CHROME_PIN_GLYPH,
@@ -351,6 +351,23 @@ import * as spinners from './spinner/spinners.js';
 export { renderShadow, type ShadowOpts } from './shadow.js';
 export type { SpinnerInstance } from './spinner/runner.js';
 export { createSpinner } from './spinner/runner.js';
+export {
+  type CellSliceOptions,
+  cellWidth,
+  graphemeCellWidth,
+  type SanitizeTerminalTextOptions,
+  sanitizeHyperlink,
+  sanitizeSgr,
+  sanitizeTerminalText,
+  sliceCells,
+  type TerminalTextToken,
+  type TrustedTerminalText,
+  tokenizeTerminalText,
+  truncateCells,
+  trustedTerminalText,
+  type WrapCellsOptions,
+  wrapCells,
+} from './terminal-text.js';
 export { charWidth, stringWidth } from './unicode-width.js';
 export { stripAnsi, visualWidth } from './utils.js';
 export { spinners };

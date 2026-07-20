@@ -234,6 +234,40 @@ describe('createCapabilityWatcher()', () => {
     expect(changes.length).toBe(countAtStop);
   });
 
+  it('ignores a stale bootstrap after stop and restart', async () => {
+    const registry = createCapabilityRegistry();
+    const resolvers: Array<(value: number) => void> = [];
+    registry.register({
+      id: 'slow',
+      detect: () => new Promise<number>((resolve) => resolvers.push(resolve)),
+      default: 0,
+    });
+    const listeners = new Set<() => void>();
+    const mockStdout = {
+      on: vi.fn((_event: string, listener: () => void) => listeners.add(listener)),
+      removeListener: vi.fn((_event: string, listener: () => void) => listeners.delete(listener)),
+    };
+    vi.stubGlobal('process', { env: {}, stdout: mockStdout });
+    const watcher = createCapabilityWatcher(registry, { pollMs: 0, listenTtyResize: true });
+
+    watcher.start();
+    await flushMicrotasks();
+    watcher.stop();
+    watcher.start();
+    await flushMicrotasks();
+    expect(resolvers).toHaveLength(2);
+
+    resolvers[0]!(1);
+    await flushMicrotasks();
+    expect(listeners).toHaveLength(0);
+
+    resolvers[1]!(2);
+    await flushMicrotasks();
+    expect(listeners).toHaveLength(1);
+    watcher.stop();
+    expect(listeners).toHaveLength(0);
+  });
+
   it('responds to TTY resize event', async () => {
     const registry = createCapabilityRegistry();
     let colorLevel = 'none';

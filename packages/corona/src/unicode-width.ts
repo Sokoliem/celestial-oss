@@ -319,8 +319,13 @@ function inRanges(cp: number, ranges: ReadonlyArray<readonly [number, number]>):
  * - 1 for everything else
  */
 export function charWidth(cp: number): number {
-  // Fast path: ASCII (and C0 control codes render as 1 in most terminals)
-  if (cp < 0x0300) return cp === 0 ? 0 : 1;
+  // Terminal controls do not occupy cells. Newlines and tabs are handled by
+  // layout/input code rather than measured as printable glyphs.
+  if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) return 0;
+  if (cp === 0x00ad) return 0;
+
+  // Fast path: printable ASCII and Latin.
+  if (cp < 0x0300) return 1;
 
   // Check zero-width first (combining marks appear more often in mixed text)
   if (inRanges(cp, ZERO_WIDTH_RANGES)) return 0;

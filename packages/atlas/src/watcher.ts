@@ -84,8 +84,11 @@ export function createCapabilityWatcher(registry: CapabilityRegistry, options: C
   const listenTtyResize = options.listenTtyResize ?? true;
 
   const handlers = new Set<CapabilityChangeHandler>();
-  let snapshot: CapabilityProfile = {};
+  const snapshot: CapabilityProfile = {};
   let running = false;
+  let epoch = 0;
+  let detectionRevision = 0;
+  const lastAppliedRevision = new Map<string, number>();
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let resizeCleanup: (() => void) | null = null;
 
@@ -100,13 +103,17 @@ export function createCapabilityWatcher(registry: CapabilityRegistry, options: C
     }
   }
 
-  async function detectAndDiff(ids?: readonly string[]): Promise<void> {
+  async function detectAndDiff(ids?: readonly string[], expectedEpoch?: number): Promise<void> {
     const env = getProcessEnv();
     const idsToCheck = ids ?? registry.ids();
+    const revision = ++detectionRevision;
 
     await Promise.all(
       idsToCheck.map(async (id) => {
         const next = await registry.detect(id, { env });
+        if (expectedEpoch !== undefined && (!running || epoch !== expectedEpoch)) return;
+        if ((lastAppliedRevision.get(id) ?? 0) > revision) return;
+        lastAppliedRevision.set(id, revision);
         const prev = snapshot[id];
         if (!Object.is(prev, next)) {
           snapshot[id] = next;
@@ -116,17 +123,24 @@ export function createCapabilityWatcher(registry: CapabilityRegistry, options: C
     );
   }
 
-  async function bootstrap(): Promise<void> {
+  async function bootstrap(expectedEpoch: number): Promise<void> {
     const env = getProcessEnv();
-    snapshot = await registry.detectAll({ env });
+    const revision = ++detectionRevision;
+    const detected = await registry.detectAll({ env });
+    if (!running || epoch !== expectedEpoch) return;
+    for (const [id, next] of Object.entries(detected)) {
+      if ((lastAppliedRevision.get(id) ?? 0) > revision) continue;
+      lastAppliedRevision.set(id, revision);
+      snapshot[id] = next;
+    }
   }
 
-  function attachResizeListener(): void {
+  function attachResizeListener(expectedEpoch: number): void {
     const stdout = typeof process !== 'undefined' ? process.stdout : undefined;
     if (!stdout || typeof stdout.on !== 'function') return;
 
     const handler = (): void => {
-      void detectAndDiff();
+      void detectAndDiff(undefined, expectedEpoch).catch(() => {});
     };
     stdout.on('resize', handler);
     resizeCleanup = () => {
@@ -150,26 +164,32 @@ export function createCapabilityWatcher(registry: CapabilityRegistry, options: C
     start(): void {
       if (running) return;
       running = true;
+      const startEpoch = ++epoch;
 
       // Bootstrap the snapshot asynchronously; once done, start polling.
-      void bootstrap().then(() => {
-        if (!running) return; // stop() was called before bootstrap finished
+      void bootstrap(startEpoch).then(
+        () => {
+          if (!running || epoch !== startEpoch) return;
 
-        if (listenTtyResize) {
-          attachResizeListener();
-        }
+          if (listenTtyResize) {
+            attachResizeListener(startEpoch);
+          }
 
-        if (pollMs > 0) {
-          pollTimer = setInterval(() => {
-            void detectAndDiff();
-          }, pollMs);
-        }
-      });
+          if (pollMs > 0) {
+            pollTimer = setInterval(() => {
+              void detectAndDiff(undefined, startEpoch).catch(() => {});
+            }, pollMs);
+            pollTimer.unref?.();
+          }
+        },
+        () => {},
+      );
     },
 
     stop(): void {
       if (!running) return;
       running = false;
+      epoch++;
 
       if (pollTimer !== null) {
         clearInterval(pollTimer);

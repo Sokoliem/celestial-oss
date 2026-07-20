@@ -1,6 +1,8 @@
 import type { ProcessEnvProbe, SpawnFn } from './native/process-env.js';
 import { getEnv, isSshSession } from './native/process-env.js';
 
+const MAX_CLIPBOARD_BYTES = 1024 * 1024;
+
 /** Encode text for OSC 52 clipboard write */
 export function osc52Write(text: string): string {
   const encoded = Buffer.from(text, 'utf-8').toString('base64');
@@ -15,10 +17,11 @@ export function osc52ReadRequest(): string {
 /** Parse an OSC 52 clipboard response */
 export function parseOsc52Response(data: string): string | null {
   const match = data.match(/\x1b\]52;c;([A-Za-z0-9+/]*=*)(?:\x07|\x1b\\)/);
-  if (!match) {
-    return null;
-  }
-  return Buffer.from(match[1]!, 'base64').toString('utf-8');
+  if (!match || match[1]!.length > Math.ceil((MAX_CLIPBOARD_BYTES * 4) / 3) + 4) return null;
+  const encoded = match[1]!;
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)) return null;
+  const decoded = Buffer.from(encoded, 'base64');
+  return decoded.length <= MAX_CLIPBOARD_BYTES ? decoded.toString('utf-8') : null;
 }
 
 /** Bracketed paste mode control sequences */
@@ -75,6 +78,8 @@ export interface ClipboardWriteOpts {
 export interface ClipboardReadOpts {
   readonly osc52TimeoutMs?: number;
   readonly nativeTimeoutMs?: number;
+  /** Maximum native clipboard output accepted in memory. @default 1 MiB */
+  readonly maxNativeBytes?: number;
   readonly preferOsc52?: boolean;
   readonly readEscape?: () => Promise<string | null>;
   readonly writeEscape?: (seq: string) => void;
@@ -92,6 +97,22 @@ function defaultWriteEscape(seq: string): void {
   if (typeof process !== 'undefined' && process.stdout && typeof process.stdout.write === 'function') {
     process.stdout.write(seq);
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**
@@ -183,12 +204,16 @@ export async function readClipboard(opts: ClipboardReadOpts = {}): Promise<{ tex
     const started = Date.now();
     try {
       writeEscape(osc52ReadRequest());
-      const response = await Promise.race([opts.readEscape(), new Promise<null>((resolve) => setTimeout(() => resolve(null), osc52Timeout))]);
+      const response = await withTimeout(opts.readEscape(), osc52Timeout);
       const elapsed = Date.now() - started;
       if (typeof response === 'string') {
-        const text = parseOsc52Response(response) ?? response;
-        recorder?.record({ path: 'osc52', ok: true, durationMs: elapsed });
-        return { text, source: 'osc52' };
+        const parsed = parseOsc52Response(response);
+        const isProtocolResponse = response.includes('\x1b]52;');
+        const text = parsed ?? (isProtocolResponse ? null : response);
+        if (text !== null && Buffer.byteLength(text, 'utf8') <= MAX_CLIPBOARD_BYTES) {
+          recorder?.record({ path: 'osc52', ok: true, durationMs: elapsed });
+          return { text, source: 'osc52' };
+        }
       }
       recorder?.record({ path: 'osc52', ok: false, durationMs: elapsed });
     } catch {

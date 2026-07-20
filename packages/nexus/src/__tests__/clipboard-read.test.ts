@@ -120,4 +120,22 @@ describe('readClipboard — Windows', () => {
       path.cleanup();
     }
   });
+
+  it('kills readers whose output exceeds the configured bound', async () => {
+    const path = makePathWithTools(['powershell.exe']);
+    try {
+      const spawn = makeSpawn({ powershell: { stdout: ['too much clipboard data'] } });
+      const result = await readClipboard({
+        env: makeProbe('win32', { PATH: path.dir, PATHEXT: '.EXE' }),
+        writeEscape: () => undefined,
+        maxNativeBytes: 4,
+        spawn,
+      });
+      expect(result.text).toBeNull();
+      expect(result.source).toBe('none');
+      expect(result.error).toContain('exceeded 4 bytes');
+    } finally {
+      path.cleanup();
+    }
+  });
 });
