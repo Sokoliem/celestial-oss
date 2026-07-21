@@ -114,6 +114,7 @@ export const UI_BUILDER_NAMES = [
 ] as const;
 
 export const UI_BUILDER_COUNT = UI_BUILDER_NAMES.length;
+export const GALLERY_PAGE_COUNT = 8;
 
 const capabilityRows: CapabilityRow[] = [
   { id: 'runtime', capability: 'Elm runtime', package: '@celestial/core', state: 'ready' },
@@ -259,7 +260,7 @@ export function createShowcaseComponents() {
             { label: 'Balanced', value: 'balanced' },
           ],
         },
-        { kind: 'toggle', name: 'reducedMotion', label: 'Reduced motion', default: true },
+        { kind: 'toggle', name: 'reducedMotion', label: 'Reduced motion', default: false },
         { kind: 'range', name: 'viewport', label: 'Target width', min: 70, max: 160, step: 10, default: [80, 120] },
       ],
       layout: {
@@ -510,6 +511,37 @@ export function initialComponentModels(components: ShowcaseComponents) {
     confirm: components.confirmComponent.init()[0],
     drawer: { ...components.drawerComponent.init()[0], open: false, focusTrapActive: false },
     palette: components.paletteComponent.init()[0],
+    galleryModels: {
+      checkboxGroup: components.checkboxGroupComponent.init()[0],
+      toggleGroup: components.toggleGroupComponent.init()[0],
+      autocomplete: components.autocompleteComponent.init()[0],
+      combobox: components.comboboxComponent.init()[0],
+      datePicker: components.datePickerComponent.init()[0],
+      multiSelect: components.multiSelectComponent.init()[0],
+      numberInput: components.numberInputComponent.init()[0],
+      rangeSlider: components.rangeSliderComponent.init()[0],
+      rating: components.ratingComponent.init()[0],
+      segmentedControl: components.segmentedControlComponent.init()[0],
+      tagInput: components.tagInputComponent.init()[0],
+      colorPicker: components.colorPickerComponent.init()[0],
+      optionList: components.optionListComponent.init()[0],
+      cardGrid: components.cardGridComponent.init()[0],
+      popover: components.popoverComponent.init()[0],
+      popoverGroup: components.popoverGroupComponent.init()[0],
+      hovercard: components.hovercardComponent.init()[0],
+    },
+    galleryContextMenu: contextMenuUpdate(
+      {
+        type: 'ctx-open',
+        x: 0,
+        y: 0,
+        items: [
+          { label: 'Open', shortcut: 'Enter', msg: 'open' },
+          { label: 'Inspect', shortcut: 'I', msg: 'inspect' },
+        ],
+      },
+      createContextMenuState<string>(),
+    ),
   };
 }
 
@@ -550,12 +582,18 @@ function named(name: string, child: VNode): VNode {
 }
 
 function galleryHeader(page: number, subtitle: string): VNode {
-  return row(text(`CURATED UI  ${page + 1}/8`, headingStyle), text(`  ${subtitle}`, mutedStyle));
+  return row(text(`CURATED UI  ${page + 1}/${GALLERY_PAGE_COUNT}`, headingStyle), text(`  ${subtitle}`, mutedStyle));
 }
 
-function initialView<Model extends object>(descriptor: { init(): [Model, unknown]; view(model: Model): VNode }, overrides?: Partial<Model>): VNode {
-  const [model] = descriptor.init();
-  return descriptor.view(overrides ? { ...model, ...overrides } : model);
+function galleryView<Model extends object>(
+  model: CelestialShowcaseModel,
+  id: string,
+  descriptor: { view(state: Model): VNode },
+  overrides?: Partial<Model>,
+): VNode {
+  const state = model.galleryModels[id] as Model | undefined;
+  if (!state) return text(`${id} state unavailable`, mutedStyle);
+  return descriptor.view(overrides ? { ...state, ...overrides } : state);
 }
 
 export function renderComponentGallery(components: ShowcaseComponents, model: CelestialShowcaseModel): VNode {
@@ -582,33 +620,38 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
       return column(
         galleryHeader(1, 'Grouped and assisted inputs - 7 builders'),
         row(
-          named('checkboxGroup()', initialView(components.checkboxGroupComponent)),
+          named('checkboxGroup()', galleryView(model, 'checkboxGroup', components.checkboxGroupComponent)),
           text('    '),
-          named('toggleGroup()', initialView(components.toggleGroupComponent)),
+          named('toggleGroup()', galleryView(model, 'toggleGroup', components.toggleGroupComponent)),
         ),
         named(
           'autocomplete()',
-          initialView(components.autocompleteComponent, { query: 're', suggestions: ['release', 'resize', 'render'], highlighted: 0, open: true }),
+          galleryView(model, 'autocomplete', components.autocompleteComponent, {
+            query: 're',
+            suggestions: ['release', 'resize', 'render'],
+            highlighted: 0,
+            open: true,
+          }),
         ),
-        named('combobox()', initialView(components.comboboxComponent)),
-        named('datePicker()', initialView(components.datePickerComponent)),
+        named('combobox()', galleryView(model, 'combobox', components.comboboxComponent)),
+        named('datePicker()', galleryView(model, 'datePicker', components.datePickerComponent)),
         row(
-          named('multiSelect()', initialView(components.multiSelectComponent)),
+          named('multiSelect()', galleryView(model, 'multiSelect', components.multiSelectComponent)),
           text('    '),
-          named('numberInput()', initialView(components.numberInputComponent)),
+          named('numberInput()', galleryView(model, 'numberInput', components.numberInputComponent)),
         ),
       );
     case 2:
       return column(
         galleryHeader(2, 'Specialized form controls - 6 builders'),
-        named('rangeSlider()', initialView(components.rangeSliderComponent)),
+        named('rangeSlider()', galleryView(model, 'rangeSlider', components.rangeSliderComponent)),
         row(
-          named('rating()', initialView(components.ratingComponent)),
+          named('rating()', galleryView(model, 'rating', components.ratingComponent)),
           text('    '),
-          named('segmentedControl()', initialView(components.segmentedControlComponent)),
+          named('segmentedControl()', galleryView(model, 'segmentedControl', components.segmentedControlComponent)),
         ),
-        named('tagInput()', initialView(components.tagInputComponent)),
-        named('colorPicker()', initialView(components.colorPickerComponent)),
+        named('tagInput()', galleryView(model, 'tagInput', components.tagInputComponent)),
+        named('colorPicker()', galleryView(model, 'colorPicker', components.colorPickerComponent)),
         named(
           'formField()',
           formField({
@@ -627,7 +670,7 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
         named('breadcrumb()', components.breadcrumbComponent.view(model.breadcrumb)),
         named('pagination()', focusable('pagination', 'Pagination control', components.paginationComponent.view(model.pagination))),
         named('commandPalette()', action(model, 'palette', 'Open command palette', 'info')),
-        named('optionListView()', initialView(components.optionListComponent)),
+        named('optionListView()', galleryView(model, 'optionList', components.optionListComponent)),
         text('Mouse selects tabs/pages. Arrow keys operate the focused control.', mutedStyle, { wrap: true }),
       );
     case 4:
@@ -643,7 +686,7 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
     case 5: {
       const determinateProgress = named(
         'progressBar()',
-        progressBar({ label: 'Preview', value: model.completed.size / 8, width: 20, showPercentage: true }),
+        progressBar({ label: 'Preview', value: model.completed.size / Object.keys(model.evidence).length, width: 20, showPercentage: true }),
       );
       const indeterminate = named('indeterminateProgress()', components.indeterminateProgressComponent.view({ position: model.tick }));
       const activitySpinner = named('spinner()', row(components.spinnerComponent.view({ frame: model.tick }), text(' probe', mutedStyle)));
@@ -665,7 +708,7 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
             }).view({ hovered: false }),
           ),
           text('  '),
-          named('cardGrid()', initialView(components.cardGridComponent)),
+          named('cardGrid()', galleryView(model, 'cardGrid', components.cardGridComponent)),
         ),
         named('divider()', divider({ label: 'Preview boundary', width: 42, tone: 'accent' })),
         named('emptyState()', emptyState({ title: 'No private dependencies', description: 'The supported demo stays inside the focused preview.', width: 42 })),
@@ -675,10 +718,7 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
       return column(
         galleryHeader(6, 'Feedback and layers - 7 builders'),
         row(
-          named(
-            'badge()',
-            badge({ label: `${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} curated`, variant: 'success', size: 'sm' }).view({ visible: true }),
-          ),
+          named('badge()', badge({ label: `${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} curated`, variant: 'success', size: 'sm' }).view({ visible: true })),
           text('    '),
           named(
             'alert()',
@@ -700,20 +740,8 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
         text('Each layered builder opens as a real stacked surface; Escape always dismisses.', mutedStyle, { wrap: true }),
       );
     default: {
-      const contextState = contextMenuUpdate(
-        {
-          type: 'ctx-open',
-          x: 0,
-          y: 0,
-          items: [
-            { label: 'Open', shortcut: 'Enter', msg: 'open' },
-            { label: 'Inspect', shortcut: 'I', msg: 'inspect' },
-          ],
-        },
-        createContextMenuState<string>(),
-      );
       const contextNode = contextMenuView({
-        state: contextState,
+        state: model.galleryContextMenu,
         width: 22,
         viewport: { cols: Math.max(24, model.cols - 8), rows: Math.max(8, model.rows - 8) },
         tokens: {
@@ -727,13 +755,22 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           shortcut: defaultTheme.colors.textSoft,
         },
       });
-      const popoverNode = named('popover()', initialView(components.popoverComponent, { visible: true, viewportCols: Math.max(36, model.cols - 8) }));
-      const hovercardNode = named('hovercard()', initialView(components.hovercardComponent, { state: 'open', viewportCols: Math.max(36, model.cols - 8) }));
+      const popoverNode = named(
+        'popover()',
+        galleryView(model, 'popover', components.popoverComponent, { visible: true, viewportCols: Math.max(36, model.cols - 8) }),
+      );
+      const hovercardNode = named(
+        'hovercard()',
+        galleryView(model, 'hovercard', components.hovercardComponent, { state: 'open', viewportCols: Math.max(36, model.cols - 8) }),
+      );
       return column(
         galleryHeader(7, 'Contextual surfaces - 3 builders + menu helper'),
-        named('contextMenuView() helper', contextNode ?? text('Context menu closed', mutedStyle)),
+        named(
+          'contextMenuView() helper',
+          contextNode ?? row(text('Context menu dismissed.  ', mutedStyle), action(model, 'gallery-context-menu', 'Open sample menu', 'info')),
+        ),
         model.cols >= 100 ? row(popoverNode, text('  '), hovercardNode) : column(popoverNode, hovercardNode),
-        named('popoverGroup()', initialView(components.popoverGroupComponent, { activeIndex: 0 })),
+        named('popoverGroup()', galleryView(model, 'popoverGroup', components.popoverGroupComponent, { activeIndex: 0 })),
         text('Context surfaces expose visible close controls and Escape dismissal contracts.', mutedStyle, { wrap: true }),
       );
     }

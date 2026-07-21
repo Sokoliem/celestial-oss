@@ -1,5 +1,6 @@
 import {
   type AppConfig,
+  type AtlasCapabilities,
   Cmd,
   type Cmd as CmdEffect,
   column,
@@ -22,10 +23,11 @@ import {
 } from '@celestial/core';
 import {
   beginFloatingWindowResize,
-  clampFloatingWindowFrame,
   createPip,
   createWindowManager,
   createWorkspaceModel,
+  getMinimizedWindows,
+  getVisibleWindows,
   hitTestFloatingWindowResizeEdge,
   hitTestWindowChromeTitleBar,
   type ManagedWindow,
@@ -35,16 +37,27 @@ import {
   splitPane,
   translateFloatingWindowFromDragState,
   type WindowManager,
+  type WindowManagerBounds,
   windowManagerHoverAt,
-  windowManagerMsgFromChromeEvent,
+  windowManagerMsgFromWindowEvent,
   windowManagerUpdate,
+  windowManagerUpdateResult,
+  windowShelf,
+  windowShelfActionFromEvent,
   withFloatingWindows,
   withPip,
   workspaceUpdate,
 } from '@celestial/horizon';
 import type { ComponentDescriptor, MenuItem } from '@celestial/ui';
 import { badge, contextMenuUpdate, contextMenuView, createContextMenuState, getSelectedItem, measureContextMenuLayout, progressBar } from '@celestial/ui';
-import { createShowcaseComponents, initialComponentModels, renderComponentGallery, type ShowcaseComponents, UI_BUILDER_COUNT } from './components.js';
+import {
+  createShowcaseComponents,
+  GALLERY_PAGE_COUNT,
+  initialComponentModels,
+  renderComponentGallery,
+  type ShowcaseComponents,
+  UI_BUILDER_COUNT,
+} from './components.js';
 import {
   LABS,
   labForSmoke,
@@ -68,6 +81,7 @@ import type {
   MouseDragPayload,
   ShowcaseContextAction,
   ShowcaseWorkspace,
+  SmokeEvidence,
   SmokeId,
   SurfaceId,
 } from './types.js';
@@ -79,6 +93,9 @@ export interface CelestialShowcaseOptions {
 
 export const SHOWCASE_MIN_COLS = 70;
 export const SHOWCASE_MIN_ROWS = 32;
+
+const SHOWCASE_TOP_INSET = 3;
+const SHOWCASE_STATUS_INSET = 2;
 
 const headingStyle = style({ color: defaultTheme.colors.tones.accent, bold: true });
 const titleStyle = style({ color: defaultTheme.colors.text, bold: true });
@@ -123,19 +140,38 @@ function instrumentWindow(id: 'telemetry' | 'events', size: { cols: number; rows
     zIndex: telemetry ? 20 : 21,
     mode: 'normal',
     role: 'window',
+    workspaceId: telemetry ? 'flight' : 'systems',
     focused: !telemetry,
     closable: true,
     minimizable: true,
     maximizable: true,
-    fullscreenable: false,
+    fullscreenable: true,
     resizable: true,
     draggable: true,
-    chrome: { showTitle: true, showClose: true, showMinimize: true, showMaximize: true, showFullscreen: false },
+    chrome: { showTitle: true, showClose: true, showMinimize: true, showMaximize: true, showFullscreen: true },
   };
 }
 
-function initialWindows(size: { cols: number; rows: number }): WindowManager {
-  return createWindowManager([instrumentWindow('telemetry', size), instrumentWindow('events', size)], size);
+function windowBounds(manager: WindowManager, size: { cols: number; rows: number }): WindowManagerBounds {
+  return {
+    cols: size.cols,
+    rows: size.rows,
+    topInset: SHOWCASE_TOP_INSET,
+    bottomInset: SHOWCASE_STATUS_INSET + (getMinimizedWindows(manager, { allWorkspaces: true }).length > 0 ? 1 : 0),
+  };
+}
+
+function syncWindowBounds(manager: WindowManager, size: { cols: number; rows: number }): WindowManager {
+  return windowManagerUpdate({ type: 'set-bounds', bounds: windowBounds(manager, size) }, manager);
+}
+
+function initialWindows(size: { cols: number; rows: number }, activeWorkspaceId: string): WindowManager {
+  const manager = createWindowManager(
+    [instrumentWindow('telemetry', size), instrumentWindow('events', size)],
+    { ...size, topInset: SHOWCASE_TOP_INSET, bottomInset: SHOWCASE_STATUS_INSET },
+    { activeWorkspaceId },
+  );
+  return syncWindowBounds(manager, size);
 }
 
 function activeLabIndex(lab: LabId): number {
@@ -145,10 +181,60 @@ function activeLabIndex(lab: LabId): number {
   );
 }
 
+const EMPTY_EVIDENCE: SmokeEvidence = {
+  coreVisits: 0,
+  componentChanges: 0,
+  workflowAdvances: 0,
+  visualVisits: 0,
+  mouseClicks: 0,
+  payloadDrops: 0,
+  contextMenus: 0,
+  layersOpened: 0,
+  breakpointCrossings: 0,
+  windowChanges: 0,
+  helpOpens: 0,
+};
+
+const evidenceField: Record<SmokeId, keyof SmokeEvidence> = {
+  core: 'coreVisits',
+  component: 'componentChanges',
+  workflow: 'workflowAdvances',
+  visual: 'visualVisits',
+  'mouse-click': 'mouseClicks',
+  'mouse-drag': 'payloadDrops',
+  'context-menu': 'contextMenus',
+  layer: 'layersOpened',
+  adaptive: 'breakpointCrossings',
+  window: 'windowChanges',
+  help: 'helpOpens',
+};
+
+function completedFromEvidence(evidence: SmokeEvidence): Set<SmokeId> {
+  return new Set((Object.entries(evidenceField) as Array<[SmokeId, keyof SmokeEvidence]>).filter(([, field]) => evidence[field] > 0).map(([id]) => id));
+}
+
 function mark(model: CelestialShowcaseModel, receipt: SmokeId, action?: string): CelestialShowcaseModel {
-  const completed = new Set(model.completed);
-  completed.add(receipt);
-  return { ...model, completed, lastAction: action ?? model.lastAction };
+  const field = evidenceField[receipt];
+  const evidence = { ...model.evidence, [field]: model.evidence[field] + 1 };
+  return { ...model, evidence, completed: completedFromEvidence(evidence), lastAction: action ?? model.lastAction };
+}
+
+function withAction(model: CelestialShowcaseModel, action: string): CelestialShowcaseModel {
+  return { ...model, lastAction: action };
+}
+
+function stateChanged(before: unknown, after: unknown): boolean {
+  const replacer = (_key: string, value: unknown) => (value instanceof Set ? [...value].sort() : value);
+  return JSON.stringify(before, replacer) !== JSON.stringify(after, replacer);
+}
+
+function markChanged(model: CelestialShowcaseModel, before: unknown, after: unknown, receipt: SmokeId, action: string): CelestialShowcaseModel {
+  return stateChanged(before, after) ? mark(model, receipt, action) : model;
+}
+
+function effectiveCapabilities(model: CelestialShowcaseModel, capabilities: AtlasCapabilities): AtlasCapabilities {
+  const userReducedMotion = model.schemaForm.values['reducedMotion'] === true;
+  return userReducedMotion || capabilities.reducedMotion ? { ...capabilities, reducedMotion: true } : capabilities;
 }
 
 const actionLabels: Record<string, string> = {
@@ -216,6 +302,19 @@ function contextItemsForTarget(model: CelestialShowcaseModel, target: string): M
     ];
   }
 
+  if (target === 'window-shelf-overflow') {
+    const minimized = getMinimizedWindows(model.windows, { allWorkspaces: true });
+    return [
+      ...minimized.map((window) => ({
+        label: `Restore ${window.title ?? window.id}`,
+        hint: window.workspaceId,
+        msg: { type: 'window-action' as const, id: window.id, action: 'focus' as const },
+      })),
+      { label: '', separator: true },
+      { label: 'Close menu', shortcut: 'Esc', msg: { type: 'close' } },
+    ];
+  }
+
   if (target.startsWith('window:')) {
     const id = target.slice('window:'.length);
     const window = model.windows.windows.find((entry) => entry.id === id);
@@ -232,6 +331,11 @@ function contextItemsForTarget(model: CelestialShowcaseModel, target: string): M
           disabled: window.minimized,
           msg: { type: 'window-action', id, action: window.mode === 'maximized' ? 'restore' : 'maximize' },
         },
+        {
+          label: window.mode === 'fullscreen' ? 'Exit fullscreen' : 'Enter fullscreen',
+          disabled: window.minimized,
+          msg: { type: 'window-action', id, action: window.mode === 'fullscreen' ? 'restore' : 'fullscreen' },
+        },
         { label: '', separator: true },
         { label: restore ? 'Focus restored window' : 'Window is ready', hint: window.mode, disabled: true },
         { label: 'Close window', msg: { type: 'window-action', id, action: 'close' } },
@@ -244,8 +348,9 @@ function contextItemsForTarget(model: CelestialShowcaseModel, target: string): M
 }
 
 function openContextMenu(model: CelestialShowcaseModel, target: string, x: number, y: number, trigger = 'right-click'): CelestialShowcaseModel {
-  const contextMenu = contextMenuUpdate({ type: 'ctx-open', x, y, items: contextItemsForTarget(model, target) }, model.contextMenu);
-  return mark({ ...model, contextMenu, contextMenuSource: target }, 'context-menu', `Opened ${trigger} context menu for ${target}.`);
+  const cancelled = cancelActiveInteractions(model, true);
+  const contextMenu = contextMenuUpdate({ type: 'ctx-open', x, y, items: contextItemsForTarget(cancelled, target) }, cancelled.contextMenu);
+  return mark({ ...cancelled, contextMenu, contextMenuSource: target }, 'context-menu', `Opened ${trigger} context menu for ${target}.`);
 }
 
 function contextMenuRowAt(model: CelestialShowcaseModel, x: number, y: number): number | null {
@@ -276,6 +381,7 @@ function dismissSurfaces(model: CelestialShowcaseModel): CelestialShowcaseModel 
     helpOpen: false,
     contextMenu: createContextMenuState<ShowcaseContextAction>(),
     contextMenuSource: null,
+    galleryContextMenu: contextMenuUpdate({ type: 'ctx-close' }, model.galleryContextMenu),
     tooltip: { ...model.tooltip, visible: false },
     modal: { ...model.modal, open: false },
     confirm: { ...model.confirm, open: false },
@@ -299,6 +405,49 @@ function withComponentFocus(model: CelestialShowcaseModel, focus: ComponentFocus
     table: { ...model.table, focused: focus === 'table' },
     tree: { ...model.tree, focused: focus === 'tree' },
   };
+}
+
+function cancelActiveInteractions(model: CelestialShowcaseModel, dismissLayered = false): CelestialShowcaseModel {
+  const next = dismissLayered
+    ? dismissSurfaces(model)
+    : {
+        ...model,
+        contextMenu: createContextMenuState<ShowcaseContextAction>(),
+        contextMenuSource: null,
+        galleryContextMenu: contextMenuUpdate({ type: 'ctx-close' }, model.galleryContextMenu),
+      };
+  return withComponentFocus(
+    {
+      ...next,
+      dragDemo: next.dragDemo.phase === 'dragging' ? dragUpdate({ type: 'drag-cancel' }, next.dragDemo, dragTargets) : next.dragDemo,
+      windowDrag: null,
+      hoveredRegion: null,
+      shelfHoveredWindowId: null,
+    },
+    'none',
+  );
+}
+
+function workspaceModelForManager(model: CelestialShowcaseModel, manager: WindowManager): CelestialShowcaseModel['workspaces'] {
+  const index = workspaceDefinitions.findIndex((workspace) => workspace.id === manager.activeWorkspaceId);
+  if (index < 0 || index === model.workspaces.activeIndex) return model.workspaces;
+  return workspaceUpdate({ type: 'ws-switch', index }, model.workspaces, (_msg, workspace) => workspace);
+}
+
+function sampleGalleryContextMenu(open: boolean, model: CelestialShowcaseModel): CelestialShowcaseModel['galleryContextMenu'] {
+  if (!open) return contextMenuUpdate({ type: 'ctx-close' }, model.galleryContextMenu);
+  return contextMenuUpdate(
+    {
+      type: 'ctx-open',
+      x: 0,
+      y: 0,
+      items: [
+        { label: 'Open', shortcut: 'Enter', msg: 'open' },
+        { label: 'Inspect', shortcut: 'I', msg: 'inspect' },
+      ],
+    },
+    model.galleryContextMenu,
+  );
 }
 
 function mapDescriptor<Model, Msg>(
@@ -410,7 +559,7 @@ function missionRail(model: CelestialShowcaseModel): VNode {
 function adaptiveContext(model: CelestialShowcaseModel): VNode {
   const active = LABS[activeLabIndex(model.activeLab)]!;
   const next = SMOKE_STEPS.find((step) => !model.completed.has(step.id));
-  const front = [...model.windows.windows].filter((window) => !window.minimized).sort((a, b) => b.zIndex - a.zIndex)[0];
+  const front = getVisibleWindows(model.windows)[0];
   return panel({
     title: 'Context',
     content: column(
@@ -422,6 +571,7 @@ function adaptiveContext(model: CelestialShowcaseModel): VNode {
       text(''),
       text('Front window', titleStyle),
       text(front ? `${front.title}: ${front.mode}` : 'none', mutedStyle, { wrap: true }),
+      ...(front && model.activeLab === 'windows' ? [renderWindowContent(model, front.id)] : []),
       text(''),
       actionNode(model, 'help', 'Help', '?'),
     ),
@@ -527,7 +677,7 @@ function renderActiveLab(components: ShowcaseComponents, model: CelestialShowcas
       return column(
         row(
           actionNode(model, 'gallery-prev', 'Previous', '['),
-          text(`  page ${model.componentPage + 1}/8  `, mutedStyle),
+          text(`  page ${model.componentPage + 1}/${GALLERY_PAGE_COUNT}  `, mutedStyle),
           actionNode(model, 'gallery-next', 'Next', ']'),
           text('  '),
           badge({ label: `${UI_BUILDER_COUNT} public builders`, variant: 'success', size: 'sm' }).view({ visible: true }),
@@ -549,11 +699,12 @@ function renderActiveLab(components: ShowcaseComponents, model: CelestialShowcas
   }
 }
 
-function dynamicWindows(model: CelestialShowcaseModel): WindowManager {
+function dynamicWindows(model: CelestialShowcaseModel, themeCtx: ReturnType<typeof runtime.createThemeContext>): WindowManager {
   return {
     ...model.windows,
     windows: model.windows.windows.map((window) => ({
       ...window,
+      chrome: { ...window.chrome, themeCtx },
       content: event(
         `showcase-context-window-${window.id}`,
         renderWindowContent(model, window.id),
@@ -564,7 +715,9 @@ function dynamicWindows(model: CelestialShowcaseModel): WindowManager {
   };
 }
 
-function topSurface(model: CelestialShowcaseModel): 'context-menu' | 'palette' | 'confirm' | 'modal' | 'drawer' | 'help' | 'tooltip' | 'toast' | null {
+function topSurface(
+  model: CelestialShowcaseModel,
+): 'context-menu' | 'palette' | 'confirm' | 'modal' | 'drawer' | 'help' | 'tooltip' | 'gallery-context-menu' | 'toast' | null {
   if (model.contextMenu.open) return 'context-menu';
   if (model.palette.palette.open) return 'palette';
   if (model.confirm.open) return 'confirm';
@@ -572,6 +725,7 @@ function topSurface(model: CelestialShowcaseModel): 'context-menu' | 'palette' |
   if (model.drawer.open) return 'drawer';
   if (model.helpOpen) return 'help';
   if (model.tooltip.visible) return 'tooltip';
+  if (model.activeLab === 'components' && model.componentPage === GALLERY_PAGE_COUNT - 1 && model.galleryContextMenu.open) return 'gallery-context-menu';
   if (model.toast.toasts.length > 0) return 'toast';
   return null;
 }
@@ -580,32 +734,38 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
   const size = options.initialSize ?? getTerminalSize();
   const fast = options.fast ?? process.env['CELESTIAL_DEMO_FAST'] === '1';
   const caps = getCapabilities();
-  const animate = shouldAnimate(caps);
   const components = createShowcaseComponents();
+  const themeCtx = runtime.createThemeContext({ unicodeLevel: caps.unicodeLevel, motion: { reduceMotion: caps.reducedMotion } });
 
-  const freshModel = (nextSize = size): CelestialShowcaseModel => ({
-    cols: nextSize.cols,
-    rows: nextSize.rows,
-    tick: 0,
-    activeLab: 'core',
-    previousTier: viewportTier(nextSize.cols),
-    completed: new Set<SmokeId>(['core']),
-    lastAction: 'Flight Deck initialized through @celestial/core.',
-    componentPage: 0,
-    componentFocus: 'none',
-    helpOpen: false,
-    contextMenu: createContextMenuState<ShowcaseContextAction>(),
-    contextMenuSource: null,
-    hoveredRegion: null,
-    pointer: { x: 0, y: 0, type: 'idle', target: 'none', clicks: 0, hovering: false },
-    dragDemo: createDragState<MouseDragPayload>(),
-    droppedReceipts: 0,
-    lastDroppedReceipt: null,
-    windowDrag: null,
-    workspaces: createWorkspaceModel(workspaceDefinitions),
-    windows: initialWindows(nextSize),
-    ...initialComponentModels(components),
-  });
+  const freshModel = (nextSize = size): CelestialShowcaseModel => {
+    const workspaces = createWorkspaceModel(workspaceDefinitions);
+    const evidence = { ...EMPTY_EVIDENCE, coreVisits: 1 };
+    return {
+      cols: nextSize.cols,
+      rows: nextSize.rows,
+      tick: 0,
+      activeLab: 'core',
+      previousTier: viewportTier(nextSize.cols),
+      evidence,
+      completed: completedFromEvidence(evidence),
+      lastAction: 'Flight Deck initialized through @celestial/core.',
+      componentPage: 0,
+      componentFocus: 'none',
+      helpOpen: false,
+      contextMenu: createContextMenuState<ShowcaseContextAction>(),
+      contextMenuSource: null,
+      hoveredRegion: null,
+      shelfHoveredWindowId: null,
+      pointer: { x: 0, y: 0, type: 'idle', target: 'none', clicks: 0, hovering: false },
+      dragDemo: createDragState<MouseDragPayload>(),
+      droppedReceipts: 0,
+      lastDroppedReceipt: null,
+      windowDrag: null,
+      workspaces,
+      windows: initialWindows(nextSize, workspaceDefinitions[workspaces.activeIndex]!.id),
+      ...initialComponentModels(components),
+    };
+  };
 
   return {
     init: () => [freshModel(), Cmd.none()],
@@ -613,11 +773,10 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
     update(message, model) {
       switch (message.type) {
         case 'switch-lab': {
-          const closed = withComponentFocus(dismissSurfaces(model), 'none');
+          const closed = cancelActiveInteractions(model, true);
           const next = {
             ...closed,
             activeLab: message.lab,
-            dragDemo: closed.dragDemo.phase === 'dragging' ? dragUpdate({ type: 'drag-cancel' }, closed.dragDemo, dragTargets) : closed.dragDemo,
             lastAction: `Opened ${message.lab} lab.`,
           };
           return [message.lab === 'core' ? mark(next, 'core') : message.lab === 'visuals' ? mark(next, 'visual') : next, Cmd.none()];
@@ -629,21 +788,9 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         }
         case 'resize': {
           const tier = viewportTier(message.cols);
-          const windows: WindowManager = {
-            ...model.windows,
-            bounds: { cols: message.cols, rows: message.rows },
-            windows: model.windows.windows.map((window) => {
-              if (window.mode === 'maximized') return { ...window, x: 0, y: 0, width: message.cols, height: message.rows };
-              if (tier !== 'wide') return window;
-              const frame = clampFloatingWindowFrame(
-                { cols: message.cols, rows: message.rows, topInset: 3, bottomInset: 2 },
-                { width: window.width, height: window.height, minWidth: 32, minHeight: 8 },
-                window,
-              );
-              return { ...window, ...frame };
-            }),
-          };
-          const resized = { ...model, cols: message.cols, rows: message.rows, previousTier: tier, windows, windowDrag: null };
+          const cancelled = cancelActiveInteractions(model);
+          const windows = syncWindowBounds(cancelled.windows, { cols: message.cols, rows: message.rows });
+          const resized = { ...cancelled, cols: message.cols, rows: message.rows, previousTier: tier, windows };
           return [tier !== model.previousTier ? mark(resized, 'adaptive', `Crossed into ${tier} layout at ${message.cols} columns.`) : resized, Cmd.none()];
         }
         case 'tick': {
@@ -709,6 +856,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           if (action === 'help') return this.update({ type: 'open-help' }, model);
           if (action === 'gallery-prev') return this.update({ type: 'component-page', page: model.componentPage - 1 }, model);
           if (action === 'gallery-next') return this.update({ type: 'component-page', page: model.componentPage + 1 }, model);
+          if (action === 'gallery-context-menu') return this.update({ type: 'gallery-context-menu', open: true }, model);
           if (action === 'workflow-toggle-motion') {
             const current = model.schemaForm.values['reducedMotion'] === true;
             return this.update({ type: 'schema-form', msg: { type: 'schema-form:set-field', field: 'reducedMotion', value: !current } }, model);
@@ -722,89 +870,114 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           return [model, Cmd.none()];
         }
         case 'component-page': {
-          const page = Math.max(0, Math.min(7, message.page));
-          return [mark(withComponentFocus({ ...model, componentPage: page }, 'none'), 'component', `Opened curated UI page ${page + 1}/8.`), Cmd.none()];
+          const page = Math.max(0, Math.min(GALLERY_PAGE_COUNT - 1, message.page));
+          const cancelled = cancelActiveInteractions(model, true);
+          const galleryContextMenu =
+            page === GALLERY_PAGE_COUNT - 1 && page !== model.componentPage ? sampleGalleryContextMenu(true, cancelled) : cancelled.galleryContextMenu;
+          return [
+            withAction({ ...cancelled, componentPage: page, galleryContextMenu }, `Opened curated UI page ${page + 1}/${GALLERY_PAGE_COUNT}.`),
+            Cmd.none(),
+          ];
         }
         case 'component-focus':
-          return [mark(withComponentFocus(model, message.focus), 'component', `Focused ${message.focus} component.`), Cmd.none()];
+          return [withAction(withComponentFocus(model, message.focus), `Focused ${message.focus} component.`), Cmd.none()];
+        case 'gallery-context-menu':
+          return [
+            withAction(
+              { ...model, galleryContextMenu: sampleGalleryContextMenu(message.open, model) },
+              message.open ? 'Opened the gallery context-menu sample.' : 'Closed the gallery context-menu sample.',
+            ),
+            Cmd.none(),
+          ];
         case 'text-input': {
           const [textInput, command] = mapDescriptor(components.textInputComponent, message.msg, model.textInput, (msg) => ({ type: 'text-input', msg }));
-          return [mark({ ...model, textInput }, 'component', 'Edited textInput().'), command];
+          return [markChanged({ ...model, textInput }, model.textInput, textInput, 'component', 'Edited textInput().'), command];
         }
         case 'textarea': {
           const [textarea, command] = mapDescriptor(components.textareaComponent, message.msg, model.textarea, (msg) => ({ type: 'textarea', msg }));
-          return [mark({ ...model, textarea }, 'component', 'Edited textarea().'), command];
+          return [markChanged({ ...model, textarea }, model.textarea, textarea, 'component', 'Edited textarea().'), command];
         }
         case 'checkbox': {
           const [checkbox, command] = mapDescriptor(components.checkboxComponent, message.msg, model.checkbox, (msg) => ({ type: 'checkbox', msg }));
-          return [mark({ ...model, checkbox }, 'component', 'Toggled checkbox().'), command];
+          return [markChanged({ ...model, checkbox }, model.checkbox, checkbox, 'component', 'Toggled checkbox().'), command];
         }
         case 'radio': {
           const [radio, command] = mapDescriptor(components.radioComponent, message.msg, model.radio, (msg) => ({ type: 'radio', msg }));
-          return [mark({ ...model, radio }, 'component', 'Changed radioGroup().'), command];
+          return [markChanged({ ...model, radio }, model.radio, radio, 'component', 'Changed radioGroup().'), command];
         }
         case 'select': {
           const [select, command] = mapDescriptor(components.selectComponent, message.msg, model.select, (msg) => ({ type: 'select', msg }));
-          return [mark({ ...model, select }, 'component', 'Changed select().'), command];
+          return [markChanged({ ...model, select }, model.select, select, 'component', 'Changed select().'), command];
         }
         case 'toggle': {
           const [toggle, command] = mapDescriptor(components.toggleComponent, message.msg, model.toggle, (msg) => ({ type: 'toggle', msg }));
-          return [mark({ ...model, toggle }, 'component', 'Toggled toggle().'), command];
+          return [markChanged({ ...model, toggle }, model.toggle, toggle, 'component', 'Toggled toggle().'), command];
         }
         case 'slider': {
           const [slider, command] = mapDescriptor(components.sliderComponent, message.msg, model.slider, (msg) => ({ type: 'slider', msg }));
-          return [mark({ ...model, slider }, 'component', 'Changed slider().'), command];
+          return [markChanged({ ...model, slider }, model.slider, slider, 'component', 'Changed slider().'), command];
         }
         case 'tabs': {
           const [tabs, command] = mapDescriptor(components.tabsComponent, message.msg, model.tabs, (msg) => ({ type: 'tabs', msg }));
-          return [mark({ ...model, tabs }, 'component', 'Changed tabs().'), command];
+          return [markChanged({ ...model, tabs }, model.tabs, tabs, 'component', 'Changed tabs().'), command];
         }
         case 'breadcrumb': {
           const [breadcrumb, command] = mapDescriptor(components.breadcrumbComponent, message.msg, model.breadcrumb, (msg) => ({ type: 'breadcrumb', msg }));
-          return [mark({ ...model, breadcrumb }, 'component', 'Navigated breadcrumb().'), command];
+          return [markChanged({ ...model, breadcrumb }, model.breadcrumb, breadcrumb, 'component', 'Navigated breadcrumb().'), command];
         }
         case 'pagination': {
           const [pagination, command] = mapDescriptor(components.paginationComponent, message.msg, model.pagination, (msg) => ({ type: 'pagination', msg }));
-          return [mark({ ...model, pagination }, 'component', 'Changed pagination().'), command];
+          return [markChanged({ ...model, pagination }, model.pagination, pagination, 'component', 'Changed pagination().'), command];
         }
         case 'table': {
           const [table, command] = mapDescriptor(components.tableComponent, message.msg, model.table, (msg) => ({ type: 'table', msg }));
-          return [mark({ ...model, table }, 'component', 'Interacted with dataTable().'), command];
+          return [markChanged({ ...model, table }, model.table, table, 'component', 'Interacted with dataTable().'), command];
         }
         case 'tree': {
           const [tree, command] = mapDescriptor(components.treeComponent, message.msg, model.tree, (msg) => ({ type: 'tree', msg }));
-          return [mark({ ...model, tree }, 'component', 'Interacted with tree().'), command];
+          return [markChanged({ ...model, tree }, model.tree, tree, 'component', 'Interacted with tree().'), command];
         }
         case 'schema-form': {
           const [schemaForm, command] = mapDescriptor(components.schemaFormComponent, message.msg, model.schemaForm, (msg) => ({ type: 'schema-form', msg }));
-          return [mark({ ...model, schemaForm }, 'workflow', 'Updated schemaForm().'), command];
+          const next = stateChanged(model.schemaForm, schemaForm) ? withAction({ ...model, schemaForm }, 'Updated schemaForm().') : { ...model, schemaForm };
+          themeCtx.patch({ motion: { reduceMotion: effectiveCapabilities(next, caps).reducedMotion } });
+          return [next, command];
         }
         case 'wizard': {
           const [wizard, command] = mapDescriptor(components.wizardComponent, message.msg, model.wizard, (msg) => ({ type: 'wizard', msg }));
-          return [mark({ ...model, wizard }, 'workflow', message.msg.type === 'wizard:reset' ? 'Restarted wizard().' : 'Advanced wizard().'), command];
+          const next = { ...model, wizard };
+          if (!stateChanged(model.wizard, wizard)) return [next, command];
+          const action =
+            message.msg.type === 'wizard:reset' ? 'Restarted wizard().' : message.msg.type === 'wizard:next' ? 'Advanced wizard().' : 'Updated wizard.';
+          return [message.msg.type === 'wizard:next' ? mark(next, 'workflow', action) : withAction(next, action), command];
         }
         case 'tooltip': {
           const [tooltip, command] = mapDescriptor(components.tooltipComponent, message.msg, model.tooltip, (msg) => ({ type: 'tooltip', msg }));
-          return [mark({ ...model, tooltip }, 'layer', 'Tooltip layer updated.'), command];
+          return [stateChanged(model.tooltip, tooltip) ? withAction({ ...model, tooltip }, 'Tooltip layer updated.') : { ...model, tooltip }, command];
         }
         case 'toast': {
           const [toast, command] = components.toastManager.update(message.msg, model.toast);
-          return [mark({ ...model, toast }, 'layer', 'Toast layer updated.'), Cmd.map(command, (msg) => ({ type: 'toast', msg }))];
+          return [
+            stateChanged(model.toast, toast) ? withAction({ ...model, toast }, 'Toast layer updated.') : { ...model, toast },
+            Cmd.map(command, (msg) => ({ type: 'toast', msg })),
+          ];
         }
         case 'modal': {
           const [modal, command] = mapDescriptor(components.modalComponent, message.msg, model.modal, (msg) => ({ type: 'modal', msg }));
-          return [mark({ ...model, modal }, 'layer', 'Modal layer updated.'), command];
+          return [stateChanged(model.modal, modal) ? withAction({ ...model, modal }, 'Modal layer updated.') : { ...model, modal }, command];
         }
         case 'confirm': {
           const [confirm, command] = mapDescriptor(components.confirmComponent, message.msg, model.confirm, (msg) => ({ type: 'confirm', msg }));
           return [
-            mark({ ...model, confirm }, 'layer', message.msg.type === 'confirm' ? 'Confirmation receipt recorded.' : 'Confirmation layer updated.'),
+            stateChanged(model.confirm, confirm)
+              ? withAction({ ...model, confirm }, message.msg.type === 'confirm' ? 'Confirmation recorded.' : 'Confirmation layer updated.')
+              : { ...model, confirm },
             command,
           ];
         }
         case 'drawer': {
           const [drawer, command] = mapDescriptor(components.drawerComponent, message.msg, model.drawer, (msg) => ({ type: 'drawer', msg }));
-          return [mark({ ...model, drawer }, 'layer', 'Drawer layer updated.'), command];
+          return [stateChanged(model.drawer, drawer) ? withAction({ ...model, drawer }, 'Drawer layer updated.') : { ...model, drawer }, command];
         }
         case 'palette': {
           const selectedIndex =
@@ -832,55 +1005,91 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           return message.msg.type === 'close' || message.msg.type === 'panic'
             ? [{ ...model, helpOpen: false, lastAction: 'Closed contextual help.' }, Cmd.none()]
             : [model, Cmd.none()];
-        case 'open-help':
-          return [mark({ ...model, helpOpen: true, lastAction: `Opened contextual help for ${model.activeLab}.` }, 'help'), Cmd.none()];
+        case 'open-help': {
+          if (model.helpOpen) return [model, Cmd.none()];
+          const cancelled = cancelActiveInteractions(model);
+          return [mark({ ...cancelled, helpOpen: true, lastAction: `Opened contextual help for ${model.activeLab}.` }, 'help'), Cmd.none()];
+        }
         case 'open-surface': {
+          const base = cancelActiveInteractions(model);
+          const markOpened = ([next, command]: [CelestialShowcaseModel, CmdEffect<CelestialShowcaseMsg>], opened: boolean, action: string) =>
+            [opened ? mark(next, 'layer', action) : next, command] as [CelestialShowcaseModel, CmdEffect<CelestialShowcaseMsg>];
           switch (message.surface) {
             case 'modal':
-              return this.update({ type: 'modal', msg: { type: 'open' } }, model);
+              return markOpened(this.update({ type: 'modal', msg: { type: 'open' } }, base), !base.modal.open, 'Opened modal layer.');
             case 'confirm':
-              return this.update({ type: 'confirm', msg: { type: 'open' } }, model);
+              return markOpened(this.update({ type: 'confirm', msg: { type: 'open' } }, base), !base.confirm.open, 'Opened confirmation layer.');
             case 'drawer':
-              return this.update({ type: 'drawer', msg: { type: 'open' } }, model);
+              return markOpened(this.update({ type: 'drawer', msg: { type: 'open' } }, base), !base.drawer.open, 'Opened drawer layer.');
             case 'tooltip':
-              return this.update({ type: 'tooltip', msg: { type: 'show' } }, model);
+              return markOpened(this.update({ type: 'tooltip', msg: { type: 'show' } }, base), !base.tooltip.visible, 'Opened tooltip layer.');
             case 'palette':
-              return this.update({ type: 'palette', msg: { type: 'cp-open' } }, model);
-            case 'toast':
-              return this.update(
+              return markOpened(this.update({ type: 'palette', msg: { type: 'cp-open' } }, base), !base.palette.palette.open, 'Opened palette layer.');
+            case 'toast': {
+              const result = this.update(
                 {
                   type: 'toast',
                   msg: { type: 'push', toast: { message: 'Layer receipt captured without hiding the base.', level: 'success', duration: 8000 } },
                 },
-                model,
+                base,
               );
+              return markOpened(result, result[0].toast.toasts.length > base.toast.toasts.length, 'Opened toast layer.');
+            }
           }
         }
         case 'switch-workspace': {
-          const workspaces = workspaceUpdate({ type: 'ws-switch', index: message.index }, model.workspaces, (_msg, workspace) => workspace);
-          return [{ ...model, workspaces, lastAction: `Switched to ${workspaceDefinitions[message.index]?.name ?? 'workspace'}.` }, Cmd.none()];
+          const workspace = workspaceDefinitions[message.index];
+          if (!workspace) return [withAction(model, `Ignored invalid workspace index ${message.index}.`), Cmd.none()];
+          const cancelled = cancelActiveInteractions(model, true);
+          const workspaces = workspaceUpdate({ type: 'ws-switch', index: message.index }, cancelled.workspaces, (_msg, entry) => entry);
+          const outcome = windowManagerUpdateResult({ type: 'set-active-workspace', id: workspace.id }, cancelled.windows);
+          const windows = syncWindowBounds(outcome.model, { cols: model.cols, rows: model.rows });
+          return [{ ...cancelled, workspaces, windows, lastAction: `Switched to ${workspace.name}.` }, Cmd.none()];
         }
         case 'window-action': {
-          let windows = model.windows;
+          const cancelled = cancelActiveInteractions(model);
+          let windows = cancelled.windows;
+          let accepted = false;
+          let changed = false;
+          let diagnostic: string | undefined;
+          const apply = (managerMessage: Parameters<typeof windowManagerUpdateResult>[0]) => {
+            const outcome = windowManagerUpdateResult(managerMessage, windows);
+            windows = outcome.model;
+            accepted = accepted || outcome.accepted;
+            changed = changed || (outcome.accepted && outcome.changed);
+            diagnostic ??= outcome.diagnostics[0]?.code;
+            return outcome.accepted;
+          };
           if (message.action === 'reopen') {
             const existing = windows.windows.find((window) => window.id === message.id);
-            windows = existing
-              ? windowManagerUpdate({ type: 'restore-window', id: message.id }, windows)
-              : windowManagerUpdate(
-                  { type: 'create-window', window: instrumentWindow(message.id as 'telemetry' | 'events', { cols: model.cols, rows: model.rows }) },
-                  windows,
-                );
-            windows = windowManagerUpdate({ type: 'focus-window', id: message.id }, windows);
+            if (existing) {
+              apply({ type: 'activate-window', id: message.id });
+            } else if (message.id === 'telemetry' || message.id === 'events') {
+              if (apply({ type: 'create-window', window: instrumentWindow(message.id, { cols: model.cols, rows: model.rows }) })) {
+                apply({ type: 'activate-window', id: message.id });
+              }
+            } else {
+              diagnostic = 'window-not-found';
+            }
           } else if (message.action === 'focus') {
-            windows = windowManagerUpdate({ type: 'focus-window', id: message.id }, windows);
+            apply({ type: 'activate-window', id: message.id });
           } else {
             const type = `${message.action}-window` as 'close-window' | 'minimize-window' | 'maximize-window' | 'fullscreen-window' | 'restore-window';
-            windows = windowManagerUpdate(
-              message.action === 'close' ? { type, id: message.id, reason: 'showcase-chrome', policy: 'remove' } : { type, id: message.id },
-              windows,
-            );
+            apply(message.action === 'close' ? { type, id: message.id, reason: 'showcase-chrome', policy: 'remove' } : { type, id: message.id });
           }
-          return [mark({ ...model, windows, windowDrag: null }, 'window', `${message.action} window ${message.id}.`), Cmd.none()];
+          const boundsOutcome = windowManagerUpdateResult(
+            { type: 'set-bounds', bounds: windowBounds(windows, { cols: model.cols, rows: model.rows }) },
+            windows,
+          );
+          windows = boundsOutcome.model;
+          changed = changed || (accepted && boundsOutcome.changed);
+          const next = {
+            ...cancelled,
+            windows,
+            workspaces: workspaceModelForManager(cancelled, windows),
+            lastAction: accepted ? `${message.action} window ${message.id}.` : `Window ${message.id} rejected: ${diagnostic ?? 'invalid-window'}.`,
+          };
+          return [accepted && changed ? mark(next, 'window') : next, Cmd.none()];
         }
         case 'raw-mouse': {
           const eventData = message.event;
@@ -915,14 +1124,14 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           if (model.activeLab !== 'windows' || viewportTier(model.cols) !== 'wide') return [next, Cmd.none()];
 
           if (eventData.type === 'move' && !model.windowDrag) {
-            next = { ...next, windows: windowManagerHoverAt(model.windows, eventData.x, eventData.y) };
+            next = { ...next, windows: windowManagerHoverAt(next.windows, eventData.x, eventData.y) };
           }
 
           if (model.windowDrag) {
             if (eventData.type === 'move') {
               const window = model.windows.windows.find((entry) => entry.id === model.windowDrag?.id);
               if (!window) return [{ ...next, windowDrag: null }, Cmd.none()];
-              const viewport = { cols: model.cols, rows: model.rows, topInset: 3, bottomInset: 2 };
+              const viewport = windowBounds(model.windows, { cols: model.cols, rows: model.rows });
               if (model.windowDrag.kind === 'resize') {
                 const frame = resizeFloatingWindowFrame(model.windowDrag.state, eventData.x, eventData.y, viewport, {
                   minWidth: window.minWidth ?? 24,
@@ -930,8 +1139,12 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
                   maxWidth: window.maxWidth ?? model.cols,
                   maxHeight: window.maxHeight ?? model.rows - 5,
                 });
-                const windows = windowManagerUpdate({ type: 'set-window-frame', id: window.id, frame }, model.windows);
-                return [mark({ ...next, windows }, 'mouse-drag', `Resized ${window.title} to ${frame.width}x${frame.height}.`), Cmd.none()];
+                const outcome = windowManagerUpdateResult({ type: 'set-window-frame', id: window.id, frame }, model.windows);
+                const resized = { ...next, windows: outcome.model };
+                return [
+                  outcome.accepted && outcome.changed ? mark(resized, 'window', `Resized ${window.title} to ${frame.width}x${frame.height}.`) : resized,
+                  Cmd.none(),
+                ];
               }
               const translated = translateFloatingWindowFromDragState(
                 model.windowDrag.state,
@@ -940,22 +1153,22 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
                 eventData.y,
                 viewport,
               );
-              const windows = windowManagerUpdate({ type: 'move-window', id: window.id, x: translated.frame.x, y: translated.frame.y }, model.windows);
-              next = { ...next, windows };
-              return translated.dragging ? [mark(next, 'mouse-drag', `Dragged ${window.title}.`), Cmd.none()] : [next, Cmd.none()];
+              const outcome = windowManagerUpdateResult({ type: 'move-window', id: window.id, x: translated.frame.x, y: translated.frame.y }, model.windows);
+              next = { ...next, windows: outcome.model };
+              return [translated.dragging && outcome.accepted && outcome.changed ? mark(next, 'window', `Dragged ${window.title}.`) : next, Cmd.none()];
             }
             if (eventData.type === 'release') return [{ ...next, windowDrag: null, lastAction: `Released ${model.windowDrag.id} window.` }, Cmd.none()];
             return [next, Cmd.none()];
           }
 
           if (eventData.type === 'press' && eventData.button === 0) {
-            const window = [...model.windows.windows]
-              .filter((entry) => !entry.minimized && !entry.hidden && !entry.closed)
-              .sort((a, b) => b.zIndex - a.zIndex)
-              .find((entry) => eventData.x >= entry.x && eventData.x < entry.x + entry.width && eventData.y >= entry.y && eventData.y < entry.y + entry.height);
+            const window = getVisibleWindows(model.windows).find(
+              (entry) => eventData.x >= entry.x && eventData.x < entry.x + entry.width && eventData.y >= entry.y && eventData.y < entry.y + entry.height,
+            );
             if (!window) return [next, Cmd.none()];
-            const windows = windowManagerUpdate({ type: 'focus-window', id: window.id }, model.windows);
-            next = mark({ ...next, windows, pointer: { ...next.pointer, target: `window:${window.id}` } }, 'window', `Focused ${window.title}.`);
+            const outcome = windowManagerUpdateResult({ type: 'focus-window', id: window.id }, model.windows);
+            next = { ...next, windows: outcome.model, pointer: { ...next.pointer, target: `window:${window.id}` } };
+            if (outcome.accepted && outcome.changed) next = mark(next, 'window', `Focused ${window.title}.`);
             const frame = { x: window.x, y: window.y, width: window.width, height: window.height };
             const resizeEdge = window.resizable !== false && window.mode === 'normal' ? hitTestFloatingWindowResizeEdge(frame, eventData.x, eventData.y) : null;
             if (resizeEdge) {
@@ -970,7 +1183,11 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
               };
               return [next, Cmd.none()];
             }
-            if (window.draggable !== false && window.mode === 'normal' && hitTestWindowChromeTitleBar(window, eventData.x, eventData.y)) {
+            if (
+              window.draggable !== false &&
+              window.mode === 'normal' &&
+              hitTestWindowChromeTitleBar({ ...window, mode: 'normal' }, eventData.x, eventData.y)
+            ) {
               next = {
                 ...next,
                 windowDrag: {
@@ -1005,8 +1222,39 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             const target = handlerTag.slice('showcase-context:'.length);
             return [openContextMenu(model, target, x, y), Cmd.none()];
           }
-          const chromeHover = windowManagerMsgFromChromeEvent({ handlerTag });
-          if (chromeHover) return [{ ...model, windows: windowManagerUpdate(chromeHover, model.windows) }, Cmd.none()];
+          const shelfAction = windowShelfActionFromEvent({ handlerTag });
+          if (shelfAction) {
+            message.event.stopPropagation();
+            if (shelfAction.type === 'activate') return this.update({ type: 'window-action', id: shelfAction.id, action: 'focus' }, model);
+            if (shelfAction.type === 'context') return [openContextMenu(model, `window:${shelfAction.id}`, x, y), Cmd.none()];
+            if (shelfAction.type === 'hover') return [{ ...model, shelfHoveredWindowId: shelfAction.id }, Cmd.none()];
+            if (shelfAction.type === 'leave') {
+              return [model.shelfHoveredWindowId === shelfAction.id ? { ...model, shelfHoveredWindowId: null } : model, Cmd.none()];
+            }
+            return [openContextMenu(model, 'window-shelf-overflow', x, y), Cmd.none()];
+          }
+          const windowEvent = windowManagerMsgFromWindowEvent({ handlerTag });
+          if (windowEvent) {
+            if (windowEvent.type === 'hover-window-chrome' || windowEvent.type === 'leave-window-chrome') {
+              return [{ ...model, windows: windowManagerUpdate(windowEvent, model.windows) }, Cmd.none()];
+            }
+            switch (windowEvent.type) {
+              case 'focus-window':
+                return this.update({ type: 'window-action', id: windowEvent.id, action: 'focus' }, model);
+              case 'close-window':
+                return this.update({ type: 'window-action', id: windowEvent.id, action: 'close' }, model);
+              case 'minimize-window':
+                return this.update({ type: 'window-action', id: windowEvent.id, action: 'minimize' }, model);
+              case 'maximize-window':
+                return this.update({ type: 'window-action', id: windowEvent.id, action: 'maximize' }, model);
+              case 'fullscreen-window':
+                return this.update({ type: 'window-action', id: windowEvent.id, action: 'fullscreen' }, model);
+              case 'restore-window':
+                return this.update({ type: 'window-action', id: windowEvent.id, action: 'restore' }, model);
+              default:
+                return [model, Cmd.none()];
+            }
+          }
           if (handlerTag.startsWith('showcase-hover:')) {
             return [{ ...model, hoveredRegion: handlerTag.slice('showcase-hover:'.length) }, Cmd.none()];
           }
@@ -1093,12 +1341,6 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             const next = { ...model, pointer, lastAction: `Mouse ${phase} at ${x},${y}.` };
             return phase === 'click' ? [mark(next, 'mouse-click'), Cmd.none()] : [next, Cmd.none()];
           }
-          if (handlerTag.startsWith('window:')) {
-            const [, id, action] = handlerTag.split(':');
-            if (id && ['close', 'minimize', 'maximize', 'fullscreen', 'restore'].includes(action ?? '')) {
-              return this.update({ type: 'window-action', id, action: action as 'close' | 'minimize' | 'maximize' | 'fullscreen' | 'restore' }, model);
-            }
-          }
           if (handlerTag.startsWith('showcase-action:')) {
             const action = handlerTag.slice('showcase-action:'.length);
             return this.update({ type: 'run-action', action }, model);
@@ -1118,16 +1360,21 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
               Cmd.none(),
             ];
           }
+          if (model.windowDrag) return [{ ...model, windowDrag: null, hoveredRegion: null, lastAction: 'Cancelled window interaction.' }, Cmd.none()];
           if (model.palette.palette.open) return this.update({ type: 'palette', msg: { type: 'cp-close' } }, model);
           if (model.confirm.open) return this.update({ type: 'confirm', msg: { type: 'cancel' } }, model);
           if (model.modal.open) return this.update({ type: 'modal', msg: { type: 'close' } }, model);
           if (model.drawer.open) return this.update({ type: 'drawer', msg: { type: 'close' } }, model);
           if (model.helpOpen) return [{ ...model, helpOpen: false, lastAction: 'Closed contextual help.' }, Cmd.none()];
           if (model.tooltip.visible) return this.update({ type: 'tooltip', msg: { type: 'hide' } }, model);
+          if (model.activeLab === 'components' && model.componentPage === GALLERY_PAGE_COUNT - 1 && model.galleryContextMenu.open) {
+            return this.update({ type: 'gallery-context-menu', open: false }, model);
+          }
           if (model.toast.toasts.length) return this.update({ type: 'toast', msg: { type: 'dismiss-latest' } }, model);
           return [withComponentFocus(model, 'none'), Cmd.none()];
         }
         case 'reset':
+          themeCtx.patch({ unicodeLevel: caps.unicodeLevel, motion: { reduceMotion: caps.reducedMotion } });
           return [{ ...freshModel({ cols: model.cols, rows: model.rows }), lastAction: 'Reset the Flight Deck and smoke receipts.' }, Cmd.none()];
         case 'quit':
           return [model, Cmd.quit()];
@@ -1139,6 +1386,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
     view(model) {
       const tier = viewportTier(model.cols);
       const active = LABS[activeLabIndex(model.activeLab)]!;
+      const currentCaps = effectiveCapabilities(model, caps);
       if (model.cols < SHOWCASE_MIN_COLS || model.rows < SHOWCASE_MIN_ROWS) {
         return composeSurfaces(minimumViewport(model), components, model);
       }
@@ -1162,7 +1410,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
       const labStrip = row(...LABS.flatMap((lab) => [labTab(model, lab, model.activeLab === lab.id), text(' ')]));
       const labContent = event(
         `showcase-context-lab-${active.id}`,
-        panel({ title: `${active.label} lab`, content: renderActiveLab(components, model, caps), focused: true, fill: true }),
+        panel({ title: `${active.label} lab`, content: renderActiveLab(components, model, currentCaps), focused: true, fill: true }),
         { onRightClick: `showcase-context:lab:${active.id}` },
         { label: `${active.label} lab context menu`, intent: 'menu', affordances: ['click'], cursor: 'context-menu' },
       );
@@ -1175,15 +1423,29 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         text(`  ${model.cols}x${model.rows} | ${model.completed.size}/${SMOKE_STEPS.length} receipts | `, mutedStyle),
         runtime.flex(text(model.lastAction, mutedStyle, { wrap: true }), { flex: 1, minWidth: 1 }),
       );
+      const minimized = getMinimizedWindows(model.windows, { allWorkspaces: true });
+      const statusBar =
+        minimized.length > 0
+          ? column(
+              windowShelf({
+                manager: model.windows,
+                width: model.cols,
+                allWorkspaces: true,
+                hoveredWindowId: model.shelfHoveredWindowId ?? undefined,
+                themeCtx,
+              }),
+              status,
+            )
+          : status;
       let base: VNode = shellLayout({
         header: column(title, labStrip),
         sidebar: tier === 'wide' ? panel({ title: 'Mission', content: missionRail(model), fill: true }) : undefined,
         content,
-        statusBar: status,
+        statusBar,
         sidebarRatio: 0.23,
       });
 
-      if (tier === 'wide' && model.activeLab === 'windows') base = withFloatingWindows(base, dynamicWindows(model));
+      if (tier === 'wide' && model.activeLab === 'windows') base = withFloatingWindows(base, dynamicWindows(model, themeCtx));
 
       base = event(
         'showcase-context-deck',
@@ -1200,7 +1462,10 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         Sub.resize<CelestialShowcaseMsg>((cols, rows) => ({ type: 'resize', cols, rows })),
         Sub.mouse<CelestialShowcaseMsg>((eventData) => ({ type: 'raw-mouse', event: eventData })),
         Sub.elementMouse<CelestialShowcaseMsg>((mouse) => ({ type: 'element-mouse', event: mouse })),
-        ...(animate ? [Sub.timer<CelestialShowcaseMsg>(fast ? 50 : 180, { type: 'tick' })] : []),
+        ...(shouldAnimate(effectiveCapabilities(model, caps)) ? [Sub.timer<CelestialShowcaseMsg>(fast ? 50 : 180, { type: 'tick' })] : []),
+        ...(model.toast.toasts.length
+          ? [Sub.map(components.toastManager.subscriptions(model.toast), (msg) => ({ type: 'toast', msg }) as CelestialShowcaseMsg)]
+          : []),
       ];
 
       const surface = topSurface(model);
@@ -1255,6 +1520,9 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           Sub.map(components.tooltipComponent.subscriptions?.(model.tooltip) ?? Sub.none(), (msg) => ({ type: 'tooltip', msg }) as CelestialShowcaseMsg),
         );
       }
+      if (surface === 'gallery-context-menu') {
+        return Sub.batch(...persistent, Sub.key('escape', { type: 'gallery-context-menu', open: false }));
+      }
 
       const base: Subscription<CelestialShowcaseMsg>[] = [
         Sub.keyWithModifiers('p', { ctrl: true }, { type: 'open-surface', surface: 'palette' }),
@@ -1305,7 +1573,6 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         );
       }
 
-      if (model.toast.toasts.length) base.push(Sub.map(components.toastManager.subscriptions(model.toast), (msg) => ({ type: 'toast', msg })));
       if (model.componentFocus !== 'text' && model.componentFocus !== 'textarea') base.push(Sub.key('q', { type: 'quit' }));
       base.push(Sub.keyWithModifiers('c', { ctrl: true }, { type: 'quit' }));
       return Sub.batch(...persistent, ...base);

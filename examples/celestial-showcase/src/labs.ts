@@ -20,7 +20,7 @@ import {
   type VNode,
   validateThemeContrast,
 } from '@celestial/core';
-import { createTabBar, getActiveWorkspace, panel, splitPane } from '@celestial/horizon';
+import { createTabBar, getActiveWorkspace, getVisibleWindows, panel, splitPane } from '@celestial/horizon';
 import { gradient, shimmer } from '@celestial/mirage';
 import { fadeTransition } from '@celestial/nova';
 import { renderMarkdown } from '@celestial/pulsar';
@@ -107,18 +107,13 @@ function coreCard(title: string, content: VNode, width = 34, height = 14): VNode
   });
 }
 
-function atlasGlyphLevel(level: AtlasCapabilities['unicodeLevel']): 'none' | 'basic' | 'wide' | 'full' {
-  if (level === 'unicode16') return 'full';
-  return level;
-}
-
 export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
   const contrast = validateThemeContrast(defaultTheme);
   const animation = tween({ from: 0, to: 1, duration: 1000, easing: easing.easeInOut });
   animation.seek((model.tick % 20) / 19);
   const animated = animation.value();
   const layoutTier = viewportTier(model.cols);
-  const glyph = styling.resolveGlyph(styling.DEFAULT_GLYPH_TOKENS.checked, atlasGlyphLevel(caps.unicodeLevel));
+  const glyph = styling.resolveGlyph(styling.DEFAULT_GLYPH_TOKENS.checked, caps.unicodeLevel);
   const hitmap = new interaction.HitMap<string>();
   hitmap.register({ x: 0, y: 0, width: 12, height: 1, onClick: 'nexus-ready' });
   const nexusProbe = hitmap.hitTest(2, 0)?.onClick ?? 'miss';
@@ -463,6 +458,7 @@ export function renderWindowContent(model: CelestialShowcaseModel, id: string): 
 
 export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
   const active = getActiveWorkspace(model.workspaces);
+  const front = getVisibleWindows(model.windows)[0];
   const workspaceBar = createTabBar({
     tabs: model.workspaces.workspaces.map((workspace, index) => ({ id: workspace.id, label: workspace.name, content: text(`Workspace ${index + 1}`) })),
     active: active?.id ?? 'flight',
@@ -473,7 +469,7 @@ export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
         row(
           text(`${window.title ?? window.id}`.padEnd(20), window.focused ? actionStyle : undefined),
           badge({ label: window.mode ?? 'normal', variant: window.mode === 'maximized' ? 'warning' : 'info', size: 'sm' }).view({ visible: true }),
-          text(`  ${window.x},${window.y} ${window.width}x${window.height}`, mutedStyle),
+          text(`  ${window.workspaceId ?? 'global'}  ${window.x},${window.y} ${window.width}x${window.height}`, mutedStyle),
         ),
       )
     : [text('All instruments are closed.', mutedStyle)];
@@ -487,6 +483,14 @@ export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
     text(''),
     panel({ title: 'Window manager state', content: column(...managerRows, text(''), controls), focused: true }),
     text(''),
+    ...(tier === 'compact'
+      ? [
+          front
+            ? panel({ title: `Live instrument - ${front.title ?? front.id}`, content: renderWindowContent(model, front.id), focused: front.focused })
+            : text('No visible instrument in this workspace. Restore one from the shelf or use an Open action.', mutedStyle, { wrap: true }),
+          text(''),
+        ]
+      : []),
     tier === 'wide'
       ? text(
           'Floating instruments are live above this workspace. Drag any open titlebar space; use chrome to minimize, maximize, restore, or close.',
@@ -494,8 +498,10 @@ export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
           { wrap: true },
         )
       : tier === 'medium'
-        ? text('Medium mode preserves manager state in an inline split. Resize to 120+ columns for draggable floating windows.', warningStyle, { wrap: true })
-        : text('Compact mode collapses the active instrument into one panel. Resize to 120+ columns for floating windows.', warningStyle, { wrap: true }),
+        ? text('Medium mode keeps the front instrument live in the Context split. Resize to 120+ columns for draggable floating windows.', warningStyle, {
+            wrap: true,
+          })
+        : text('Compact mode keeps the front instrument live inline. Resize to 120+ columns for floating windows.', warningStyle, { wrap: true }),
   );
 }
 
