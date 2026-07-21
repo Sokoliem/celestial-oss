@@ -130,6 +130,45 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.rows).toBe(SHOWCASE_MIN_ROWS);
   });
 
+  it('applies workflow density to spacing and responsive composition', async () => {
+    const handle = flightDeck(90, 42);
+    handle.dispatch({ type: 'switch-lab', lab: 'workflows' });
+    await handle.waitForUpdate();
+
+    const balanced = handle.lastFrame();
+    expect(balanced).toContain('Balanced density');
+    expect(balanced).toContain('adds panel padding');
+
+    const compactOption = findText(balanced, 'Compact');
+    handle.click(compactOption.col + 1, compactOption.row);
+    await handle.waitForUpdate();
+
+    const compact = handle.lastFrame();
+    expect(handle.model.schemaForm.values['density']).toBe('compact');
+    expect(compact).toContain('Compact density');
+    expect(compact).toContain('removes spacer rows');
+    expect(compact).not.toBe(balanced);
+  });
+
+  it('exposes functional actions inside the drawer instead of placeholder rows', async () => {
+    const handle = flightDeck(100, 40);
+    handle.dispatch({ type: 'open-surface', surface: 'drawer' });
+    await handle.waitForUpdate();
+
+    expect(handle.lastFrame()).toContain('Interactive layer actions');
+    const motion = findText(handle.lastFrame(), 'Toggle reduced motion');
+    handle.click(motion.col + 1, motion.row);
+    await handle.waitForUpdate();
+    expect(handle.model.schemaForm.values['reducedMotion']).toBe(true);
+    expect(handle.model.drawer.open).toBe(true);
+
+    const confirm = findText(handle.lastFrame(), 'Stack confirmation above');
+    handle.click(confirm.col + 1, confirm.row);
+    await handle.waitForUpdate();
+    expect(handle.model.drawer.open).toBe(true);
+    expect(handle.model.confirm.open).toBe(true);
+  });
+
   it.each([
     [SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS],
     [140, 48],
@@ -547,6 +586,8 @@ describe('Celestial Flight Deck', () => {
 
     expect(handle.model.windows.bounds.bottomInset).toBe(3);
     expect(handle.model.windows.windows.find((window) => window.id === 'events')?.mode).toBe('minimized');
+    expect(handle.lastFrame()).toContain('MINIMIZED 1');
+    expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
     let shelf = findLastText(handle.lastFrame(), 'Event instrument');
 
     handle.click(shelf.col + 1, shelf.row, 'right');
@@ -565,6 +606,30 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.windows.activeWorkspaceId).toBe('systems');
     expect(handle.model.workspaces.activeIndex).toBe(1);
     expect(handle.model.windows.bounds.bottomInset).toBe(2);
+  });
+
+  it('brings both instruments into the active workspace when Open or Bring is used', async () => {
+    const handle = flightDeck(140, 42);
+    handle.dispatch({ type: 'switch-lab', lab: 'windows' });
+    await handle.waitForUpdate();
+
+    expect(handle.model.windows.activeWorkspaceId).toBe('flight');
+    expect(handle.model.windows.windows.find((window) => window.id === 'events')?.workspaceId).toBe('systems');
+    expect(handle.lastFrame()).toContain('Bring events here');
+
+    const bringEvents = findText(handle.lastFrame(), 'Bring events here');
+    handle.click(bringEvents.col + 1, bringEvents.row);
+    await handle.waitForUpdate();
+
+    expect(handle.model.windows.activeWorkspaceId).toBe('flight');
+    expect(handle.model.windows.windows.find((window) => window.id === 'events')?.workspaceId).toBe('flight');
+    expect(
+      handle.model.windows.windows.filter(
+        (window) => window.workspaceId === 'flight' && window.mode !== 'minimized' && window.mode !== 'hidden' && window.mode !== 'closed',
+      ),
+    ).toHaveLength(2);
+    expect(handle.lastFrame()).toContain('Telemetry instrument');
+    expect(handle.lastFrame()).toContain('Event instrument');
   });
 
   it('keeps maximized windows inside shell insets and fullscreen windows on the complete viewport', () => {
@@ -609,7 +674,7 @@ describe('Celestial Flight Deck', () => {
     expect(resized.width).toBe(widthBeforeResize + 5);
     expect(resized.height).toBe(heightBeforeResize + 3);
 
-    const title = findText(handle.lastFrame(), 'Telemetry instrument');
+    const title = findLastText(handle.lastFrame(), 'Telemetry instrument');
     const titleLine = handle.lastFrame().split('\n')[title.row]!;
     const maximizeCol = titleLine.indexOf('[ ]', title.col);
     expect(maximizeCol).toBeGreaterThan(title.col);

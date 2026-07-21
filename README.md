@@ -89,7 +89,7 @@ The same architecture powers four supported, local-only demos:
 | Task Console | `pnpm demo:tasks` | Real worker processes, streaming subscriptions, progress, cancellation, retry, responsive layout, and layered UI |
 | API Inspector | `pnpm demo:api` | Loopback HTTP, abortable commands, form controls, response tabs, history, and error states |
 | Horizon Workbench | `pnpm demo:horizon` | Beta splits, tabs, workspaces, responsive panes, managed floating windows, and window chrome |
-| Celestial Flight Deck | `pnpm demo:showcase` | The complete focused preview: eight labs, 46 curated builders, Orbit workflows, rich terminal output, target-specific right-click menus, mouse/layers/adaptiveness, workspace-aware windows with a minimized shelf, contextual help, and evidence-backed smoke receipts |
+| Celestial Flight Deck | `pnpm demo:showcase` | The complete focused preview: eight labs, 46 curated builders, adaptive Orbit workflows, functional layered controls, rich terminal output, target-specific right-click menus, workspace-aware windows with a minimized taskbar, contextual help, and evidence-backed smoke receipts |
 
 All four demos import only the supported preview packages. They use bundled/local fixtures and never require credentials or an external service. The Flight Deck's detailed manual and automated acceptance path is in [`examples/celestial-showcase/README.md`](examples/celestial-showcase/README.md).
 
@@ -113,7 +113,7 @@ All four demos import only the supported preview packages. They use bundled/loca
 | `@celestial/stellar` | Preview | Accessible sub-cell canvas, charts, dashboards, gestures, and static export |
 | `@celestial/pulsar` | Preview | Unicode-aware Markdown parsing, rendering, search, overlays, and safe rich fences |
 | `@celestial/test` | Preview | Headless app testing, queries, snapshots, Vitest matchers, and an optional PTY harness |
-| `@celestial/horizon` | Beta | Splits, tabs, managed floating windows, workspaces, lifecycle diagnostics, minimized shelf, constraints, snapping, and persistence |
+| `@celestial/horizon` | Beta | Splits, tabs, managed floating windows, workspace reassignment, lifecycle diagnostics, minimized taskbar, constraints, snapping, and persistence |
 
 `@celestial/core` provides both a concise golden path and explicit subpaths such as `@celestial/core/nebula` and `@celestial/core/corona`. The six implementation packages remain usable for consumers who need their full APIs.
 

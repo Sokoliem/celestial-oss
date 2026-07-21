@@ -387,9 +387,30 @@ export function createShowcaseComponents() {
     cancelLabel: 'Not yet',
     open: false,
   });
+  const drawerAction = (id: string, label: string, tone: 'info' | 'success' | 'neutral' = 'info'): VNode =>
+    event(
+      `showcase-drawer-action:${id}`,
+      button({ label, onClick: id, x: 0, y: 0, buttonVariant: 'outline', tone }).view(),
+      { onClick: `showcase-action:${id}` },
+      { label, intent: 'action', affordances: ['click'], cursor: 'pointer' },
+    );
   const drawerComponent = drawer({
     title: 'Layer stack',
-    content: column(text('Base application'), text('Transparent backdrop'), text('Anchored right drawer'), text('Escape and click-away dismissal', mutedStyle)),
+    content: column(
+      text('Current stack', labelStyle),
+      text(`${defaultTheme.glyphs.bullet} Base application remains mounted.`),
+      text(`${defaultTheme.glyphs.bullet} Transparent backdrop shields click-through.`),
+      text(`${defaultTheme.glyphs.bullet} Right edge anchors this drawer.`),
+      text(`${defaultTheme.glyphs.bullet} Escape, [x], and click-away dismissal remain active.`, mutedStyle, { wrap: true }),
+      text(''),
+      text('Interactive layer actions', labelStyle),
+      drawerAction('modal', 'Stack modal above drawer'),
+      drawerAction('confirm', 'Stack confirmation above', 'success'),
+      drawerAction('toast', 'Push toast'),
+      drawerAction('workflow-toggle-motion', 'Toggle reduced motion', 'neutral'),
+      text(''),
+      text('Each control updates the same Elm model used by the underlying lab.', mutedStyle, { wrap: true }),
+    ),
     position: 'right',
     variant: 'overlay',
     width: 42,

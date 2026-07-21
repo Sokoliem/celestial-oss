@@ -123,12 +123,12 @@ const workspaceDefinitions: ShowcaseWorkspace[] = [
 
 const dragTargets: DropTarget<MouseDragPayload>[] = [{ id: 'verification-bay', canDrop: (payload) => payload.id === 'verification-receipt' }];
 
-function instrumentWindow(id: 'telemetry' | 'events', size: { cols: number; rows: number }): ManagedWindow {
+function instrumentWindow(id: 'telemetry' | 'events', size: { cols: number; rows: number }, workspaceId?: string): ManagedWindow {
   const telemetry = id === 'telemetry';
   const width = telemetry ? 44 : 42;
   const height = telemetry ? 13 : 12;
   const x = telemetry ? Math.max(24, Math.min(size.cols - width - 2, 34)) : Math.max(28, Math.min(size.cols - width - 2, 82));
-  const y = telemetry ? 7 : 13;
+  const y = telemetry ? 15 : 18;
   return {
     id,
     title: telemetry ? 'Telemetry instrument' : 'Event instrument',
@@ -140,7 +140,7 @@ function instrumentWindow(id: 'telemetry' | 'events', size: { cols: number; rows
     zIndex: telemetry ? 20 : 21,
     mode: 'normal',
     role: 'window',
-    workspaceId: telemetry ? 'flight' : 'systems',
+    workspaceId: workspaceId ?? (telemetry ? 'flight' : 'systems'),
     focused: !telemetry,
     closable: true,
     minimizable: true,
@@ -1061,11 +1061,13 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             return outcome.accepted;
           };
           if (message.action === 'reopen') {
+            const activeWorkspaceId = windows.activeWorkspaceId ?? workspaceDefinitions[cancelled.workspaces.activeIndex]?.id ?? 'flight';
             const existing = windows.windows.find((window) => window.id === message.id);
             if (existing) {
+              apply({ type: 'set-window-workspace', id: message.id, workspaceId: activeWorkspaceId });
               apply({ type: 'activate-window', id: message.id });
             } else if (message.id === 'telemetry' || message.id === 'events') {
-              if (apply({ type: 'create-window', window: instrumentWindow(message.id, { cols: model.cols, rows: model.rows }) })) {
+              if (apply({ type: 'create-window', window: instrumentWindow(message.id, { cols: model.cols, rows: model.rows }, activeWorkspaceId) })) {
                 apply({ type: 'activate-window', id: message.id });
               }
             } else {
