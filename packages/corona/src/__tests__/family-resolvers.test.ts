@@ -26,7 +26,7 @@ describe('family-resolvers — resolvePhase', () => {
 
   it('level 1 returns the ASCII glyph', () => {
     expect(resolvePhase(defaultTheme, 'planning', { level: 1 }).glyph).toBe('*');
-    expect(resolvePhase(defaultTheme, 'idle', { level: 1 }).glyph).toBe('·');
+    expect(resolvePhase(defaultTheme, 'idle', { level: 1 }).glyph).toBe('.');
   });
 
   it('level 3 returns a string (may be empty until Nerd Font codes filled)', () => {

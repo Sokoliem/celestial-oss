@@ -297,8 +297,8 @@ describe('chromeTokens', () => {
     expect(isColor(resolved.pin)).toBe(true);
   });
 
-  it('CHROME_PIN_GLYPH provides the same glyph across levels', () => {
-    expect(CHROME_PIN_GLYPH.level1).toBe('⚲');
+  it('CHROME_PIN_GLYPH provides an ASCII fallback and Unicode pin tiers', () => {
+    expect(CHROME_PIN_GLYPH.level1).toBe('P');
     expect(CHROME_PIN_GLYPH.level2).toBe('⚲');
     expect(CHROME_PIN_GLYPH.level3).toBe('⚲');
   });
@@ -341,6 +341,7 @@ describe('sourceTokens (colour contract + glyph const, Phase C)', () => {
       expect(typeof entry.level2).toBe('string');
       expect(typeof entry.level3).toBe('string');
       expect(entry.level1.length).toBeGreaterThan(0);
+      expect(entry.level1).toMatch(/^[\x20-\x7e]+$/);
     }
   });
 

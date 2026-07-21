@@ -147,6 +147,7 @@ export const defaultTheme: SemanticTheme = attachThemeMetadata(
     colors: DEFAULT_COLORS,
     spacing: DEFAULT_SPACING,
     glyphs: DEFAULT_GLYPHS,
+    unicodeLevel: 'wide',
     scales: DEFAULT_SCALES,
     typography: computeTypography(DEFAULT_COLORS),
     states: computeStates(DEFAULT_COLORS, DEFAULT_SCALES),

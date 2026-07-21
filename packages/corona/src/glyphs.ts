@@ -1,13 +1,15 @@
 import type { ThemeGlyphs } from './theme.js';
 
 /** Unicode capability level for glyph resolution. Matches AtlasUnicodeLevel. */
-export type GlyphLevel = 'none' | 'basic' | 'wide' | 'full';
+export type GlyphLevel = 'none' | 'basic' | 'wide' | 'full' | 'unicode16';
 
 /**
  * A glyph token with fallback variants for different terminal capabilities.
  * Resolution picks the best available variant for the detected unicode level.
  */
 export interface GlyphToken {
+  /** Unicode 16-specific character; falls back to `wide` when omitted. */
+  unicode16?: string;
   /** Nerd Font icon (requires 'full' unicode level) */
   full: string;
   /** Standard Unicode character (requires 'wide' or higher) */
@@ -23,12 +25,14 @@ export interface GlyphToken {
  */
 export function resolveGlyph(token: GlyphToken, level: GlyphLevel): string {
   switch (level) {
+    case 'unicode16':
+      return token.unicode16 || token.wide || token.basic || token.none;
     case 'full':
-      return token.full;
+      return token.full || token.wide || token.basic || token.none;
     case 'wide':
-      return token.wide;
+      return token.wide || token.basic || token.none;
     case 'basic':
-      return token.basic;
+      return token.basic || token.none;
     case 'none':
       return token.none;
   }

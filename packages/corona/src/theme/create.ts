@@ -1,5 +1,5 @@
-import { type Color, color } from '../color.js';
 import { normalizeThemeContrast } from '../a11y.js';
+import { type Color, color } from '../color.js';
 import { resolveGlyphs } from '../glyphs.js';
 import { generateScales } from './color-scales.js';
 import {
@@ -89,6 +89,7 @@ function deriveEnrichedColors(
  * default.
  */
 export function createTheme(input: ThemeInput = {}): SemanticTheme {
+  const unicodeLevel = input.unicodeLevel ?? 'wide';
   const fallbackTones = input.colors?.surface ? (isLightThemeColor(input.colors.surface) ? LIGHT_TONE_FALLBACKS : DARK_TONE_FALLBACKS) : DEFAULT_COLORS.tones;
   const tones = {
     ...fallbackTones,
@@ -109,9 +110,10 @@ export function createTheme(input: ThemeInput = {}): SemanticTheme {
       ...input.spacing,
     },
     glyphs: {
-      ...(input.unicodeLevel ? resolveGlyphs(input.unicodeLevel) : DEFAULT_GLYPHS),
+      ...(input.unicodeLevel ? resolveGlyphs(unicodeLevel) : DEFAULT_GLYPHS),
       ...input.glyphs,
     },
+    unicodeLevel,
     scales,
     typography: mergeTypography(computeTypography(colors), input.typography),
     states: mergeStates(computeStates(colors, scales), input.states),
