@@ -157,9 +157,24 @@ describe('Celestial Flight Deck', () => {
 
     expect(handle.lastFrame()).toContain('Interactive layer actions');
     const motion = findText(handle.lastFrame(), 'Toggle reduced motion');
+    fireMouse(handle.terminal, { type: 'move', col: motion.col + 1, row: motion.row });
+    expect(handle.model.drawer.hoveredActionId).toBe('workflow-toggle-motion');
     handle.click(motion.col + 1, motion.row);
     await handle.waitForUpdate();
     expect(handle.model.schemaForm.values['reducedMotion']).toBe(true);
+    expect(handle.model.drawer.open).toBe(true);
+
+    const modal = findText(handle.lastFrame(), 'Stack modal above drawer');
+    handle.click(modal.col + 1, modal.row);
+    await handle.waitForUpdate();
+    expect(handle.model.modal.open).toBe(true);
+    const modalLines = handle.lastFrame().split('\n');
+    const modalTitleRow = modalLines.findIndex((line) => line.includes('Layer telemetry'));
+    const modalTitle = modalLines[modalTitleRow];
+    expect(modalTitle).toContain('[x]');
+    handle.click(modalTitle!.lastIndexOf('[x]') + 1, modalTitleRow);
+    await handle.waitForUpdate();
+    expect(handle.model.modal.open).toBe(false);
     expect(handle.model.drawer.open).toBe(true);
 
     const confirm = findText(handle.lastFrame(), 'Stack confirmation above');

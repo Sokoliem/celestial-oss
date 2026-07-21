@@ -610,6 +610,31 @@ function composeSurfaces(base: VNode, components: ShowcaseComponents, model: Cel
     );
   }
   if (model.tooltip.visible) layered = layerPip(layered, components.tooltipComponent.view(model.tooltip), 48, 7, model, 'center', 70, 'tooltip');
+  if (model.helpOpen) {
+    const helpWidth = Math.min(model.cols, Math.max(30, Math.min(46, Math.floor(model.cols * 0.62))));
+    layered = runtime.layerStack(
+      layered,
+      runtime.overlay(
+        components.helpDrawers[model.activeLab].view({ open: true, width: helpWidth, height: Math.max(12, model.rows - 2), focusTrapActive: true }),
+        { x: 0, y: 0, width: model.cols, height: model.rows, zIndex: 72, transparent: true, layoutId: `showcase-help:${model.activeLab}` },
+      ),
+    );
+  }
+  if (model.drawer.open) {
+    const drawerWidth = Math.min(model.cols, Math.max(28, Math.min(42, Math.floor(model.cols * 0.58))));
+    layered = runtime.layerStack(
+      layered,
+      runtime.overlay(components.drawerComponent.view({ ...model.drawer, width: drawerWidth, height: Math.max(12, model.rows - 2), focusTrapActive: true }), {
+        x: 0,
+        y: 0,
+        width: model.cols,
+        height: model.rows,
+        zIndex: 75,
+        transparent: true,
+        layoutId: 'showcase-drawer',
+      }),
+    );
+  }
   if (model.modal.open) layered = layerPip(layered, components.modalComponent.view(model.modal), 54, 10, model, 'center', 80, 'modal');
   if (model.confirm.open) layered = layerPip(layered, components.confirmComponent.view(model.confirm), 48, 10, model, 'center', 85, 'confirm');
   if (model.palette.palette.open) {
@@ -625,16 +650,7 @@ function composeSurfaces(base: VNode, components: ShowcaseComponents, model: Cel
     );
   }
 
-  const layers: VNode[] = [layered];
-  if (model.helpOpen) {
-    const helpWidth = Math.min(model.cols, Math.max(30, Math.min(46, Math.floor(model.cols * 0.62))));
-    layers.push(components.helpDrawers[model.activeLab].view({ open: true, width: helpWidth, height: Math.max(12, model.rows - 2), focusTrapActive: true }));
-  }
-  if (model.drawer.open) {
-    const drawerWidth = Math.min(model.cols, Math.max(28, Math.min(42, Math.floor(model.cols * 0.58))));
-    layers.push(components.drawerComponent.view({ ...model.drawer, width: drawerWidth, height: Math.max(12, model.rows - 2), focusTrapActive: true }));
-  }
-  const composed = runtime.stackedLayers(...layers);
+  const composed = layered;
   if (!model.contextMenu.open) return composed;
 
   const menu = contextMenuView({
@@ -977,7 +993,17 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         }
         case 'drawer': {
           const [drawer, command] = mapDescriptor(components.drawerComponent, message.msg, model.drawer, (msg) => ({ type: 'drawer', msg }));
-          return [stateChanged(model.drawer, drawer) ? withAction({ ...model, drawer }, 'Drawer layer updated.') : { ...model, drawer }, command];
+          if (message.msg.type === 'activate-action') {
+            const [next, actionCommand] = this.update({ type: 'run-action', action: message.msg.id }, { ...model, drawer });
+            return [next, Cmd.batch(command, actionCommand)];
+          }
+          const passive =
+            message.msg.type === 'hover-control' ||
+            message.msg.type === 'leave-control' ||
+            message.msg.type === 'hover-action' ||
+            message.msg.type === 'leave-action' ||
+            message.msg.type === 'focus-action';
+          return [!passive && stateChanged(model.drawer, drawer) ? withAction({ ...model, drawer }, 'Drawer layer updated.') : { ...model, drawer }, command];
         }
         case 'palette': {
           const selectedIndex =
