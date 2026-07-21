@@ -258,13 +258,41 @@ describe('preview interaction parity', () => {
     ).not.toThrow();
   });
 
+  it('drawer actions activate by mouse or focused keyboard input', () => {
+    const build = (): TestAppHandle<DrawerModel, DrawerMsg> =>
+      createTestApp(
+        asApp(
+          drawer({
+            content: text('Drawer content') as VNode,
+            title: 'Actions',
+            variant: 'overlay',
+            actions: [{ id: 'launch', label: 'Launch action' }],
+          }),
+        ),
+      );
+    expect(() =>
+      assertMouseKeyboardParity(build, [
+        {
+          name: 'activate a drawer action',
+          byMouse: (app) => clickText(app, 'Launch action'),
+          byKey: (app) => {
+            app.pressKey('tab');
+            app.pressKey('tab');
+            app.pressKey('enter');
+          },
+          predicate: (model) => model.activatedActionId === 'launch',
+        },
+      ]),
+    ).not.toThrow();
+  });
+
   it('modals dismiss by mouse or Escape', () => {
     const build = (): TestAppHandle<ModalModel, ModalMsg> => createTestApp(asApp(modal({ title: 'Details', content: text('Modal content') })));
     expect(() =>
       assertMouseKeyboardParity(build, [
         {
           name: 'dismiss the modal',
-          byMouse: (app) => clickText(app, '[esc] close'),
+          byMouse: (app) => clickText(app, '[x]'),
           byKey: (app) => app.pressKey('escape'),
           predicate: (model) => !model.open,
         },

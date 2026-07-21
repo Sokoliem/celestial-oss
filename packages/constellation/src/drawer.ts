@@ -3,10 +3,11 @@ import { border, style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, component, empty, event, focus, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { measureTextWidth, truncateCellText } from '@celestial/rosetta';
+import { button } from './clickable.js';
 import { assignFocusGroup, generateFocusGroupId } from './focus-group.js';
 import { positiveInteger } from './internal.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
-import { applyTypography, useTokens } from './theme.js';
+import { applyTypography, type ConstellationTone, useTokens } from './theme.js';
 import { type ComponentDescriptor, normalizeContent } from './types.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
@@ -41,8 +42,17 @@ export type DrawerPosition = 'left' | 'right' | 'top' | 'bottom';
 export type DrawerVariant = 'default' | 'overlay' | 'rail';
 export type DrawerBackdrop = 'transparent' | 'opaque';
 
+export interface DrawerAction {
+  /** Stable identifier emitted by `activate-action`. Must be unique within the drawer. */
+  id: string;
+  label: string;
+  tone?: ConstellationTone;
+}
+
 export interface DrawerConfig {
   content: VNode | VNode[];
+  /** Optional actions owned by the drawer so pointer and keyboard state can repaint reliably. */
+  actions?: readonly DrawerAction[];
   position?: DrawerPosition;
   variant?: DrawerVariant;
   width?: number;
@@ -67,12 +77,20 @@ export interface DrawerModel {
   height: number;
   focusTrapActive: boolean;
   hoveredControl?: 'open' | 'close' | null;
+  hoveredActionId?: string | null;
+  focusedActionId?: string | null;
+  /** Most recently activated action, useful as an interaction receipt for hosts and tests. */
+  activatedActionId?: string | null;
 }
 
 export type DrawerMsg =
   | Msg<'open' | 'close' | 'toggle' | 'panic' | 'noop'>
   | { type: 'hover-control'; control: 'open' | 'close' }
-  | { type: 'leave-control'; control: 'open' | 'close' };
+  | { type: 'leave-control'; control: 'open' | 'close' }
+  | { type: 'activate-action'; id: string }
+  | { type: 'hover-action'; id: string }
+  | { type: 'leave-action'; id: string }
+  | { type: 'focus-action'; id: string | null };
 type Msg<T extends string> = { type: T };
 
 const DEFAULT_WIDTH = 40;
@@ -86,6 +104,18 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
   const backdropMode = config.backdrop === 'opaque' ? 'opaque' : 'transparent';
   const title = config.title === undefined ? undefined : String(config.title);
   const contentNodes = normalizeContent(Array.isArray(config.content) ? [...config.content] : config.content);
+  const actions = (config.actions ?? []).map((action) => ({
+    id: String(action.id).trim(),
+    label: String(action.label).trim(),
+    ...(action.tone === undefined ? {} : { tone: action.tone }),
+  }));
+  const actionIds = new Set<string>();
+  for (const action of actions) {
+    if (!action.id) throw new Error('Drawer action ids must be non-empty.');
+    if (!action.label) throw new Error(`Drawer action "${action.id}" must have a non-empty label.`);
+    if (actionIds.has(action.id)) throw new Error(`Drawer action ids must be unique; received duplicate id "${action.id}".`);
+    actionIds.add(action.id);
+  }
   const onClose = config.onClose;
   if (config.closable === false) throw new Error('Drawers must be dismissible. Use a panel for a persistent surface.');
   const closable = true;
@@ -95,17 +125,40 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
   const openTag = `${groupId}:open`;
   const hoverTag = `${groupId}:hover-control`;
   const leaveTag = `${groupId}:leave-control`;
+  const actionEntries = actions.map((action, index) => ({
+    action,
+    elementId: `${groupId}:action:${index}`,
+    focusId: `${groupId}-action-${index}`,
+    clickTag: `${groupId}:activate-action:${index}`,
+    hoverTag: `${groupId}:hover-action:${index}`,
+    leaveTag: `${groupId}:leave-action:${index}`,
+  }));
 
   return {
     init(): [DrawerModel, Cmd<DrawerMsg>] {
-      return [{ open: true, width, height, focusTrapActive: trapFocus, hoveredControl: null }, trapFocus ? Cmd.pushFocusGroup(groupId) : Cmd.none()];
+      return [
+        {
+          open: true,
+          width,
+          height,
+          focusTrapActive: trapFocus,
+          hoveredControl: null,
+          hoveredActionId: null,
+          focusedActionId: null,
+          activatedActionId: null,
+        },
+        trapFocus ? Cmd.pushFocusGroup(groupId) : Cmd.none(),
+      ];
     },
 
     update(msg: DrawerMsg, model: DrawerModel): [DrawerModel, Cmd<DrawerMsg>] {
       switch (msg.type) {
         case 'open':
           if (model.open) return [model, Cmd.none()];
-          return [{ ...model, open: true, focusTrapActive: trapFocus }, trapFocus ? Cmd.pushFocusGroup(groupId) : Cmd.none()];
+          return [
+            { ...model, open: true, focusTrapActive: trapFocus, hoveredControl: null, hoveredActionId: null, focusedActionId: null },
+            trapFocus ? Cmd.pushFocusGroup(groupId) : Cmd.none(),
+          ];
         case 'close':
           if (!model.open) return [model, Cmd.none()];
           try {
@@ -113,15 +166,32 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
           } catch {
             // Closing must not strand a surface if a host callback fails.
           }
-          return [{ ...model, open: false, focusTrapActive: false }, model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none()];
+          return [
+            { ...model, open: false, focusTrapActive: false, hoveredControl: null, hoveredActionId: null, focusedActionId: null },
+            model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none(),
+          ];
         case 'toggle':
           return model.open
-            ? [{ ...model, open: false, focusTrapActive: false }, model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none()]
-            : [{ ...model, open: true, focusTrapActive: trapFocus }, trapFocus ? Cmd.pushFocusGroup(groupId) : Cmd.none()];
+            ? [
+                { ...model, open: false, focusTrapActive: false, hoveredControl: null, hoveredActionId: null, focusedActionId: null },
+                model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none(),
+              ]
+            : [
+                { ...model, open: true, focusTrapActive: trapFocus, hoveredControl: null, hoveredActionId: null, focusedActionId: null },
+                trapFocus ? Cmd.pushFocusGroup(groupId) : Cmd.none(),
+              ];
         case 'hover-control':
           return [{ ...model, hoveredControl: msg.control }, Cmd.none()];
         case 'leave-control':
           return [model.hoveredControl === msg.control ? { ...model, hoveredControl: null } : model, Cmd.none()];
+        case 'activate-action':
+          return model.open && actionIds.has(msg.id) ? [{ ...model, activatedActionId: msg.id }, Cmd.none()] : [model, Cmd.none()];
+        case 'hover-action':
+          return model.open && actionIds.has(msg.id) ? [{ ...model, hoveredActionId: msg.id }, Cmd.none()] : [model, Cmd.none()];
+        case 'leave-action':
+          return [model.hoveredActionId === msg.id ? { ...model, hoveredActionId: null } : model, Cmd.none()];
+        case 'focus-action':
+          return [model.focusedActionId === msg.id || (msg.id !== null && !actionIds.has(msg.id)) ? model : { ...model, focusedActionId: msg.id }, Cmd.none()];
         case 'panic': {
           if (!model.open) return [model, Cmd.none()];
           broadcastSurfacePanic();
@@ -130,7 +200,10 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
           } catch {
             // best-effort
           }
-          return [{ ...model, open: false, focusTrapActive: false }, model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none()];
+          return [
+            { ...model, open: false, focusTrapActive: false, hoveredControl: null, hoveredActionId: null, focusedActionId: null },
+            model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none(),
+          ];
         }
         case 'noop':
           return [model, Cmd.none()];
@@ -176,7 +249,36 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
           text(' '.repeat(titleGap), headerStyle),
           closeHint,
         );
-        const body = contentArr.length > 0 ? column(...contentArr) : text('');
+        const actionNodes = actionEntries.map((entry) => {
+          const visibleLabel = truncateCellText(entry.action.label, Math.max(1, innerWidth - 4));
+          const actionContent = button({
+            label: visibleLabel,
+            onClick: entry.action.id,
+            x: 0,
+            y: 0,
+            buttonVariant: 'outline',
+            tone: entry.action.tone,
+            hovered: model.hoveredActionId === entry.action.id || model.focusedActionId === entry.action.id,
+            themeCtx: config.themeCtx,
+            theme: config.theme,
+          }).view();
+          const actionNode = event(
+            entry.elementId,
+            trapFocus ? focus(entry.focusId, actionContent, { group: groupId }) : actionContent,
+            { onClick: entry.clickTag, onMouseEnter: entry.hoverTag, onMouseLeave: entry.leaveTag },
+            {
+              label: entry.action.label,
+              intent: 'action',
+              affordances: ['hover', 'click'],
+              cursor: 'pointer',
+              keyboardHint: 'Enter or Space',
+            },
+          );
+          setVNodeMeta(actionNode, { a11y: { role: 'button', label: entry.action.label } });
+          return actionNode;
+        });
+        const bodyNodes = [...contentArr, ...actionNodes];
+        const body = bodyNodes.length > 0 ? column(...bodyNodes) : text('');
         const drawerContent = box(column(headerRow, body), drawerStyle, {
           width: surfaceWidth,
           height: surfaceHeight,
@@ -276,11 +378,29 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
         if (mouseEvent.handlerTag === hoverTag && mouseEvent.elementId === `${groupId}:open`) return { type: 'hover-control', control: 'open' };
         if (mouseEvent.handlerTag === leaveTag && mouseEvent.elementId === `${groupId}:close`) return { type: 'leave-control', control: 'close' };
         if (mouseEvent.handlerTag === leaveTag && mouseEvent.elementId === `${groupId}:open`) return { type: 'leave-control', control: 'open' };
+        for (const entry of actionEntries) {
+          if (mouseEvent.elementId !== entry.elementId) continue;
+          if (mouseEvent.handlerTag === entry.clickTag) return { type: 'activate-action', id: entry.action.id };
+          if (mouseEvent.handlerTag === entry.hoverTag) return { type: 'hover-action', id: entry.action.id };
+          if (mouseEvent.handlerTag === entry.leaveTag) return { type: 'leave-action', id: entry.action.id };
+        }
         return { type: 'noop' };
       });
       if (!model.open) return mouse;
       const subs: Sub<DrawerMsg>[] = [mouse];
       if (closable) subs.push(Sub.key('escape', { type: 'close' }));
+      if (actionEntries.length > 0) {
+        const focusedAction = actionEntries.find((entry) => entry.action.id === model.focusedActionId);
+        const activateFocused: DrawerMsg = focusedAction ? { type: 'activate-action', id: focusedAction.action.id } : { type: 'noop' };
+        subs.push(
+          Sub.focus((focusedId) => ({
+            type: 'focus-action',
+            id: actionEntries.find((entry) => entry.focusId === focusedId)?.action.id ?? null,
+          })),
+          Sub.key('enter', activateFocused),
+          Sub.key('space', activateFocused),
+        );
+      }
       // Panic protection is mandatory regardless of `closable` — the user
       // must always be able to clear stuck surfaces.
       subs.push(surfaceContractSubs<DrawerMsg>({ id: groupId, onPanic: { type: 'panic' } }));

@@ -1,5 +1,5 @@
 import { app, Cmd, cmdKind, collectFocusNodes, collectHitRegions, column, focus, planLayout, Sub, stackedLayers, text } from '@celestial/core/nebula';
-import { renderToLines } from '@celestial/test';
+import { createTestApp, fireMouse, renderToLines } from '@celestial/test';
 import { describe, expect, it } from 'vitest';
 import { drawer, drawerGroup } from '../drawer.js';
 
@@ -88,6 +88,70 @@ describe('drawer', () => {
     const [closed] = comp.update({ type: 'close' }, hoveredClose);
     const [hoveredOpen] = comp.update({ type: 'hover-control', control: 'open' }, closed);
     expect(hoveredOpen.hoveredControl).toBe('open');
+  });
+
+  it('owns action hover and activation state across the real pointer pipeline', () => {
+    const comp = drawer({
+      title: 'Actions',
+      content: text('Choose an action'),
+      actions: [{ id: 'inspect', label: 'Inspect release', tone: 'info' }],
+      position: 'right',
+      variant: 'overlay',
+      width: 28,
+      height: 10,
+    });
+    const testApp = createTestApp({
+      init: () => comp.init(),
+      update: (msg, model) => comp.update(msg, model),
+      view: (model) => comp.view(model),
+      subscriptions: (model) => comp.subscriptions?.(model) ?? Sub.none(),
+    });
+
+    try {
+      const serializeView = () => {
+        const node = comp.view(testApp.model);
+        const rendered =
+          node.kind === 'component'
+            ? node.render({ terminal: { cols: 80, rows: 24 }, available: { cols: 80, rows: 24 }, container: { cols: 80, rows: 24 } })
+            : node;
+        return JSON.stringify(rendered);
+      };
+      const restingView = serializeView();
+      const lines = testApp.lastFrame().split('\n');
+      const rowIndex = lines.findIndex((line) => line.includes('Inspect release'));
+      const columnIndex = rowIndex < 0 ? -1 : (lines[rowIndex]?.indexOf('Inspect release') ?? -1);
+      expect(rowIndex).toBeGreaterThanOrEqual(0);
+      expect(columnIndex).toBeGreaterThanOrEqual(0);
+
+      fireMouse(testApp.terminal, { type: 'move', row: rowIndex, col: columnIndex });
+      expect(testApp.model.hoveredActionId).toBe('inspect');
+      expect(serializeView()).not.toBe(restingView);
+
+      testApp.click(columnIndex, rowIndex);
+      expect(testApp.model.activatedActionId).toBe('inspect');
+
+      fireMouse(testApp.terminal, { type: 'move', row: 0, col: 0 });
+      expect(testApp.model.hoveredActionId).toBeNull();
+
+      testApp.dispatch({ type: 'focus-action', id: 'inspect' });
+      expect(testApp.model.focusedActionId).toBe('inspect');
+      expect(serializeView()).not.toBe(restingView);
+    } finally {
+      testApp.stop();
+    }
+  });
+
+  it('rejects ambiguous or empty action identifiers', () => {
+    expect(() =>
+      drawer({
+        content: text('Drawer content'),
+        actions: [
+          { id: 'same', label: 'First' },
+          { id: 'same', label: 'Second' },
+        ],
+      }),
+    ).toThrow(/unique/i);
+    expect(() => drawer({ content: text('Drawer content'), actions: [{ id: ' ', label: 'Missing id' }] })).toThrow(/non-empty/i);
   });
 
   it('calls onClose callback when closed', () => {

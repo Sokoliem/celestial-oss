@@ -1,4 +1,19 @@
-import { app, Cmd, cmdKind, collectFocusNodes, column, focus, localState, memo, portal, Sub, suspense, text } from '@celestial/core/nebula';
+import {
+  app,
+  Cmd,
+  cmdKind,
+  collectFocusNodes,
+  collectHitRegions,
+  column,
+  focus,
+  localState,
+  memo,
+  planLayout,
+  portal,
+  Sub,
+  suspense,
+  text,
+} from '@celestial/core/nebula';
 import { renderToLines } from '@celestial/test';
 import { describe, expect, it, vi } from 'vitest';
 import { modal } from '../modal.js';
@@ -54,35 +69,14 @@ describe('modal', () => {
 
   it('view renders title', () => {
     const component = modal({ title: 'My Modal', content: text('Content here') });
-    const model = { open: true };
-    const vnode = component.view(model);
-    // Modal wraps in box -> column -> first child is title text
-    expect(vnode.kind).toBe('box');
-    if (vnode.kind === 'box') {
-      const inner = vnode.children[0];
-      if (inner?.kind === 'column') {
-        const title = inner.children[0];
-        if (title?.kind === 'text') {
-          expect(title.content).toBe('My Modal');
-        }
-      }
-    }
+    const rendered = renderToLines(component.view({ open: true }), { width: 52, height: 20 }).join('\n');
+    expect(rendered).toContain('My Modal');
   });
 
   it('view renders content', () => {
     const component = modal({ title: 'Test', content: text('Body text') });
-    const model = { open: true };
-    const vnode = component.view(model);
-    if (vnode.kind === 'box') {
-      const inner = vnode.children[0];
-      if (inner?.kind === 'column') {
-        // title, separator, content, empty, hint
-        const content = inner.children[2];
-        if (content?.kind === 'text') {
-          expect(content.content).toBe('Body text');
-        }
-      }
-    }
+    const rendered = renderToLines(component.view({ open: true }), { width: 52, height: 20 }).join('\n');
+    expect(rendered).toContain('Body text');
   });
 
   it('view renders border around modal', () => {
@@ -95,19 +89,18 @@ describe('modal', () => {
     }
   });
 
-  it('view renders close hint', () => {
+  it('renders a header close button plus an Escape hint', () => {
     const component = modal({ title: 'Test', content: text('Body') });
-    const model = { open: true };
-    const vnode = component.view(model);
-    if (vnode.kind === 'box') {
-      const inner = vnode.children[0];
-      if (inner?.kind === 'column') {
-        const hint = inner.children[inner.children.length - 1];
-        if (hint?.kind === 'focus' && hint.child.kind === 'text') {
-          expect(hint.child.content).toContain('esc');
-        }
-      }
-    }
+    const vnode = component.view({ open: true });
+    const lines = renderToLines(vnode, { width: 52, height: 20 });
+    const regions = collectHitRegions(planLayout(vnode, 52, 20));
+    const closeRegion = regions.find((region) => region.id.includes(':close'));
+
+    expect(lines.join('\n')).toContain('[x]');
+    expect(lines.join('\n')).toContain('Esc closes');
+    expect(lines.findIndex((line) => line.includes('[x]'))).toBeLessThan(lines.findIndex((line) => line.includes('Body')));
+    expect(closeRegion?.handlers.onClick).toBeDefined();
+    expect(closeRegion?.handlers.onMouseEnter).toBeDefined();
   });
 
   it('update handles close on escape', () => {
@@ -287,9 +280,10 @@ describe('modal', () => {
     await flush();
 
     const trappedIds = focusEvents;
-    expect(trappedIds[0]).toBe('field-a');
-    expect(trappedIds[1]).toBe('field-b');
-    expect(trappedIds[3]).toBe('field-a');
+    expect(trappedIds[0]).toContain('-close');
+    expect(trappedIds[1]).toBe('field-a');
+    expect(trappedIds[2]).toBe('field-b');
+    expect(trappedIds[3]).toContain('-close');
     expect(trappedIds).not.toContain('page');
 
     terminal.simulateInput(Buffer.from('\x1b', 'utf8'));

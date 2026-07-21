@@ -89,7 +89,7 @@ export type { DatePickerConfig, DatePickerModel, DatePickerMsg, DatePickerTokens
 export { datePicker, datePickerContract, daysInMonth, firstDayOfMonth, getToday, isSameDay } from './date-picker.js';
 export type { DividerAlign, DividerConfig, DividerTokens } from './divider.js';
 export { divider, dividerContract } from './divider.js';
-export type { DrawerBackdrop, DrawerConfig, DrawerModel, DrawerMsg, DrawerPosition, DrawerTokens, DrawerVariant } from './drawer.js';
+export type { DrawerAction, DrawerBackdrop, DrawerConfig, DrawerModel, DrawerMsg, DrawerPosition, DrawerTokens, DrawerVariant } from './drawer.js';
 export { drawer, drawerContract } from './drawer.js';
 export type { EmptyStateAction, EmptyStateConfig, EmptyStateTokens } from './empty-state.js';
 export { emptyState, emptyStateContract } from './empty-state.js';

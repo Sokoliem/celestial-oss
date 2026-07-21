@@ -1,7 +1,7 @@
 import type { Color, SemanticTheme, StateToken, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
 import { border, style } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
-import { box, Cmd, column, divider, event, focus, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
+import { box, Cmd, column, divider, event, flex, focus, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { assignFocusGroup, generateFocusGroupId } from './focus-group.js';
 import { nonNegativeInteger, positiveInteger } from './internal.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
@@ -126,20 +126,16 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
       const borderStyle = style({ border: border.double, color: borderColor, background: tokens.bg, width });
       const dividerStyle = style({ color: borderColor, background: tokens.bg });
       const groupedContent = assignFocusGroup(config.wrapContent === false ? config.content : enableModalTextWrapping(config.content), groupId);
+      const closeControl = event(
+        `${groupId}:close`,
+        focus(closeId, text('[x]', closeStyle), { group: groupId }),
+        { onClick: closeTag, onMouseEnter: hoverCloseTag, onMouseLeave: leaveCloseTag },
+        { label: `Close ${config.title}`, intent: 'close', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Escape' },
+      );
+      setVNodeMeta(closeControl, { a11y: { role: 'button', label: `Close ${config.title}` } });
+      const titleRow = row(flex(text(config.title, titleStyle), { flex: 1, minWidth: 0 }), closeControl);
       const modalContent = box(
-        column(
-          text(config.title, titleStyle, { wrap: true }),
-          divider({ style: dividerStyle }),
-          text(''),
-          groupedContent,
-          text(''),
-          event(
-            `${groupId}:close`,
-            focus(closeId, text('[esc] close', model.hoveredClose ? closeStyle : hintStyle), { group: groupId }),
-            { onClick: closeTag, onMouseEnter: hoverCloseTag, onMouseLeave: leaveCloseTag },
-            { label: `Close ${config.title}`, intent: 'close', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Escape' },
-          ),
-        ),
+        column(titleRow, divider({ style: dividerStyle }), text(''), groupedContent, text(''), text('Esc closes', hintStyle, { wrap: true })),
         style({ padding: 1, background: tokens.bg }),
       );
 
