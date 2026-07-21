@@ -14,7 +14,12 @@ function findText(frame: string, needle: string): { col: number; row: number } {
 
 function findLastText(frame: string, needle: string): { col: number; row: number } {
   const lines = frame.split('\n');
-  const row = lines.findLastIndex((line) => line.includes(needle));
+  let row = -1;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (!lines[index]!.includes(needle)) continue;
+    row = index;
+    break;
+  }
   if (row < 0) throw new Error(`Could not find ${needle} in frame:\n${frame}`);
   return { row, col: lines[row]!.indexOf(needle) };
 }
