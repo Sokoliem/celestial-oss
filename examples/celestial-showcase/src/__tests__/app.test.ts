@@ -12,6 +12,13 @@ function findText(frame: string, needle: string): { col: number; row: number } {
   return { row, col: lines[row]!.indexOf(needle) };
 }
 
+function findLastText(frame: string, needle: string): { col: number; row: number } {
+  const lines = frame.split('\n');
+  const row = lines.findLastIndex((line) => line.includes(needle));
+  if (row < 0) throw new Error(`Could not find ${needle} in frame:\n${frame}`);
+  return { row, col: lines[row]!.indexOf(needle) };
+}
+
 function timerIntervals(subscription: unknown): number[] {
   if (!subscription || typeof subscription !== 'object') return [];
   const kind = (subscription as { _kind?: { kind?: string; ms?: number; subs?: unknown[]; sub?: unknown } })._kind;
@@ -535,7 +542,7 @@ describe('Celestial Flight Deck', () => {
 
     expect(handle.model.windows.bounds.bottomInset).toBe(3);
     expect(handle.model.windows.windows.find((window) => window.id === 'events')?.mode).toBe('minimized');
-    let shelf = findText(handle.lastFrame(), '[Event instrument]');
+    let shelf = findLastText(handle.lastFrame(), 'Event instrument');
 
     handle.click(shelf.col + 1, shelf.row, 'right');
     await handle.waitForUpdate();
@@ -545,7 +552,7 @@ describe('Celestial Flight Deck', () => {
 
     handle.dispatch({ type: 'switch-workspace', index: 0 });
     await handle.waitForUpdate();
-    shelf = findText(handle.lastFrame(), '[Event instrument]');
+    shelf = findLastText(handle.lastFrame(), 'Event instrument');
     handle.click(shelf.col + 1, shelf.row);
     await handle.waitForUpdate();
 
