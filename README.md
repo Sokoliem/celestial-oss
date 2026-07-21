@@ -89,7 +89,7 @@ The same architecture powers four supported, local-only demos:
 | Task Console | `pnpm demo:tasks` | Real worker processes, streaming subscriptions, progress, cancellation, retry, responsive layout, and layered UI |
 | API Inspector | `pnpm demo:api` | Loopback HTTP, abortable commands, form controls, response tabs, history, and error states |
 | Horizon Workbench | `pnpm demo:horizon` | Beta splits, tabs, workspaces, responsive panes, floating windows, and window chrome |
-| Celestial Flight Deck | `pnpm demo:showcase` | The complete focused preview: eight labs, 44 curated builders, Orbit workflows, rich terminal output, target-specific right-click menus, mouse/layers/adaptiveness, Horizon windows, contextual help, and live smoke receipts |
+| Celestial Flight Deck | `pnpm demo:showcase` | The complete focused preview: eight labs, 46 curated builders, Orbit workflows, rich terminal output, target-specific right-click menus, mouse/layers/adaptiveness, Horizon windows, contextual help, and live smoke receipts |
 
 All four demos import only the supported preview packages. They use bundled/local fixtures and never require credentials or an external service. The Flight Deck's detailed manual and automated acceptance path is in [`examples/celestial-showcase/README.md`](examples/celestial-showcase/README.md).
 
@@ -105,7 +105,7 @@ All four demos import only the supported preview packages. They use bundled/loca
 | `@celestial/nebula` | Preview | Elm runtime, virtual terminal DOM, commands, subscriptions, signals, and focus |
 | `@celestial/gravity` | Preview | Flex, grid, responsive, and spatial layout primitives |
 | `@celestial/nexus` | Preview | Hit testing, mouse interaction, focus stacks, and pointer primitives |
-| `@celestial/ui` | Preview | A curated set of 44 tested input, navigation, data, feedback, and contextual-surface builders |
+| `@celestial/ui` | Preview | A curated set of 46 tested input, navigation, data, feedback, and contextual-surface builders |
 | `@celestial/orbit` | Preview | Forms, validation, prompts, schema-driven fields, and branching wizards |
 | `@celestial/spectrum` | Preview | State-machine syntax highlighting, language detection, and diagnostics |
 | `@celestial/mirage` | Preview | Grapheme-safe gradients and reduced-motion-aware text effects |
@@ -119,16 +119,18 @@ All four demos import only the supported preview packages. They use bundled/loca
 
 ## Curated UI
 
-The preview publishes 44 builders instead of the full repository's experimental catalog:
+The preview publishes 46 builders instead of the full repository's experimental catalog:
 
 - Input: `button`, `textInput`, `textarea`, `checkbox`, `radioGroup`, `select`, `toggle`, `slider`
 - Grouped and assisted input: `checkboxGroup`, `toggleGroup`, `autocomplete`, `combobox`, `datePicker`, `multiSelect`, `numberInput`
 - Specialized form controls: `rangeSlider`, `rating`, `segmentedControl`, `tagInput`, `colorPicker`, `formField`
 - Navigation: `tabs`, `breadcrumb`, `pagination`, `commandPalette`, `optionListView`
-- Data and display: `dataTable`, `tree`, `list`, `progressBar`, `spinner`, `card`, `divider`, `emptyState`
+- Data and display: `dataTable`, `tree`, `list`, `progressBar`, `indeterminateProgress`, `spinner`, `card`, `cardGrid`, `divider`, `emptyState`
 - Feedback: `badge`, `alert`, `tooltip`, `createToastManager`
 - Layers: `modal`, `confirmDialog`, `drawer`
-- Context: `contextMenuView`, `popover`, `hovercard`
+- Context: `popover`, `popoverGroup`, `hovercard`
+
+`contextMenuView` and its reducer/measurement helpers are public context-menu composition primitives; they are demonstrated by the Flight Deck but are not counted as component builders.
 
 The public surface is mouse-aware, has keyboard fallbacks where appropriate, uses semantic theme tokens, reflows at narrow widths, and requires visible close affordances plus Escape dismissal for layered surfaces.
 

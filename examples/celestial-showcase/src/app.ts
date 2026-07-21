@@ -44,7 +44,7 @@ import {
 } from '@celestial/horizon';
 import type { ComponentDescriptor, MenuItem } from '@celestial/ui';
 import { badge, contextMenuUpdate, contextMenuView, createContextMenuState, getSelectedItem, measureContextMenuLayout, progressBar } from '@celestial/ui';
-import { createShowcaseComponents, initialComponentModels, renderComponentGallery, type ShowcaseComponents } from './components.js';
+import { createShowcaseComponents, initialComponentModels, renderComponentGallery, type ShowcaseComponents, UI_BUILDER_COUNT } from './components.js';
 import {
   LABS,
   labForSmoke,
@@ -530,7 +530,7 @@ function renderActiveLab(components: ShowcaseComponents, model: CelestialShowcas
           text(`  page ${model.componentPage + 1}/8  `, mutedStyle),
           actionNode(model, 'gallery-next', 'Next', ']'),
           text('  '),
-          badge({ label: '44 public builders', variant: 'success', size: 'sm' }).view({ visible: true }),
+          badge({ label: `${UI_BUILDER_COUNT} public builders`, variant: 'success', size: 'sm' }).view({ visible: true }),
         ),
         renderComponentGallery(components, model),
       );

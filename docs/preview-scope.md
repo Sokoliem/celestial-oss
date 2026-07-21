@@ -35,7 +35,7 @@ The boundary checker validates both their manifests and source imports. `@celest
 
 ## UI boundary
 
-`@celestial/ui` exposes 44 component builders. Its public barrel is the contract; files elsewhere in `packages/constellation/src` are not deep-import APIs. The selected interaction-heavy components are exercised through both mouse and keyboard paths in the headless harness. Modals and contextual surfaces must reflow at supported widths, expose a visible close affordance, and respond to Escape.
+`@celestial/ui` exposes 46 component builders. Its public barrel is the contract; files elsewhere in `packages/constellation/src` are not deep-import APIs. The selected interaction-heavy components are exercised through both mouse and keyboard paths in the headless harness. Modals and contextual surfaces must reflow at supported widths, expose a visible close affordance, and respond to Escape. Public context-menu reducer, measurement, and view helpers are composition primitives and are not included in the builder count.
 
 ## Rich-rendering gate
 

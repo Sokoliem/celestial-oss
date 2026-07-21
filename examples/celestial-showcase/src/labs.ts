@@ -27,12 +27,12 @@ import { renderMarkdown } from '@celestial/pulsar';
 import { highlightCode } from '@celestial/spectrum';
 import { chart } from '@celestial/stellar';
 import { badge, button, progressBar } from '@celestial/ui';
-import type { ShowcaseComponents } from './components.js';
+import { type ShowcaseComponents, UI_BUILDER_COUNT } from './components.js';
 import type { CelestialShowcaseModel, LabId, SmokeId, SurfaceId, ViewportTier } from './types.js';
 
 export const LABS: Array<{ id: LabId; label: string; key: string; summary: string }> = [
   { id: 'core', label: 'Core', key: '1', summary: 'Six foundations, one facade' },
-  { id: 'components', label: 'Components', key: '2', summary: '44 curated builders' },
+  { id: 'components', label: 'Components', key: '2', summary: `${UI_BUILDER_COUNT} curated builders` },
   { id: 'workflows', label: 'Workflows', key: '3', summary: 'Schema forms and wizards' },
   { id: 'visuals', label: 'Visuals', key: '4', summary: 'Code, motion, charts, Markdown' },
   { id: 'mouse', label: 'Mouse', key: '5', summary: 'Pointer and hit regions' },

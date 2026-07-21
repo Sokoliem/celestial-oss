@@ -1,7 +1,7 @@
 import { createScreen, createTestApp, fireMouse, type TestAppHandle } from '@celestial/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
-import { UI_BUILDER_NAMES } from '../components.js';
+import { UI_BUILDER_COUNT, UI_BUILDER_NAMES } from '../components.js';
 import { viewportTier } from '../labs.js';
 import type { CelestialShowcaseModel, CelestialShowcaseMsg } from '../types.js';
 
@@ -90,7 +90,7 @@ describe('Celestial Flight Deck', () => {
   });
 
   it.each([
-    ['modal', 'Escape.'],
+    ['modal', 'boundary.'],
     ['confirm', 'verified?'],
     ['tooltip', 'dismissible.'],
     ['palette', 'close'],
@@ -108,10 +108,17 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.rows).toBe(SHOWCASE_MIN_ROWS);
   });
 
-  it('shows every curated UI builder and changes a component through its mouse region', async () => {
-    const handle = flightDeck(140, 48);
+  it.each([
+    [SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS],
+    [140, 48],
+  ] as const)('shows every curated UI builder and changes a component through its mouse region at %ix%i', async (cols, rows) => {
+    const handle = flightDeck(cols, rows);
     handle.pressKey('2');
     await handle.waitForUpdate();
+
+    expect(UI_BUILDER_COUNT).toBe(46);
+    expect([...UI_BUILDER_NAMES]).toEqual(expect.arrayContaining(['indeterminateProgress', 'cardGrid', 'popoverGroup']));
+    expect([...UI_BUILDER_NAMES]).not.toContain('contextMenuView');
 
     const builders = new Set<string>();
     for (let page = 0; page < 8; page += 1) {
@@ -119,6 +126,7 @@ describe('Celestial Flight Deck', () => {
       for (const builder of UI_BUILDER_NAMES) {
         if (frame.includes(`${builder}()`)) builders.add(builder);
       }
+      expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
       if (page < 7) {
         handle.pressKey(']');
         await handle.waitForUpdate();
@@ -269,6 +277,29 @@ describe('Celestial Flight Deck', () => {
     await handle.waitForUpdate();
     expect(handle.model.contextMenuSource).toBe('action:palette');
     expect(handle.lastFrame()).toContain('Open command palette');
+  });
+
+  it('maps pointer activation through the visible window of a vertically clipped context menu', async () => {
+    const handle = flightDeck(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
+    const items = Array.from({ length: 40 }, (_, index) => ({
+      label: `Windowed action ${index}`,
+      msg: { type: 'switch-lab' as const, lab: index === 35 ? ('visuals' as const) : ('core' as const) },
+    }));
+
+    handle.dispatch({ type: 'context-menu', msg: { type: 'ctx-open', x: 2, y: 2, items } });
+    for (let index = 0; index < 35; index += 1) {
+      handle.dispatch({ type: 'context-menu', msg: { type: 'ctx-down' } });
+    }
+    await handle.waitForUpdate();
+
+    expect(handle.model.contextMenu.selectedIndex).toBe(35);
+    expect(handle.lastFrame()).not.toContain('Windowed action 0');
+    const visibleSelection = findText(handle.lastFrame(), 'Windowed action 35');
+    handle.click(visibleSelection.col + 1, visibleSelection.row);
+    await handle.waitForUpdate();
+
+    expect(handle.model.contextMenu.open).toBe(false);
+    expect(handle.model.activeLab).toBe('visuals');
   });
 
   it('routes a window context-menu action by mouse without clicking through to the window canvas', async () => {

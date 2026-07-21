@@ -11,4 +11,4 @@
 '@celestial/pulsar': minor
 ---
 
-Expand the focused public preview with Unicode-safe text handling, resize-resilient surfaces, 44 curated UI builders, schema-driven workflows with a package-neutral event-ledger contract, syntax highlighting, accessible effects and transitions, terminal charts, and Markdown rendering.
+Expand the focused public preview with Unicode-safe text handling, resize-resilient surfaces, 46 curated UI builders, schema-driven workflows with a package-neutral event-ledger contract, syntax highlighting, accessible effects and transitions, terminal charts, and Markdown rendering.
