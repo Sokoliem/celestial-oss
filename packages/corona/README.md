@@ -16,7 +16,7 @@ Celestial is pre-release and not published to npm yet. Clone the monorepo, run t
 - **Gradient** — first-class `Gradient` type with OKLAB-space interpolation between color stops
 - **Shadow** — `renderShadow()` for depth and elevation
 - **Layout** — join, place, table, wrap (all ANSI-aware)
-- **Theme** — low-level token bags + semantic `SemanticTheme` with tones, spacing, and glyphs; `createTheme()` deep-merges onto `defaultTheme`
+- **Theme** — low-level token bags + semantic `SemanticTheme` with tones, spacing, capability-resolved glyphs, and motion; `createTheme()` deep-merges onto `defaultTheme`
 - **Domain tokens** — canonical status, safety, lifecycle, and app chrome color families for flagship TUI surfaces
 - **Accessibility** — high contrast, ANSI stripping, screen reader announcements, contrast repair, theme audits, and reduced-motion detection
 - **Logging** — structured logger with trace/debug/info/warn/error/fatal levels, console + JSON transports, pretty/compact formatters
@@ -59,6 +59,22 @@ const report = auditTheme(defaultTheme);
 const sp = createSpinner('dots', { text: 'Loading...' });
 sp.start();
 sp.succeed('Done!');
+```
+
+### Unicode capability tiers
+
+Glyph tokens resolve across `none`, `basic`, `unicode16`, `wide`, and `full`
+tiers, matching Atlas terminal detection directly. Resolution always walks down
+to a non-empty supported fallback, so a high-tier-only token cannot disappear
+on an ANSI or restricted-Unicode terminal. Passing `unicodeLevel` through the
+theme keeps borders, controls, status glyphs, window chrome, and application
+content on the same capability boundary.
+
+```typescript
+import { createTheme, resolveGlyph, DEFAULT_GLYPH_TOKENS } from '@celestial/corona';
+
+const theme = createTheme({ unicodeLevel: 'unicode16' });
+const checked = resolveGlyph(DEFAULT_GLYPH_TOKENS.checked, theme.unicodeLevel);
 ```
 
 ---
