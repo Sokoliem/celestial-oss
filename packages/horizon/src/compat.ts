@@ -6,8 +6,8 @@ import { splitPane } from './split.js';
 import { floating } from './stack.js';
 import type { TabConfig as BaseTabConfig, TabStyle } from './tabs.js';
 import { renderWindowChrome } from './window-chrome.js';
-import { createDesktopWindow, type WindowChromeConfig, type WindowMode, type WindowRole } from './window-lifecycle.js';
-import type { WindowManager } from './windows.js';
+import { createDesktopWindow, type WindowChromeConfig, type WindowMode, type WindowRestoreMode, type WindowRole } from './window-lifecycle.js';
+import { getVisibleWindows, type WindowManager } from './windows.js';
 
 export interface Pane {
   id: string;
@@ -203,6 +203,8 @@ export interface FloatingWindowConfig {
   focused?: boolean;
   restoreBounds?: { x: number; y: number; width: number; height: number };
   restoreFrame?: { x: number; y: number; width: number; height: number };
+  /** Visible mode resumed after minimize/hide. */
+  restoreMode?: WindowRestoreMode;
   layoutId?: string;
 }
 
@@ -229,7 +231,7 @@ function renderFloatingWindow(window: FloatingWindowConfig): VNode {
 }
 
 export function withFloatingWindows(base: VNode, windows: FloatingWindowConfig[] | WindowManager): VNode {
-  const list = Array.isArray(windows) ? windows : windows.windows;
+  const list = Array.isArray(windows) ? windows : getVisibleWindows(windows);
   return [...list]
     .slice(0, MAX_SPLIT_PANES)
     .filter(

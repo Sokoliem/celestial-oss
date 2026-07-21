@@ -11,6 +11,7 @@ import { isSafeRecordKey, MAX_SPLIT_PANES } from './internal.js';
 import type { PipModel } from './pip.js';
 import type { WindowBounds } from './primitives/geometry.js';
 import { DEFAULT_RESTORE_POLICY } from './session.js';
+import type { WindowRestoreMode } from './window-lifecycle.js';
 import type { WorkspaceDescriptor, WorkspaceModel } from './workspace.js';
 
 // We define a compatible PersistenceConfig type locally because nebula
@@ -58,6 +59,7 @@ export interface SerializedFloat {
   readonly alwaysOnTop?: boolean;
   readonly modal?: boolean;
   readonly restoreBounds?: WindowBounds;
+  readonly restoreMode?: WindowRestoreMode;
 }
 
 export interface SerializedTile {
@@ -124,7 +126,7 @@ export interface HorizonLayoutState {
 // Version
 // ---------------------------------------------------------------------------
 
-export const CURRENT_LAYOUT_VERSION = 3;
+export const CURRENT_LAYOUT_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // PersistedData envelope (matches nebula's shape)
@@ -314,6 +316,7 @@ function validateFloat(float: unknown): boolean {
   if (f.workspaceId !== undefined && !isSafeId(f.workspaceId)) return false;
   if (f.mode !== undefined && !['normal', 'minimized', 'maximized', 'fullscreen', 'hidden', 'closed'].includes(f.mode as string)) return false;
   if (f.restoreBounds !== undefined && !validateBounds(f.restoreBounds)) return false;
+  if (f.restoreMode !== undefined && !['normal', 'maximized', 'fullscreen'].includes(f.restoreMode as string)) return false;
   return true;
 }
 
@@ -421,6 +424,18 @@ const migrations: Record<number, (state: HorizonLayoutState) => HorizonLayoutSta
         }
       : state.workspace,
     version: 3,
+  }),
+  4: (state) => ({
+    ...state,
+    floats: Array.isArray(state.floats)
+      ? state.floats.map((float) => ({
+          ...float,
+          // Layouts written before v4 did not retain the visible mode that
+          // preceded minimization/hiding, so normal is the only honest default.
+          restoreMode: float.restoreMode ?? (float.mode === 'maximized' || float.mode === 'fullscreen' ? float.mode : 'normal'),
+        }))
+      : [],
+    version: 4,
   }),
 };
 
@@ -616,6 +631,7 @@ export function extractFloatState(
       alwaysOnTop?: boolean;
       modal?: boolean;
       restoreBounds?: { x: number; y: number; width: number; height: number };
+      restoreMode?: WindowRestoreMode;
     };
   }>,
 ): SerializedFloat[] {
@@ -636,6 +652,7 @@ export function extractFloatState(
     alwaysOnTop: f.model.alwaysOnTop,
     modal: f.model.modal,
     restoreBounds: f.model.restoreBounds,
+    restoreMode: f.model.restoreMode,
   }));
 }
 
@@ -688,6 +705,7 @@ export function buildLayoutState(opts: {
       alwaysOnTop?: boolean;
       modal?: boolean;
       restoreBounds?: { x: number; y: number; width: number; height: number };
+      restoreMode?: WindowRestoreMode;
     };
   }>;
   tiles?: Array<{ id: string; direction: 'horizontal' | 'vertical'; ratio: number; firstId: string; secondId: string }>;

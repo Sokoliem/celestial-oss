@@ -21,7 +21,7 @@ const content = { kind: 'text' as const, content: 'window' };
 
 function validLayout(): HorizonLayoutState {
   return {
-    version: 3,
+    version: 4,
     splits: [],
     tabs: [],
     floats: [],

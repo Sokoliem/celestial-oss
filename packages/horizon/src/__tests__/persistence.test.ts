@@ -67,8 +67,8 @@ function makePopulatedState(): HorizonLayoutState {
 // ---------------------------------------------------------------------------
 
 describe('CURRENT_LAYOUT_VERSION', () => {
-  it('is 3', () => {
-    expect(CURRENT_LAYOUT_VERSION).toBe(3);
+  it('is 4', () => {
+    expect(CURRENT_LAYOUT_VERSION).toBe(4);
   });
 });
 
@@ -178,7 +178,7 @@ describe('deserializeLayout', () => {
     expect(result?.floats[0]?.fullscreen).toBe(false);
   });
 
-  it('migrates v2 desktop parity fields to v3', () => {
+  it('migrates v2 desktop parity fields through the current schema', () => {
     const json = JSON.stringify({
       version: 2,
       data: {
@@ -195,8 +195,9 @@ describe('deserializeLayout', () => {
     });
 
     const result = deserializeLayout(json);
-    expect(result?.version).toBe(3);
+    expect(result?.version).toBe(CURRENT_LAYOUT_VERSION);
     expect(result?.floats[0]?.mode).toBe('minimized');
+    expect(result?.floats[0]?.restoreMode).toBe('normal');
     expect(result?.workspace?.activeWorkspaceId).toBe('0');
   });
 });
@@ -457,6 +458,20 @@ describe('migrateLayout', () => {
     const result = migrateLayout(state, 0, 1);
     // No migration for v0->v1 registered, state returned as-is with version updated
     expect(result.version).toBe(1);
+  });
+
+  it('adds an honest restore mode when upgrading v3 window layouts', () => {
+    const state = makeValidState({
+      version: 3,
+      floats: [
+        { floatId: 'suspended', x: 1, y: 1, width: 20, height: 8, minimized: true, mode: 'minimized' },
+        { floatId: 'maximized', x: 0, y: 0, width: 80, height: 24, minimized: false, mode: 'maximized' },
+      ],
+    });
+    const result = migrateLayout(state, 3, CURRENT_LAYOUT_VERSION);
+
+    expect(result.floats[0]?.restoreMode).toBe('normal');
+    expect(result.floats[1]?.restoreMode).toBe('maximized');
   });
 });
 

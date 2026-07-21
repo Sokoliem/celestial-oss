@@ -8,6 +8,8 @@ import {
   style,
   type ThemeInput,
   type TokenContract,
+  truncate,
+  visualWidth,
 } from '@celestial/core/corona';
 import { box, column, event, flex, row, type ThemeContext, text, type VNode } from '@celestial/core/nebula';
 import { type FloatingWindowHitTestOptions, hitTestFloatingWindowTitleBar } from './floating-window-drag.js';
@@ -68,12 +70,12 @@ export interface RenderWindowChromeOptions {
 
 export type WindowChromeHitTarget = Pick<
   DesktopWindowState,
-  'x' | 'y' | 'width' | 'height' | 'chrome' | 'closable' | 'minimizable' | 'maximizable' | 'fullscreenable'
+  'x' | 'y' | 'width' | 'height' | 'mode' | 'chrome' | 'closable' | 'minimizable' | 'maximizable' | 'fullscreenable'
 >;
 
 function commandHandlerId(command: WindowCommand): string {
   if ('id' in command) {
-    return `window:${command.id}:${command.type}`;
+    return `window:${encodeURIComponent(command.id)}:${command.type}`;
   }
   return `window:create:${command.window.id}`;
 }
@@ -86,13 +88,23 @@ function controlForCommand(command: WindowCommand): WindowChromeControl {
 
 /** Width, in terminal cells, occupied by the visible end-aligned controls. */
 export function getWindowChromeControlWidth(window: WindowChromeHitTarget): number {
-  let width = 0;
+  const requested: Array<{ control: WindowChromeControl; width: number; priority: number }> = [];
   const chrome = window.chrome;
-  if (chrome?.showClose ?? window.closable ?? true) width += 3;
-  if (chrome?.showMinimize ?? window.minimizable ?? true) width += 3;
-  if (chrome?.showMaximize ?? window.maximizable ?? true) width += 3;
-  if (chrome?.showFullscreen ?? window.fullscreenable ?? true) width += 4;
-  return width;
+  if (chrome?.showClose ?? window.closable ?? true) requested.push({ control: 'close', width: 3, priority: 0 });
+  if (chrome?.showMinimize ?? window.minimizable ?? true) requested.push({ control: 'minimize', width: 3, priority: 2 });
+  if (chrome?.showMaximize ?? window.maximizable ?? true)
+    requested.push({ control: window.mode === 'maximized' ? 'restore' : 'maximize', width: 3, priority: 1 });
+  if (chrome?.showFullscreen ?? window.fullscreenable ?? true)
+    requested.push({ control: window.mode === 'fullscreen' ? 'restore' : 'fullscreen', width: 4, priority: 3 });
+  const budget = Math.max(0, window.width - 3);
+  let used = 0;
+  const included = new Set<WindowChromeControl>();
+  for (const item of [...requested].sort((a, b) => a.priority - b.priority)) {
+    if (used + item.width > budget) continue;
+    used += item.width;
+    included.add(item.control);
+  }
+  return requested.filter((item) => included.has(item.control)).reduce((sum, item) => sum + item.width, 0);
 }
 
 /**
@@ -120,6 +132,7 @@ function commandButton(
   hoveredTarget: WindowChromeHoverTarget | null,
   tokens: WindowChromeTokens,
 ): VNode {
+  const encodedId = encodeURIComponent(id);
   const control = controlForCommand(command);
   const hovered = hoveredTarget === control;
   return event(
@@ -130,8 +143,8 @@ function commandButton(
     ),
     {
       onClick: commandHandlerId(command),
-      onMouseEnter: `window:${id}:hover:${control}`,
-      onMouseLeave: `window:${id}:leave:${control}`,
+      onMouseEnter: `window:${encodedId}:hover:${control}`,
+      onMouseLeave: `window:${encodedId}:leave:${control}`,
     },
     {
       label: summary,
@@ -151,21 +164,41 @@ export function renderWindowChrome<M = unknown>(window: DesktopWindowState<M>, o
   const hoveredTarget = options.hoveredTarget ?? chrome?.hoveredTarget ?? null;
   const showTitle = options.showTitle ?? chrome?.showTitle ?? true;
   const controls: VNode[] = [];
+  const controlCandidates: Array<{ control: WindowChromeControl; priority: number; node: VNode; width: number }> = [];
   const frameAffordances: Array<'drag' | 'resize'> = [];
   if (window.draggable !== false) frameAffordances.push('drag');
   if (window.resizable !== false) frameAffordances.push('resize');
 
   if (chrome?.showClose ?? window.closable ?? true) {
-    controls.push(
-      commandButton(window.id, '[x]', { type: 'close', id: window.id, reason: chrome?.closeReason, source: 'chrome' }, 'Close window', hoveredTarget, tokens),
-    );
+    controlCandidates.push({
+      control: 'close',
+      priority: 0,
+      width: 3,
+      node: commandButton(
+        window.id,
+        '[x]',
+        { type: 'close', id: window.id, reason: chrome?.closeReason, source: 'chrome' },
+        'Close window',
+        hoveredTarget,
+        tokens,
+      ),
+    });
   }
   if (chrome?.showMinimize ?? window.minimizable ?? true) {
-    controls.push(commandButton(window.id, '[_]', { type: 'minimize', id: window.id, source: 'chrome' }, 'Minimize window', hoveredTarget, tokens));
+    controlCandidates.push({
+      control: 'minimize',
+      priority: 2,
+      width: 3,
+      node: commandButton(window.id, '[_]', { type: 'minimize', id: window.id, source: 'chrome' }, 'Minimize window', hoveredTarget, tokens),
+    });
   }
   if (chrome?.showMaximize ?? window.maximizable ?? true) {
-    controls.push(
-      commandButton(
+    const control = window.mode === 'maximized' ? 'restore' : 'maximize';
+    controlCandidates.push({
+      control,
+      priority: 1,
+      width: 3,
+      node: commandButton(
         window.id,
         window.mode === 'maximized' ? '[+]' : '[ ]',
         window.mode === 'maximized' ? { type: 'restore', id: window.id, source: 'chrome' } : { type: 'maximize', id: window.id, source: 'chrome' },
@@ -173,11 +206,15 @@ export function renderWindowChrome<M = unknown>(window: DesktopWindowState<M>, o
         hoveredTarget,
         tokens,
       ),
-    );
+    });
   }
   if (chrome?.showFullscreen ?? window.fullscreenable ?? true) {
-    controls.push(
-      commandButton(
+    const control = window.mode === 'fullscreen' ? 'restore' : 'fullscreen';
+    controlCandidates.push({
+      control,
+      priority: 3,
+      width: 4,
+      node: commandButton(
         window.id,
         '[fs]',
         window.mode === 'fullscreen' ? { type: 'restore', id: window.id, source: 'chrome' } : { type: 'fullscreen', id: window.id, source: 'chrome' },
@@ -185,23 +222,36 @@ export function renderWindowChrome<M = unknown>(window: DesktopWindowState<M>, o
         hoveredTarget,
         tokens,
       ),
-    );
+    });
   }
 
-  const headerHovered = hoveredTarget === 'titlebar' || ['close', 'minimize', 'maximize', 'fullscreen', 'restore'].includes(hoveredTarget ?? '');
-  const titleNode = text(showTitle ? (window.title ?? window.id) : '', style({ color: tokens.text, bold: true }));
   const innerWidth = Math.max(1, window.width - 2);
+  const controlBudget = Math.max(0, innerWidth - (showTitle ? 1 : 0));
+  let usedControlWidth = 0;
+  const visibleControls = new Set<WindowChromeControl>();
+  for (const candidate of [...controlCandidates].sort((a, b) => a.priority - b.priority)) {
+    if (usedControlWidth + candidate.width > controlBudget) continue;
+    usedControlWidth += candidate.width;
+    visibleControls.add(candidate.control);
+  }
+  controls.push(...controlCandidates.filter((candidate) => visibleControls.has(candidate.control)).map((candidate) => candidate.node));
+
+  const headerHovered = hoveredTarget === 'titlebar' || ['close', 'minimize', 'maximize', 'fullscreen', 'restore'].includes(hoveredTarget ?? '');
+  const titleBudget = Math.max(0, innerWidth - usedControlWidth);
+  const rawTitle = showTitle ? (window.title ?? window.id) : '';
+  const title = visualWidth(rawTitle) <= titleBudget ? rawTitle : truncate(rawTitle, titleBudget);
+  const titleNode = text(title, style({ color: tokens.text, bold: true }));
   const titleSurface = box(
     row(flex(titleNode, { flex: 1 }), ...controls),
     style({ background: headerHovered ? tokens.headerHoverBackground : tokens.headerBackground }),
     { width: innerWidth, height: 1, overflow: 'hidden' },
   );
   const titleBar = event(
-    `window:${window.id}:titlebar`,
+    `window:${encodeURIComponent(window.id)}:titlebar`,
     titleSurface,
     {
-      onMouseEnter: `window:${window.id}:hover:titlebar`,
-      onMouseLeave: `window:${window.id}:leave:titlebar`,
+      onMouseEnter: `window:${encodeURIComponent(window.id)}:hover:titlebar`,
+      onMouseLeave: `window:${encodeURIComponent(window.id)}:leave:titlebar`,
     },
     {
       label: window.title ?? window.id,
@@ -231,7 +281,7 @@ export function renderWindowChrome<M = unknown>(window: DesktopWindowState<M>, o
   );
 
   return event(
-    `window:${window.id}:frame`,
+    `window:${encodeURIComponent(window.id)}:frame`,
     frame,
     {},
     {
