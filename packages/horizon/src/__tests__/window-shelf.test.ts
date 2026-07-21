@@ -21,11 +21,13 @@ describe('windowShelf', () => {
     );
     const shelf = windowShelf({ manager, width: 40, focusedWindowId: 'alpha:logs' }) as BoxNode;
     const shelfRow = shelf.children[0] as RowNode;
-    const focusNode = shelfRow.children[0] as FocusNode;
+    const label = shelfRow.children[0] as TextNode;
+    const focusNode = shelfRow.children.find((child): child is FocusNode => child.kind === 'focus')!;
     const button = focusNode.child as EventNode;
 
     expect(shelf.height).toBe(1);
-    expect(shelfRow.children).toHaveLength(1);
+    expect(label.content).toBe(' MINIMIZED 1 ');
+    expect(shelfRow.children).toHaveLength(2);
     expect(focusNode.focused).toBe(true);
     expect(button.handlers.onClick).toBe('window-shelf:alpha%3Alogs:activate');
     expect(button.handlers.onRightClick).toBe('window-shelf:alpha%3Alogs:context');
@@ -58,6 +60,8 @@ describe('windowShelf', () => {
       { activeWorkspaceId: 'alpha' },
     );
     const shelf = windowShelf({ manager, width: 60, allWorkspaces: true }) as BoxNode;
-    expect((shelf.children[0] as RowNode).children).toHaveLength(2);
+    const children = (shelf.children[0] as RowNode).children;
+    expect((children[0] as TextNode).content).toBe(' MINIMIZED 2 ');
+    expect(children.filter((child) => child.kind === 'focus')).toHaveLength(2);
   });
 });

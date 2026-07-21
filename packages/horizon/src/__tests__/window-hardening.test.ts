@@ -137,6 +137,7 @@ describe('window manager invariants', () => {
     for (const message of [
       { type: 'focus-window', id: 'main' } as const,
       { type: 'move-window', id: 'main', x: 8, y: 8 } as const,
+      { type: 'set-window-workspace', id: 'main', workspaceId: 'secondary' } as const,
       { type: 'close-window', id: 'main' } as const,
     ]) {
       const outcome = windowManagerUpdateResult(message, manager);
@@ -165,6 +166,33 @@ describe('window manager invariants', () => {
     expect(activated.activeWorkspaceId).toBe('beta');
     expect(activated.windows.find((window) => window.id === 'two')?.mode).toBe('normal');
     expect(activated.windows.find((window) => window.id === 'two')?.focused).toBe(true);
+  });
+
+  it('reassigns a window without changing the active workspace and validates the destination', () => {
+    const manager = createWindowManager(
+      [
+        { id: 'one', workspaceId: 'alpha', content: content('one'), x: 1, y: 1, width: 20, height: 8 },
+        { id: 'two', workspaceId: 'beta', content: content('two'), x: 2, y: 2, width: 20, height: 8 },
+      ],
+      { cols: 80, rows: 24 },
+      { activeWorkspaceId: 'alpha' },
+    );
+
+    const moved = windowManagerUpdateResult({ type: 'set-window-workspace', id: 'two', workspaceId: 'alpha' }, manager);
+    expect(moved).toMatchObject({ accepted: true, changed: true });
+    expect(moved.model.activeWorkspaceId).toBe('alpha');
+    expect(moved.model.windows.find((window) => window.id === 'two')?.workspaceId).toBe('alpha');
+    expect(
+      getVisibleWindows(moved.model)
+        .map((window) => window.id)
+        .sort(),
+    ).toEqual(['one', 'two']);
+
+    const noOp = windowManagerUpdateResult({ type: 'set-window-workspace', id: 'two', workspaceId: 'alpha' }, moved.model);
+    expect(noOp).toMatchObject({ accepted: true, changed: false });
+    expect(windowManagerUpdateResult({ type: 'set-window-workspace', id: 'two', workspaceId: '__proto__' }, manager).diagnostics[0]?.code).toBe(
+      'invalid-workspace',
+    );
   });
 
   it('returns diagnostics for invalid ids and reports semantic no-ops', () => {

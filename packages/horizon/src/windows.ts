@@ -76,6 +76,7 @@ export type WindowManagerMsg =
   | { type: 'fullscreen-window'; id: string }
   | { type: 'set-bounds'; bounds: WindowManagerBounds }
   | { type: 'set-active-workspace'; id?: string }
+  | { type: 'set-window-workspace'; id: string; workspaceId?: string }
   | { type: 'hover-window-chrome'; id: string; target: WindowChromeHoverTarget }
   | { type: 'leave-window-chrome'; id: string; target?: WindowChromeHoverTarget }
   | { type: 'window-command'; command: WindowCommand; policy?: 'remove' | 'mark-closed' };
@@ -473,6 +474,9 @@ export function windowManagerUpdateResult(msg: WindowManagerMsg, manager: Window
   const id = targetIdForMessage(msg);
   const target = id === undefined ? undefined : base.windows.find((window) => window.id === id);
   if (id !== undefined && !target) return diagnostic(base, 'window-not-found', id);
+  if (msg.type === 'set-window-workspace' && msg.workspaceId !== undefined && !isSafeRecordKey(msg.workspaceId)) {
+    return diagnostic(base, 'invalid-workspace', id);
+  }
 
   const activation = msg.type === 'activate-window' || msg.type === 'focus-window' || (msg.type === 'window-command' && msg.command.type === 'focus');
   const currentModal = activeModal(base);
@@ -490,6 +494,12 @@ export function windowManagerUpdateResult(msg: WindowManagerMsg, manager: Window
     msg.type !== 'destroy-window' &&
     !(msg.type === 'window-command' && 'source' in msg.command && msg.command.source === 'programmatic');
   if (modalBlockedMessage) return diagnostic(activeBase, 'modal-blocked', id);
+
+  if (msg.type === 'set-window-workspace' && target) {
+    if (target.workspaceId === msg.workspaceId) return accepted(base, false);
+    const windows = base.windows.map((window) => (window.id === target.id ? { ...window, workspaceId: msg.workspaceId } : window));
+    return acceptedAfter(base, managerWith(base, windows, bounds, base.activeWorkspaceId));
+  }
 
   if (msg.type === 'window-command') {
     const result = applyWindowCommand(

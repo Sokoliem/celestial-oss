@@ -5,8 +5,12 @@ import { encodeWindowEventId, getMinimizedWindows, type ManagedWindow, type Wind
 
 export interface WindowShelfTokens {
   background: Color;
+  labelBackground: Color;
+  labelText: Color;
+  itemBackground: Color;
   text: Color;
   activeText: Color;
+  activeBackground: Color;
   hoverText: Color;
   hoverBackground: Color;
   overflowText: Color;
@@ -14,8 +18,12 @@ export interface WindowShelfTokens {
 
 export const windowShelfContract: TokenContract<WindowShelfTokens> = {
   background: (theme) => theme.elevation.raised.surface ?? theme.colors.surfaceRaised,
+  labelBackground: (theme) => theme.colors.interactive,
+  labelText: (theme) => theme.colors.inverse,
+  itemBackground: (theme) => theme.colors.surfaceAlt,
   text: (theme) => theme.colors.textSoft,
-  activeText: (theme) => theme.colors.interactive,
+  activeText: (theme) => theme.states.active.fg,
+  activeBackground: (theme) => theme.states.active.bg ?? theme.colors.surfaceAlt,
   hoverText: (theme) => theme.states.hover.fg,
   hoverBackground: (theme) => theme.states.hover.bg ?? theme.colors.surfaceAlt,
   overflowText: (theme) => theme.colors.muted,
@@ -125,38 +133,46 @@ export function windowShelf(config: WindowShelfConfig): VNode {
   const theme = config.themeCtx?.current() ?? createTheme(config.theme);
   const tokens = resolveComponentTokens(windowShelfContract, theme, 'WindowShelf');
   const maxItemWidth = positiveInteger(config.maxItemWidth, 24, width);
-  const plan = planShelfItems(windows, width, maxItemWidth, theme.glyphs.keycapLeft, theme.glyphs.keycapRight, theme.glyphs.ellipsis);
-  const children: VNode[] = plan.items.map(({ window, label }) => {
-    const encodedId = encodeWindowEventId(window.id);
-    const hovered = config.hoveredWindowId === window.id;
-    const focused = config.focusedWindowId === window.id;
-    const button = event(
-      `window-shelf:${encodedId}`,
-      text(
-        label,
-        style({
-          color: hovered ? tokens.hoverText : focused ? tokens.activeText : tokens.text,
-          ...(hovered ? { background: tokens.hoverBackground } : {}),
-          bold: hovered || focused,
-        }),
-      ),
-      {
-        onClick: `window-shelf:${encodedId}:activate`,
-        onRightClick: `window-shelf:${encodedId}:context`,
-        onMouseEnter: `window-shelf:${encodedId}:hover`,
-        onMouseLeave: `window-shelf:${encodedId}:leave`,
-      },
-      {
-        label: `Restore ${window.title ?? window.id}`,
-        summary: window.workspaceId ? `Minimized window in workspace ${window.workspaceId}` : 'Minimized window',
-        intent: 'restore-window',
-        affordances: ['hover', 'click'],
-        cursor: 'pointer',
-        extra: { windowId: window.id, workspaceId: window.workspaceId, restoreMode: window.restoreMode },
-      },
-    );
-    return focus(`window-shelf:${encodedId}:focus`, button, { focused, group: 'window-shelf' });
-  });
+  const fullLabel = ` MINIMIZED ${windows.length} `;
+  const compactLabel = ` M:${windows.length} `;
+  const minimumItemWidth = 5;
+  const shelfLabel = width - visualWidth(fullLabel) >= minimumItemWidth ? fullLabel : width - visualWidth(compactLabel) >= minimumItemWidth ? compactLabel : '';
+  const itemAreaWidth = Math.max(0, width - visualWidth(shelfLabel));
+  const plan = planShelfItems(windows, itemAreaWidth, maxItemWidth, ` ${theme.glyphs.keycapLeft}`, `${theme.glyphs.keycapRight} `, theme.glyphs.ellipsis);
+  const children: VNode[] = shelfLabel ? [text(shelfLabel, style({ color: tokens.labelText, background: tokens.labelBackground, bold: true }))] : [];
+  children.push(
+    ...plan.items.map(({ window, label }) => {
+      const encodedId = encodeWindowEventId(window.id);
+      const hovered = config.hoveredWindowId === window.id;
+      const focused = config.focusedWindowId === window.id;
+      const button = event(
+        `window-shelf:${encodedId}`,
+        text(
+          label,
+          style({
+            color: hovered ? tokens.hoverText : focused ? tokens.activeText : tokens.text,
+            background: hovered ? tokens.hoverBackground : focused ? tokens.activeBackground : tokens.itemBackground,
+            bold: hovered || focused,
+          }),
+        ),
+        {
+          onClick: `window-shelf:${encodedId}:activate`,
+          onRightClick: `window-shelf:${encodedId}:context`,
+          onMouseEnter: `window-shelf:${encodedId}:hover`,
+          onMouseLeave: `window-shelf:${encodedId}:leave`,
+        },
+        {
+          label: `Restore ${window.title ?? window.id}`,
+          summary: window.workspaceId ? `Minimized window in workspace ${window.workspaceId}` : 'Minimized window',
+          intent: 'restore-window',
+          affordances: ['hover', 'click'],
+          cursor: 'pointer',
+          extra: { windowId: window.id, workspaceId: window.workspaceId, restoreMode: window.restoreMode },
+        },
+      );
+      return focus(`window-shelf:${encodedId}:focus`, button, { focused, group: 'window-shelf' });
+    }),
+  );
 
   if (plan.overflow > 0 && plan.overflowLabel) {
     children.push(
