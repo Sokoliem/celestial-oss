@@ -144,6 +144,18 @@ describe('SelectState', () => {
     state = updateSelectState(state, 'return');
     expect(state.selected).toBe('b');
   });
+
+  it('snapshots option objects and keeps empty lists stable', () => {
+    const mutable = [{ label: 'Original', value: 'original' }];
+    const state = createSelectState(mutable);
+    mutable[0]!.label = 'Changed';
+    mutable.push({ label: 'Injected', value: 'injected' });
+    expect(state.options).toEqual([{ label: 'Original', value: 'original' }]);
+
+    const empty = updateSelectState(createSelectState([]), 'down');
+    expect(empty.highlighted).toBe(0);
+    expect(updateSelectState(empty, 'return')).toBe(empty);
+  });
 });
 
 describe('MultiSelectState', () => {
@@ -197,5 +209,14 @@ describe('MultiSelectState', () => {
     state = updateMultiSelectState(state, 'space'); // select 0
     state = updateMultiSelectState(state, 'return');
     expect(multiSelectResults(state)).toEqual(['Red', 'Blue']);
+  });
+
+  it('ignores empty and corrupted selections safely', () => {
+    const empty = createMultiSelectState([]);
+    expect(updateMultiSelectState(empty, 'down').highlighted).toBe(0);
+    expect(updateMultiSelectState(empty, 'space')).toBe(empty);
+
+    const state = createMultiSelectState(options);
+    expect(multiSelectResults({ ...state, selected: new Set([0, -1, Number.NaN, 99]) })).toEqual(['Red']);
   });
 });

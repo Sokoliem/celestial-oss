@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { joinH, joinV, place, table, wrap } from '../layout.js';
+import { autoSizeColumns, joinH, joinV, place, table, wrap } from '../layout.js';
 import { visualWidth } from '../utils.js';
 
 describe('layout', () => {
@@ -61,6 +61,11 @@ describe('layout', () => {
       const lastLine = lines[lines.length - 1]!;
       expect(lastLine.trim().length).toBeGreaterThan(0);
     });
+
+    it('rejects invalid gaps instead of reaching String.repeat', () => {
+      expect(() => joinH('a', 'b', -1)).toThrow(RangeError);
+      expect(() => joinH('a', 'b', Number.NaN)).toThrow(TypeError);
+    });
   });
 
   describe('joinV', () => {
@@ -112,6 +117,26 @@ describe('layout', () => {
       expect(lines[0]).toBe('      ');
       expect(lines[1]).toBe('      ');
       expect(lines[2]).toBe('hi    ');
+    });
+
+    it('clips content to the requested cell box', () => {
+      expect(place('A❤️BC', 3, 1)).toBe('A❤️');
+      expect(() => place('x', -1, 1)).toThrow(RangeError);
+    });
+  });
+
+  describe('autoSizeColumns', () => {
+    it('selects a stacked layout when structural overhead cannot fit', () => {
+      const result = autoSizeColumns(['Name', 'Value'], [['alpha', 'beta']], 4);
+      expect(result.mode).toBe('stacked');
+      expect(result.totalWidth).toBe(4);
+      expect(result.finalWidths).toEqual([0, 0]);
+    });
+
+    it('never exceeds the width budget in table mode', () => {
+      const result = autoSizeColumns(['Name', 'Value'], [['alpha', 'beta']], 12);
+      expect(result.mode).toBe('table');
+      expect(result.totalWidth).toBeLessThanOrEqual(12);
     });
   });
 

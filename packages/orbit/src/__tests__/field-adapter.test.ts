@@ -40,6 +40,16 @@ describe('createFieldAdapter', () => {
     expect(adapter.type).toBe('select');
   });
 
+  it('snapshots object options before constructing an adapter', () => {
+    const options = [{ label: 'Original', value: 'original' }];
+    const adapter = createFieldAdapter({ label: 'Color', type: 'select', options, defaultValue: 'original' });
+    options[0]!.label = 'Changed';
+    options.push({ label: 'Injected', value: 'injected' });
+    const [model] = adapter.init();
+    expect(JSON.stringify(adapter.view(model))).toContain('Original');
+    expect(JSON.stringify(adapter.view(model))).not.toContain('Changed');
+  });
+
   it('creates a textarea adapter for type "textarea"', () => {
     const adapter = createFieldAdapter({ label: 'Bio', type: 'textarea', defaultValue: '' });
     expect(adapter.type).toBe('textarea');

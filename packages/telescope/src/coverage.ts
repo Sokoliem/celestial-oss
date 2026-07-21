@@ -35,7 +35,7 @@ export function analyzeMessageCoverage(dispatched: Array<{ type: string; timesta
 
   for (let i = 0; i < dispatched.length; i++) {
     const msg = dispatched[i]!;
-    const ts = msg.timestamp ?? i;
+    const ts = Number.isFinite(msg.timestamp) ? msg.timestamp! : i;
     const existing = byType.get(msg.type);
 
     if (existing) {
@@ -47,7 +47,7 @@ export function analyzeMessageCoverage(dispatched: Array<{ type: string; timesta
   }
 
   const definedSet = new Set(definedMsgTypes);
-  const uncovered = definedMsgTypes.filter((t) => !byType.has(t));
+  const uncovered = [...definedSet].filter((type) => !byType.has(type));
   const coveredCount = [...definedSet].filter((t) => byType.has(t)).length;
   const coverage = definedSet.size === 0 ? 1 : coveredCount / definedSet.size;
 

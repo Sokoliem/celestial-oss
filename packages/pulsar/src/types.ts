@@ -196,6 +196,15 @@ export interface MarkdownTheme {
   tableHeader: (text: string) => string;
   tableCell: (text: string) => string;
   tableBorder: string;
+  /** Semantic diff styling sourced from corona domain tokens. */
+  diffAdded?: (text: string) => string;
+  diffRemoved?: (text: string) => string;
+  diffContext?: (text: string) => string;
+  diffHeader?: (text: string) => string;
+  /** Marker for the active search-result block. */
+  searchCurrentMarker?: string;
+  /** Marker for a highlighted source line inside a code block. */
+  codeHighlightMarker?: string;
   /** GFM task list checkboxes */
   taskChecked: string;
   taskUnchecked: string;
@@ -317,7 +326,7 @@ export interface RenderOptions {
   highlightTheme?: unknown;
   /** Enable bidi/RTL reordering via @celestial/rosetta */
   bidi?: boolean;
-  /** Search highlight matches to overlay on rendered output (B4). */
+  /** Search matches whose containing blocks should receive the mark style. */
   searchHighlights?: readonly MarkdownSearchMatch[];
   /** 0-based index into `searchHighlights` indicating the current match for border styling. */
   currentMatchIndex?: number;

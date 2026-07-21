@@ -2,6 +2,7 @@
  * Extracted from ../vdom.ts. Behavior-preserving split.
  */
 
+import { sanitizeHyperlink, sanitizeSgr, sanitizeTerminalText } from '@celestial/corona';
 import type { Cell, CellGrid } from './cells.js';
 import type { ResolvedStyleAttrs, StyleAttrs } from './style.js';
 
@@ -107,7 +108,7 @@ export function renderUpdates(updates: CellUpdate[]): string {
       }
 
       // Handle OSC 8 hyperlink state transitions
-      const href = update.href;
+      const href = update.href ? sanitizeHyperlink(update.href) : undefined;
       if (href !== activeHref) {
         if (activeHref) {
           // Close previous hyperlink
@@ -120,7 +121,7 @@ export function renderUpdates(updates: CellUpdate[]): string {
         activeHref = href;
       }
 
-      output += update.char;
+      output += sanitizeTerminalText(update.char, { allowHyperlinks: false, allowSgr: false });
     }
   }
 
@@ -133,10 +134,10 @@ export function renderUpdates(updates: CellUpdate[]): string {
   return output;
 }
 
-function styleToAnsi(style: StyleAttrs): string {
+function styleToAnsi(style: ResolvedStyleAttrs): string {
   let result = '';
-  if (style.fg) result += style.fg;
-  if (style.bg) result += style.bg;
+  if (style.fg) result += sanitizeSgr(style.fg);
+  if (style.bg) result += sanitizeSgr(style.bg);
   if (style.bold) result += '\x1b[1m';
   if (style.dim) result += '\x1b[2m';
   if (style.italic) result += '\x1b[3m';

@@ -5,12 +5,14 @@
  * Useful for snapshot-style assertions in tests.
  */
 
-import { type CellGrid, layout, measure, type VNode } from '@celestial/core/nebula';
+import type { LayoutEntry, LayoutPlan, VNode } from '@celestial/core/nebula';
+import { gridToPlainLines } from './internal/grid-text.js';
+import { renderGrid } from './internal/render-grid.js';
 
 export interface RenderOptions {
-  /** Width of the virtual terminal (default: auto-measured) */
+  /** Width of the virtual terminal (default: 80 columns) */
   width?: number;
-  /** Height of the virtual terminal (default: auto-measured) */
+  /** Height of the virtual terminal (default: 24 rows) */
   height?: number;
 }
 
@@ -37,39 +39,13 @@ export function renderToText(vnode: VNode, options?: RenderOptions): string {
  * Trailing whitespace on each line is trimmed.
  */
 export function renderToLines(vnode: VNode, options?: RenderOptions): string[] {
-  const size = measure(vnode);
-  const width = options?.width ?? size.width;
-  const height = options?.height ?? size.height;
-
-  if (width <= 0 || height <= 0) {
-    return [];
-  }
-
-  const grid: CellGrid = layout(vnode, width, height);
-  const lines: string[] = [];
-
-  for (let r = 0; r < grid.height; r++) {
-    let line = '';
-    const row = grid.cells[r];
-    if (row) {
-      for (let c = 0; c < grid.width; c++) {
-        const cell = row[c];
-        line += cell ? cell.char : ' ';
-      }
-    }
-    lines.push(line.trimEnd());
-  }
-
-  // Remove trailing empty lines
-  while (lines.length > 0 && lines[lines.length - 1] === '') {
-    lines.pop();
-  }
-
-  return lines;
+  const rendered = renderGrid(vnode, options);
+  return rendered ? gridToPlainLines(rendered.grid) : [];
 }
 
 export function profileRender(descriptor: VNode | RenderProfileDescriptor | (() => VNode), iterations = 10): RenderProfileResult {
-  const totalIterations = Math.max(1, Math.floor(iterations));
+  if (!Number.isFinite(iterations)) throw new RangeError('Profile iterations must be finite.');
+  const totalIterations = Math.max(1, Math.min(1_000_000, Math.floor(iterations)));
   let totalTimeMs = 0;
   let peakMemoryBytes = 0;
   let vnodeCount = 0;
@@ -78,11 +54,11 @@ export function profileRender(descriptor: VNode | RenderProfileDescriptor | (() 
     const { vnode, options } = resolveProfileDescriptor(descriptor);
     const beforeMemory = readHeapUsed();
     const start = performance.now();
-    renderToLines(vnode, options);
+    const rendered = renderGrid(vnode, options);
     totalTimeMs += performance.now() - start;
     const afterMemory = readHeapUsed();
     peakMemoryBytes = Math.max(peakMemoryBytes, Math.max(afterMemory - beforeMemory, 0));
-    vnodeCount = Math.max(vnodeCount, countVNodes(vnode));
+    vnodeCount = Math.max(vnodeCount, rendered ? countPlanEntries(rendered.plan) : 0);
   }
 
   return {
@@ -107,28 +83,9 @@ function resolveProfileDescriptor(descriptor: VNode | RenderProfileDescriptor | 
   };
 }
 
-function countVNodes(node: VNode): number {
-  switch (node.kind) {
-    case 'text':
-    case 'empty':
-    case 'image':
-      return 1;
-    case 'row':
-    case 'column':
-    case 'box':
-      return 1 + node.children.reduce((sum, child) => sum + countVNodes(child), 0);
-    case 'focus':
-    case 'scroll':
-    case 'event':
-    case 'hover':
-    case 'overlay':
-    case 'flex':
-      return 1 + countVNodes(node.child);
-    case 'component':
-      return 1 + countVNodes(node.render());
-    default:
-      return 1;
-  }
+function countPlanEntries(plan: LayoutPlan): number {
+  const countEntry = (entry: LayoutEntry): number => 1 + entry.children.reduce((sum, child) => sum + countEntry(child), 0);
+  return countEntry(plan.root) + plan.overlays.reduce((sum, overlay) => sum + countEntry(overlay.entry), 0);
 }
 
 function readHeapUsed(): number {

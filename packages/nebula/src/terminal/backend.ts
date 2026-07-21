@@ -1,3 +1,4 @@
+import { acquireTerminalLease, type TerminalLease } from '@celestial/atlas';
 import { createWin32InputBridge, needsWin32InputBridge } from '../win32-input.js';
 
 export interface TerminalBackend {
@@ -27,22 +28,16 @@ export function createTerminal(): TerminalBackend {
 }
 
 function createUnixTerminal(): TerminalBackend {
-  let wasRaw = false;
+  let terminalLease: TerminalLease | null = null;
 
   return {
     enterRawMode() {
-      if (process.stdin.isTTY) {
-        wasRaw = process.stdin.isRaw;
-        process.stdin.setRawMode(true);
-        process.stdin.resume();
-      }
+      if (process.stdin.isTTY && !terminalLease) terminalLease = acquireTerminalLease(process.stdin);
     },
 
     exitRawMode() {
-      if (process.stdin.isTTY) {
-        process.stdin.setRawMode(wasRaw);
-        process.stdin.pause();
-      }
+      terminalLease?.release();
+      terminalLease = null;
     },
 
     write(data: string) {
@@ -77,15 +72,11 @@ function createUnixTerminal(): TerminalBackend {
 function createWindowsTerminal(): TerminalBackend {
   const bridge = createWin32InputBridge();
   let bridgeStarted = false;
-  let wasRaw = false;
+  let terminalLease: TerminalLease | null = null;
 
   return {
     enterRawMode() {
-      if (process.stdin.isTTY) {
-        wasRaw = process.stdin.isRaw;
-        process.stdin.setRawMode(true);
-        process.stdin.resume();
-      }
+      if (process.stdin.isTTY && !terminalLease) terminalLease = acquireTerminalLease(process.stdin);
 
       if (!bridgeStarted) {
         bridgeStarted = bridge.start();
@@ -99,10 +90,8 @@ function createWindowsTerminal(): TerminalBackend {
       bridge.stop();
       bridgeStarted = false;
 
-      if (process.stdin.isTTY) {
-        process.stdin.setRawMode(wasRaw);
-        process.stdin.pause();
-      }
+      terminalLease?.release();
+      terminalLease = null;
     },
 
     write(data: string) {

@@ -34,10 +34,13 @@ import {
   highContrast,
   reduceMotion,
   type SemanticTheme,
+  sanitizeTerminalText,
   stripAllStyles,
   type Tone,
 } from '@celestial/corona';
 import type { RGB } from '@celestial/nebula';
+import { safeMinMax } from './math-utils.js';
+import { finiteValues } from './validation.js';
 
 // ── Color Palettes ───────────────────────────────────────────────────────
 
@@ -125,6 +128,8 @@ export function getPalette(name: PaletteName): ChartPalette {
       return PASTEL_PALETTE;
     case 'monochrome':
       return MONOCHROME_PALETTE;
+    default:
+      return VIVID_PALETTE;
   }
 }
 
@@ -136,7 +141,9 @@ export function getPalette(name: PaletteName): ChartPalette {
  * @returns The color at `index % palette.length`.
  */
 export function seriesColor(palette: ChartPalette, index: number): Color {
-  return palette[index % palette.length]!;
+  if (palette.length === 0) throw new RangeError('chart palette must contain at least one color');
+  const safeIndex = Number.isFinite(index) ? Math.trunc(index) : 0;
+  return palette[((safeIndex % palette.length) + palette.length) % palette.length]!;
 }
 
 // ── Theme Integration ────────────────────────────────────────────────────
@@ -289,9 +296,10 @@ export function describeChart(opts: DescribeChartOpts): string {
         parts.push(`${label}: no data points.`);
         continue;
       }
-      const min = Math.min(...s.values);
-      const max = Math.max(...s.values);
-      const mean = s.values.reduce((a, b) => a + b, 0) / s.values.length;
+      const values = finiteValues(s.values);
+      const [min, max] = safeMinMax(values);
+      const scale = values.reduce((largest, value) => Math.max(largest, Math.abs(value)), 0);
+      const mean = scale === 0 ? 0 : (values.reduce((sum, value) => sum + value / scale, 0) / values.length) * scale;
       parts.push(`${label}: ${s.values.length} points, min ${formatNum(min)}, max ${formatNum(max)}, mean ${formatNum(mean)}.`);
     }
   }
@@ -301,7 +309,7 @@ export function describeChart(opts: DescribeChartOpts): string {
     parts.push(opts.summary);
   }
 
-  return parts.join(' ');
+  return safeDescription(parts.join(' '));
 }
 
 /**
@@ -430,4 +438,8 @@ function capitalize(s: string): string {
 
 function formatNum(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+function safeDescription(value: string): string {
+  return stripAllStyles(sanitizeTerminalText(value, { allowSgr: false, allowHyperlinks: false, controlPolicy: 'strip' })).replace(/[\r\n]/g, ' ');
 }

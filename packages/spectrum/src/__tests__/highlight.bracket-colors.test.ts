@@ -49,6 +49,16 @@ describe('highlight() — colorizeBrackets opt', () => {
     expect(out).toContain('<<0>>)');
   });
 
+  it('falls back safely for an empty or malformed runtime palette', () => {
+    const empty = highlight('a(b)', 'typescript', undefined, { colorizeBrackets: true, bracketColors: [] });
+    const malformed = highlight('a(b)', 'typescript', undefined, {
+      colorizeBrackets: true,
+      bracketColors: [null, 'bad'] as never,
+    });
+    expect(stripAnsi(empty)).toBe('a(b)');
+    expect(stripAnsi(malformed)).toBe('a(b)');
+  });
+
   it('honours custom unmatchedBracketColor', () => {
     const out = highlight('const x = (a;', 'typescript', undefined, {
       colorizeBrackets: true,

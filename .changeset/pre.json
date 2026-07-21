@@ -1,0 +1,28 @@
+{
+  "mode": "pre",
+  "tag": "preview",
+  "initialVersions": {
+    "@celestial/atlas": "0.1.0-preview.1",
+    "@celestial/aurora": "0.1.0-preview.1",
+    "@celestial/core": "0.1.0-preview.1",
+    "@celestial/corona": "0.1.0-preview.1",
+    "@celestial/gravity": "0.1.0-preview.1",
+    "@celestial/horizon": "0.1.0-beta.1",
+    "@celestial/mirage": "0.1.0-preview.1",
+    "@celestial/nebula": "0.1.0-preview.1",
+    "@celestial/nexus": "0.1.0-preview.1",
+    "@celestial/nova": "0.1.0-preview.1",
+    "@celestial/orbit": "0.1.0-preview.1",
+    "@celestial/pulsar": "0.1.0-preview.1",
+    "@celestial/rosetta": "0.1.0-preview.1",
+    "@celestial/spectrum": "0.1.0-preview.1",
+    "@celestial/stellar": "0.1.0-preview.1",
+    "@celestial/test": "0.1.0-preview.1",
+    "@celestial/ui": "0.1.0-preview.1",
+    "@celestial/demo-api-inspector": "0.0.0",
+    "@celestial/demo-horizon-workbench": "0.0.0",
+    "@celestial/demo-showcase": "0.0.0",
+    "@celestial/demo-task-console": "0.0.0"
+  },
+  "changesets": []
+}

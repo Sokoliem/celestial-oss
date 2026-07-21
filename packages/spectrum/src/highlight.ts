@@ -272,8 +272,9 @@ function renderTokensWithBrackets(
   theme: HighlightTheme,
   opts: Omit<HighlightOptions, 'theme'> | undefined,
 ): string {
-  const palette = opts?.bracketColors ?? DEFAULT_BRACKET_COLORS;
-  const unmatched = opts?.unmatchedBracketColor ?? DEFAULT_UNMATCHED_BRACKET_COLOR;
+  const customPalette = opts?.bracketColors?.filter((candidate): candidate is (text: string) => string => typeof candidate === 'function').slice(0, 256);
+  const palette = customPalette && customPalette.length > 0 ? customPalette : DEFAULT_BRACKET_COLORS;
+  const unmatched = typeof opts?.unmatchedBracketColor === 'function' ? opts.unmatchedBracketColor : DEFAULT_UNMATCHED_BRACKET_COLOR;
   const cycle = palette.length;
 
   // O(1) lookup by column.

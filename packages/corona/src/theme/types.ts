@@ -328,6 +328,8 @@ export interface SemanticTheme {
   colors: ThemeColors;
   spacing: Record<Size, number>;
   glyphs: ThemeGlyphs;
+  /** Capability level used to resolve `glyphs`; theme factories always populate it. */
+  unicodeLevel?: GlyphLevel;
   /** Derived color scales (10 steps per tone). Always computed from tones. */
   readonly scales: Record<Tone, ColorScale>;
   typography: ThemeTypography;

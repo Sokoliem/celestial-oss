@@ -8,6 +8,15 @@
  */
 
 import { safeMax, safeMin } from './math-utils.js';
+import { finiteNumber, interpolateRange, nonNegativeInteger, positiveInteger, rangeRatio } from './validation.js';
+
+const MAX_RESAMPLED_POINTS = 1_000_000;
+
+function saturatingAdd(left: number, right: number): number {
+  const result = left + right;
+  if (Number.isFinite(result)) return result;
+  return Math.sign(left) === Math.sign(right) ? Math.sign(left || right) * Number.MAX_VALUE : 0;
+}
 
 // ── Core Types ───────────────────────────────────────────────────────────
 
@@ -77,7 +86,12 @@ class DatasetImpl implements Dataset {
   private _yRange: [number, number] | null = null;
 
   constructor(points: readonly DataPoint[], id: string, name: string) {
-    this._points = points;
+    this._points = points.map((point, index) => ({
+      ...point,
+      x: finiteNumber(point.x, index),
+      y: finiteNumber(point.y, 0),
+      timestamp: point.timestamp === undefined ? undefined : finiteNumber(point.timestamp, 0),
+    }));
     this.id = id;
     this.name = name;
   }
@@ -87,8 +101,9 @@ class DatasetImpl implements Dataset {
   }
 
   at(index: number): DataPoint | undefined {
-    if (index < 0 || index >= this._points.length) return undefined;
-    return this._points[index];
+    if (!Number.isInteger(index) || index < 0 || index >= this._points.length) return undefined;
+    const point = this._points[index];
+    return point ? { ...point } : undefined;
   }
 
   [Symbol.iterator](): Iterator<DataPoint> {
@@ -97,7 +112,7 @@ class DatasetImpl implements Dataset {
     return {
       next(): IteratorResult<DataPoint> {
         if (i < points.length) {
-          const value = points[i]!;
+          const value = { ...points[i]! };
           i++;
           return { value, done: false };
         }
@@ -111,7 +126,7 @@ class DatasetImpl implements Dataset {
       const xs = this._points.map((p) => p.x);
       this._xRange = [safeMin(xs), safeMax(xs)];
     }
-    return this._xRange;
+    return [...this._xRange];
   }
 
   get yRange(): [number, number] {
@@ -119,7 +134,7 @@ class DatasetImpl implements Dataset {
       const ys = this._points.map((p) => p.y);
       this._yRange = [safeMin(ys), safeMax(ys)];
     }
-    return this._yRange;
+    return [...this._yRange];
   }
 
   toValues(): number[] {
@@ -131,12 +146,12 @@ class DatasetImpl implements Dataset {
   }
 
   map(fn: (point: DataPoint, index: number) => DataPoint): Dataset {
-    const mapped = this._points.map((p, i) => fn(p, i));
+    const mapped = this._points.map((p, i) => fn({ ...p }, i));
     return new DatasetImpl(mapped, this.id, this.name);
   }
 
   filter(fn: (point: DataPoint, index: number) => boolean): Dataset {
-    const filtered = this._points.filter((p, i) => fn(p, i));
+    const filtered = this._points.filter((p, i) => fn({ ...p }, i));
     return new DatasetImpl(filtered, this.id, this.name);
   }
 
@@ -191,11 +206,10 @@ export function fromTimeSeries(entries: { timestamp: number; value: number }[], 
 export function normalize(ds: Dataset): Dataset {
   if (ds.length === 0) return ds;
   const [yMin, yMax] = ds.yRange;
-  const range = yMax - yMin;
-  if (range === 0) {
+  if (yMin === yMax) {
     return ds.map((p) => ({ ...p, y: 0 }));
   }
-  return ds.map((p) => ({ ...p, y: (p.y - yMin) / range }));
+  return ds.map((p) => ({ ...p, y: rangeRatio(p.y, yMin, yMax) }));
 }
 
 /** Compute cumulative sum. */
@@ -204,7 +218,7 @@ export function cumulative(ds: Dataset): Dataset {
   let sum = 0;
   const points: DataPoint[] = [];
   for (const p of ds) {
-    sum += p.y;
+    sum = saturatingAdd(sum, p.y);
     points.push({ ...p, y: sum });
   }
   return new DatasetImpl(points, ds.id, ds.name);
@@ -213,20 +227,23 @@ export function cumulative(ds: Dataset): Dataset {
 /** Compute a simple moving average with the given window size. */
 export function movingAverage(ds: Dataset, window: number): Dataset {
   if (ds.length === 0) return ds;
+  const windowSize = positiveInteger(window, 1);
   const points: DataPoint[] = [];
   const values: number[] = [];
-  let windowSum = 0;
+  let mean = 0;
 
   for (const p of ds) {
     values.push(p.y);
-    windowSum += p.y;
-
-    if (values.length > window) {
-      windowSum -= values[values.length - window - 1]!;
+    const actualWindow = Math.min(values.length, windowSize);
+    if (actualWindow === 1) {
+      mean = p.y;
+    } else if (values.length <= windowSize) {
+      mean = interpolateRange(mean, p.y, 1 / actualWindow);
+    } else {
+      const removed = values[values.length - windowSize - 1]!;
+      mean = finiteNumber(mean - removed / windowSize + p.y / windowSize, mean);
     }
-
-    const actualWindow = Math.min(values.length, window);
-    points.push({ ...p, y: windowSum / actualWindow });
+    points.push({ ...p, y: mean });
   }
 
   return new DatasetImpl(points, ds.id, ds.name);
@@ -240,7 +257,8 @@ export function percentChange(ds: Dataset): Dataset {
 
   for (const p of ds) {
     if (prev !== undefined) {
-      const pct = prev.y === 0 ? 0 : ((p.y - prev.y) / prev.y) * 100;
+      const rawRatio = prev.y === 0 ? 0 : p.y / prev.y - 1;
+      const pct = Number.isFinite(rawRatio * 100) ? rawRatio * 100 : Math.sign(rawRatio) * Number.MAX_VALUE;
       points.push({ x: p.x, y: pct, label: p.label, timestamp: p.timestamp });
     }
     prev = p;
@@ -256,19 +274,20 @@ export function percentChange(ds: Dataset): Dataset {
  */
 export function resample(ds: Dataset, targetPoints: number): Dataset {
   if (ds.length === 0) return ds;
-  if (ds.length === 1 || targetPoints >= ds.length) {
-    if (targetPoints <= ds.length) return ds;
+  const target = Math.min(MAX_RESAMPLED_POINTS, nonNegativeInteger(targetPoints, 0));
+  if (target === 0) return fromValues([], { id: ds.id, name: ds.name });
+  if (ds.length === 1 || target >= ds.length) {
+    if (target <= ds.length) return ds;
     // Upsample via linear interpolation
-    return upsample(ds, targetPoints);
+    return upsample(ds, target);
   }
-  if (targetPoints <= 0) return fromValues([], { id: ds.id, name: ds.name });
-  if (targetPoints === 1) {
+  if (target === 1) {
     const first = ds.at(0)!;
     return new DatasetImpl([first], ds.id, ds.name);
   }
-  if (targetPoints >= ds.length) return ds;
+  if (target >= ds.length) return ds;
 
-  return lttbDownsample(ds, targetPoints);
+  return lttbDownsample(ds, target);
 }
 
 /**
@@ -288,6 +307,10 @@ function lttbDownsample(ds: Dataset, target: number): Dataset {
   result.push(ds.at(0)!);
 
   const bucketSize = (n - 2) / (target - 2);
+  const [xMin, xMax] = ds.xRange;
+  const [yMin, yMax] = ds.yRange;
+  const xScale = Math.max(1, Math.abs(xMin), Math.abs(xMax));
+  const yScale = Math.max(1, Math.abs(yMin), Math.abs(yMax));
 
   let prevSelected = 0;
 
@@ -305,8 +328,8 @@ function lttbDownsample(ds: Dataset, target: number): Dataset {
     let avgCount = 0;
     for (let j = nextBucketStart; j < nextBucketEnd; j++) {
       const p = ds.at(j)!;
-      avgX += p.x;
-      avgY += p.y;
+      avgX += p.x / xScale;
+      avgY += p.y / yScale;
       avgCount++;
     }
     if (avgCount > 0) {
@@ -322,7 +345,11 @@ function lttbDownsample(ds: Dataset, target: number): Dataset {
     for (let j = bucketStart; j < bucketEnd; j++) {
       const curr = ds.at(j)!;
       // Triangle area = 0.5 * |x1(y2-y3) + x2(y3-y1) + x3(y1-y2)|
-      const area = Math.abs((prevPoint.x - avgX) * (curr.y - prevPoint.y) - (prevPoint.x - curr.x) * (avgY - prevPoint.y)) * 0.5;
+      const prevX = prevPoint.x / xScale;
+      const prevY = prevPoint.y / yScale;
+      const currX = curr.x / xScale;
+      const currY = curr.y / yScale;
+      const area = Math.abs((prevX - avgX) * (currY - prevY) - (prevX - currX) * (avgY - prevY)) * 0.5;
       if (area > maxArea) {
         maxArea = area;
         bestIdx = j;
@@ -357,8 +384,8 @@ function upsample(ds: Dataset, target: number): Dataset {
     const loPoint = pairs[lo]!;
     const hiPoint = pairs[hi]!;
 
-    const x = loPoint[0] + frac * (hiPoint[0] - loPoint[0]);
-    const y = loPoint[1] + frac * (hiPoint[1] - loPoint[1]);
+    const x = interpolateRange(loPoint[0], hiPoint[0], frac);
+    const y = interpolateRange(loPoint[1], hiPoint[1], frac);
 
     result.push({ x, y });
   }

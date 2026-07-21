@@ -1,5 +1,6 @@
 import { type AppConfig, Cmd, focus, Sub, text } from '@celestial/core/nebula';
 import { afterEach, describe, expect, it } from 'vitest';
+import { waitFor, waitForAnnouncement } from '../async.js';
 import { createScreen } from '../screen.js';
 import { createTestApp, type TestAppHandle } from '../test-app.js';
 
@@ -68,6 +69,24 @@ describe('async utilities', () => {
         ),
       ).rejects.toThrow(/timed out/i);
     });
+
+    it('rejects invalid timing options before polling', async () => {
+      await expect(waitFor(() => {}, { timeout: Number.NaN })).rejects.toThrow(/timeout must be/i);
+      await expect(waitFor(() => {}, { interval: 0 })).rejects.toThrow(/interval must be/i);
+    });
+
+    it('supports aborting a pending wait without waiting for its timeout', async () => {
+      const controller = new AbortController();
+      const pending = waitFor(
+        () => {
+          throw new Error('not ready');
+        },
+        { timeout: 5_000, interval: 1_000, signal: controller.signal },
+      );
+
+      controller.abort(new Error('cancelled by test'));
+      await expect(pending).rejects.toThrow('cancelled by test');
+    });
   });
 
   // ── waitForText ────────────────────────────────────────────────────
@@ -120,6 +139,15 @@ describe('async utilities', () => {
   });
 
   describe('runtime accessibility waits', () => {
+    it('reuses stateful regular expressions without leaking lastIndex', async () => {
+      const announcements = [{ message: 'Ready now', priority: 'polite' as const, timestamp: 1 }];
+      const matcher = /Ready/gu;
+
+      await expect(waitForAnnouncement(() => announcements, matcher, { timeout: 0 })).resolves.toMatchObject({ message: 'Ready now' });
+      await expect(waitForAnnouncement(() => announcements, matcher, { timeout: 0 })).resolves.toMatchObject({ message: 'Ready now' });
+      expect(matcher.lastIndex).toBe(0);
+    });
+
     it('waits for an announcement to appear', async () => {
       type Msg = { type: 'announce' };
 

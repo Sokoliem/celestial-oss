@@ -10,8 +10,12 @@
 
 // ── Types ────────────────────────────────────────────────────────────────
 
+import { sanitizeTerminalText, stripAnsi } from '@celestial/corona';
 import { HitMap } from '@celestial/nexus';
 import { safeMax, safeMin } from './math-utils.js';
+import { finiteNumber, finiteValues, nonNegativeInteger, rangeRatio } from './validation.js';
+
+const MAX_CELL_HITMAP_CELLS = 4_194_304;
 
 /** A rectangular hit region for a single data point. */
 export interface HitRegion {
@@ -124,11 +128,12 @@ export interface InteractiveChart {
 function buildNexusHitMap(regions: HitRegion[]): HitMap<HitRegion> {
   const map = new HitMap<HitRegion>();
   for (const region of regions) {
+    if (![region.x, region.y, region.width, region.height].every(Number.isFinite) || region.width <= 0 || region.height <= 0) continue;
     map.register({
-      x: region.x,
-      y: region.y,
-      width: region.width,
-      height: region.height,
+      x: Math.floor(region.x),
+      y: Math.floor(region.y),
+      width: Math.max(1, Math.floor(region.width)),
+      height: Math.max(1, Math.floor(region.height)),
       onClick: region,
       cursor: 'pointer',
     });
@@ -149,10 +154,11 @@ function buildCellGrid(regions: HitRegion[], chartX: number, chartY: number, cha
     grid.push(new Array(chartWidth).fill(null) as (HitRegion | null)[]);
   }
   for (const region of regions) {
-    const xStart = Math.max(0, region.x - chartX);
-    const yStart = Math.max(0, region.y - chartY);
-    const xEnd = Math.min(chartWidth, region.x + region.width - chartX);
-    const yEnd = Math.min(chartHeight, region.y + region.height - chartY);
+    if (![region.x, region.y, region.width, region.height].every(Number.isFinite) || region.width <= 0 || region.height <= 0) continue;
+    const xStart = Math.max(0, Math.floor(region.x) - chartX);
+    const yStart = Math.max(0, Math.floor(region.y) - chartY);
+    const xEnd = Math.min(chartWidth, Math.ceil(region.x + region.width) - chartX);
+    const yEnd = Math.min(chartHeight, Math.ceil(region.y + region.height) - chartY);
     for (let r = yStart; r < yEnd; r++) {
       for (let c = xStart; c < xEnd; c++) {
         grid[r]![c] = region;
@@ -178,7 +184,13 @@ function buildCellGrid(regions: HitRegion[], chartX: number, chartY: number, cha
  * @returns An InteractiveChart controller.
  */
 export function createInteractiveChart(opts: InteractiveChartOpts): InteractiveChart {
-  const { chartX, chartY, chartWidth, chartHeight, regions } = opts;
+  const chartX = Math.round(finiteNumber(opts.chartX, 0));
+  const chartY = Math.round(finiteNumber(opts.chartY, 0));
+  const chartWidth = Math.min(1_000_000, nonNegativeInteger(opts.chartWidth, 0));
+  const chartHeight = Math.min(1_000_000, nonNegativeInteger(opts.chartHeight, 0));
+  const regions = opts.regions
+    .filter((region) => [region.x, region.y, region.width, region.height].every(Number.isFinite) && region.width > 0 && region.height > 0)
+    .map((region) => ({ ...region, value: Array.isArray(region.value) ? ([...region.value] as [number, number]) : region.value }));
   const formatTooltip = opts.formatTooltip ?? defaultTooltipFormat;
   const strategy = opts.hitStrategy ?? 'hitmap';
 
@@ -186,12 +198,14 @@ export function createInteractiveChart(opts: InteractiveChartOpts): InteractiveC
   const nexusMap = buildNexusHitMap(regions);
 
   // Build cell grid only when 'cell' strategy is selected
-  const cellGrid = strategy === 'cell' ? buildCellGrid(regions, chartX, chartY, chartWidth, chartHeight) : null;
+  const useCellGrid = strategy === 'cell' && (chartWidth === 0 || chartHeight <= Math.floor(MAX_CELL_HITMAP_CELLS / chartWidth));
+  const cellGrid = useCellGrid ? buildCellGrid(regions, chartX, chartY, chartWidth, chartHeight) : null;
 
   let selectionState: SelectionState = { selected: null };
   let crosshairState: CrosshairState = { col: 0, row: 0, visible: false };
 
   function hitTest(col: number, row: number): HitRegion | null {
+    if (!Number.isInteger(col) || !Number.isInteger(row)) return null;
     if (cellGrid) {
       // O(1) cell grid lookup
       const relCol = col - chartX;
@@ -211,7 +225,7 @@ export function createInteractiveChart(opts: InteractiveChartOpts): InteractiveC
     if (!region) return null;
     return {
       region,
-      text: formatTooltip(region),
+      text: safeTooltip(String(formatTooltip(region))),
       col: region.x + region.width,
       row: region.y,
     };
@@ -233,14 +247,16 @@ export function createInteractiveChart(opts: InteractiveChartOpts): InteractiveC
   }
 
   function updateCrosshair(col: number, row: number): CrosshairState {
-    const inBounds = col >= chartX && col < chartX + chartWidth && row >= chartY && row < chartY + chartHeight;
+    const inBounds =
+      Number.isInteger(col) && Number.isInteger(row) && col >= chartX && col < chartX + chartWidth && row >= chartY && row < chartY + chartHeight;
 
-    crosshairState = { col, row, visible: inBounds };
+    crosshairState = { col: Number.isFinite(col) ? Math.round(col) : chartX, row: Number.isFinite(row) ? Math.round(row) : chartY, visible: inBounds };
     return crosshairState;
   }
 
   function renderCrosshair(): string {
     if (!crosshairState.visible) return '';
+    if (chartWidth !== 0 && chartHeight > Math.floor(MAX_CELL_HITMAP_CELLS / chartWidth)) return '';
 
     const H_LINE = '\u2500';
     const V_LINE = '\u2502';
@@ -272,7 +288,7 @@ export function createInteractiveChart(opts: InteractiveChartOpts): InteractiveC
 
   return {
     get hitRegions() {
-      return regions;
+      return regions.map((region) => ({ ...region, value: Array.isArray(region.value) ? ([...region.value] as [number, number]) : region.value }));
     },
     get nexusHitMap() {
       return nexusMap;
@@ -321,23 +337,32 @@ export function buildPointHitRegions(
   dataMaxY: number,
   seriesIndex: number = 0,
 ): HitRegion[] {
-  const rangeX = dataMaxX - dataMinX || 1;
-  const rangeY = dataMaxY - dataMinY || 1;
-  const hitSize = Math.max(1, Math.floor(Math.min(chartWidth, chartHeight) / data.length));
+  const originX = Math.round(finiteNumber(chartX, 0));
+  const originY = Math.round(finiteNumber(chartY, 0));
+  const width = Math.min(1_000_000, nonNegativeInteger(chartWidth, 0));
+  const height = Math.min(1_000_000, nonNegativeInteger(chartHeight, 0));
+  const minX = finiteNumber(dataMinX, 0);
+  const maxX = finiteNumber(dataMaxX, minX);
+  const minY = finiteNumber(dataMinY, 0);
+  const maxY = finiteNumber(dataMaxY, minY);
+  const points = data.map((value, index) => ({ value, index })).filter(({ value: [x, y] }) => Number.isFinite(x) && Number.isFinite(y));
+  if (points.length === 0 || width === 0 || height === 0) return [];
+  const hitSize = Math.max(1, Math.floor(Math.min(width, height) / points.length));
+  const safeSeriesIndex = Math.trunc(finiteNumber(seriesIndex, 0));
 
-  return data.map(([x, y], i) => {
-    const col = chartX + Math.round(((x - dataMinX) / rangeX) * (chartWidth - 1));
-    const row = chartY + chartHeight - 1 - Math.round(((y - dataMinY) / rangeY) * (chartHeight - 1));
-    const regionX = Math.max(chartX, col - Math.floor(hitSize / 2));
-    const regionY = Math.max(chartY, row - Math.floor(hitSize / 2));
+  return points.map(({ value: [x, y], index }) => {
+    const col = originX + Math.round(rangeRatio(x, minX, maxX, 0.5) * (width - 1));
+    const row = originY + height - 1 - Math.round(rangeRatio(y, minY, maxY, 0.5) * (height - 1));
+    const regionX = Math.max(originX, Math.min(originX + width - 1, col - Math.floor(hitSize / 2)));
+    const regionY = Math.max(originY, Math.min(originY + height - 1, row - Math.floor(hitSize / 2)));
     return {
-      id: `s${seriesIndex}-p${i}`,
-      seriesIndex,
-      pointIndex: i,
+      id: `s${safeSeriesIndex}-p${index}`,
+      seriesIndex: safeSeriesIndex,
+      pointIndex: index,
       x: regionX,
       y: regionY,
-      width: Math.min(hitSize, chartX + chartWidth - regionX),
-      height: Math.min(hitSize, chartY + chartHeight - regionY),
+      width: Math.min(hitSize, originX + width - regionX),
+      height: Math.min(hitSize, originY + height - regionY),
       value: [x, y] as [number, number],
     };
   });
@@ -355,22 +380,29 @@ export function buildPointHitRegions(
  * @returns Array of hit regions.
  */
 export function buildBarHitRegions(values: number[], chartX: number, chartY: number, chartWidth: number, chartHeight: number, labels?: string[]): HitRegion[] {
-  const maxVal = safeMax(values.map(Math.abs));
+  const data = finiteValues(values);
+  const originX = Math.round(finiteNumber(chartX, 0));
+  const originY = Math.round(finiteNumber(chartY, 0));
+  const width = Math.min(1_000_000, nonNegativeInteger(chartWidth, 0));
+  const height = Math.min(1_000_000, nonNegativeInteger(chartHeight, 0));
+  if (data.length === 0 || width === 0 || height === 0) return [];
+  let maxVal = 0;
+  for (const value of data) maxVal = Math.max(maxVal, Math.abs(value));
   // No bars visible when all values are zero
   if (maxVal === 0) return [];
 
-  const barWidth = Math.max(1, Math.floor(chartWidth / values.length));
+  const barWidth = Math.max(1, Math.floor(width / data.length));
 
   // Compute zero line for mixed positive/negative values
-  const minVal = safeMin([...values, 0]);
-  const maxPositive = safeMax([...values, 0]);
-  const range = maxPositive - minVal || 1;
-  const zeroY = chartY + Math.round(((maxPositive - 0) / range) * (chartHeight - 1));
+  const minVal = Math.min(safeMin(data), 0);
+  const maxPositive = Math.max(safeMax(data), 0);
+  const zeroProgress = rangeRatio(0, minVal, maxPositive);
+  const zeroY = originY + Math.round((1 - zeroProgress) * (height - 1));
 
   const regions: HitRegion[] = [];
 
-  for (let i = 0; i < values.length; i++) {
-    const v = values[i]!;
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i]!;
     if (v === 0) {
       // Zero-valued bars have no visual representation, no hit region
       continue;
@@ -381,23 +413,25 @@ export function buildBarHitRegions(values: number[], chartX: number, chartY: num
 
     if (v >= 0) {
       // Positive bar: extends upward from zero line
-      barHeight = Math.max(1, Math.round((v / range) * (chartHeight - 1)));
+      barHeight = Math.max(1, Math.round(Math.abs(rangeRatio(v, minVal, maxPositive) - zeroProgress) * (height - 1)));
       y = zeroY - barHeight;
     } else {
       // Negative bar: extends downward from zero line
-      barHeight = Math.max(1, Math.round((Math.abs(v) / range) * (chartHeight - 1)));
+      barHeight = Math.max(1, Math.round(Math.abs(rangeRatio(v, minVal, maxPositive) - zeroProgress) * (height - 1)));
       y = zeroY;
     }
 
-    const clampedY = Math.max(chartY, y);
+    const x = originX + i * barWidth;
+    if (x >= originX + width) break;
+    const clampedY = Math.max(originY, y);
     regions.push({
       id: `bar-${i}`,
       seriesIndex: 0,
       pointIndex: i,
-      x: chartX + i * barWidth,
+      x,
       y: clampedY,
       width: barWidth,
-      height: Math.min(barHeight, chartY + chartHeight - clampedY),
+      height: Math.min(barHeight, originY + height - clampedY),
       value: v,
       label: labels?.[i],
     });
@@ -414,4 +448,8 @@ function defaultTooltipFormat(region: HitRegion): string {
     return `${label}(${region.value[0]}, ${region.value[1]})`;
   }
   return `${label}${region.value}`;
+}
+
+function safeTooltip(value: string): string {
+  return stripAnsi(sanitizeTerminalText(value, { allowSgr: false, allowHyperlinks: false, controlPolicy: 'strip' })).replace(/[\r\n]/g, ' ');
 }

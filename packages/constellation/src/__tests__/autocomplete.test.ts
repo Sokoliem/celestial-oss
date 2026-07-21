@@ -1,3 +1,4 @@
+import { extractNodeText } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { autocomplete } from '../autocomplete.js';
 
@@ -68,20 +69,20 @@ describe('autocomplete', () => {
     expect(updated.open).toBe(false);
   });
 
-  it('subscribes to decoded key events and bracketed paste', () => {
+  it('subscribes to decoded key events and bracketed paste while focused', () => {
     const comp = autocomplete({ source });
     const [model] = comp.init();
-    const sub = comp.subscriptions!(model);
+    const sub = comp.subscriptions!({ ...model, focused: true });
     expect(sub._kind.kind).toBe('batch');
     if (sub._kind.kind === 'batch') {
-      expect(sub._kind.subs.map((s) => s._kind.kind)).toEqual(['keyEvent', 'paste']);
+      expect(sub._kind.subs.map((s) => s._kind.kind)).toEqual(['elementMouse', 'keyEvent', 'paste']);
     }
   });
 
   it('decoded key subscriptions preserve Unicode characters', () => {
     const comp = autocomplete({ source });
     const [model] = comp.init();
-    const sub = comp.subscriptions!(model);
+    const sub = comp.subscriptions!({ ...model, focused: true });
     expect(sub._kind.kind).toBe('batch');
     if (sub._kind.kind === 'batch') {
       const keySub = sub._kind.subs.find((s) => s._kind.kind === 'keyEvent');
@@ -110,10 +111,24 @@ describe('autocomplete', () => {
       // First child is the input display (row with query text), rest are suggestions
       expect(vnode.children.length).toBe(3); // display + 2 suggestions
       const suggestion = vnode.children[1];
-      if (suggestion?.kind === 'text') {
-        expect(suggestion.content).toContain('apple');
-        expect(suggestion.content).toContain('▸'); // highlighted
-      }
+      expect(suggestion?.kind).toBe('event');
+      expect(extractNodeText(suggestion!)).toContain('apple');
+      expect(extractNodeText(suggestion!)).toContain('▸');
     }
+  });
+
+  it('does not capture keyboard input until its pointer target is focused', () => {
+    const comp = autocomplete({ source });
+    const [model] = comp.init();
+    expect(comp.subscriptions!(model)._kind.kind).toBe('elementMouse');
+    expect(comp.update({ type: 'focus' }, model)[0].focused).toBe(true);
+  });
+
+  it('bounds source results and invalid pointer indices', () => {
+    const comp = autocomplete({ source: () => Array.from({ length: 100 }, (_, index) => `Item ${index}`), maxSuggestions: 5 });
+    const [model] = comp.update({ type: 'input', char: 'x' }, comp.init()[0]);
+    const view = comp.view({ ...model, focused: true });
+    if (view.kind === 'column') expect(view.children).toHaveLength(6);
+    expect(comp.update({ type: 'select-at', index: Number.NaN }, model)[0].query).toBe('x');
   });
 });

@@ -1,3 +1,4 @@
+import { finiteCell, MAX_LAYOUT_ITEMS, nonNegativeInteger, positiveInteger } from './internal.js';
 import type { WindowBounds } from './primitives/geometry.js';
 import type { ManagedWindow } from './windows.js';
 
@@ -30,40 +31,53 @@ export function computeSnappedPosition(
   terminalBounds: { cols: number; rows: number },
   config: SnapConfig = {},
 ): { x: number; y: number; guides: SnapGuide[] } {
-  const resolved = { ...DEFAULT_SNAP_CONFIG, ...config };
+  const cols = nonNegativeInteger(terminalBounds.cols);
+  const rows = nonNegativeInteger(terminalBounds.rows);
+  const bounds: WindowBounds = {
+    x: finiteCell(windowBounds.x),
+    y: finiteCell(windowBounds.y),
+    width: positiveInteger(windowBounds.width, 1),
+    height: positiveInteger(windowBounds.height, 1),
+  };
+  const resolved: Required<SnapConfig> = {
+    enabled: config.enabled ?? DEFAULT_SNAP_CONFIG.enabled,
+    gridSize: nonNegativeInteger(config.gridSize, DEFAULT_SNAP_CONFIG.gridSize),
+    edgeThreshold: nonNegativeInteger(config.edgeThreshold, DEFAULT_SNAP_CONFIG.edgeThreshold),
+    windowThreshold: nonNegativeInteger(config.windowThreshold, DEFAULT_SNAP_CONFIG.windowThreshold),
+  };
   if (!resolved.enabled) {
-    return { x: pos.x, y: pos.y, guides: [] };
+    return { x: finiteCell(pos.x), y: finiteCell(pos.y), guides: [] };
   }
 
-  let x = pos.x;
-  let y = pos.y;
+  let x = finiteCell(pos.x);
+  let y = finiteCell(pos.y);
   const guides: SnapGuide[] = [];
 
-  const rightEdge = Math.max(0, terminalBounds.cols - windowBounds.width);
-  const bottomEdge = Math.max(0, terminalBounds.rows - windowBounds.height);
+  const rightEdge = Math.max(0, cols - bounds.width);
+  const bottomEdge = Math.max(0, rows - bounds.height);
 
   const snappedLeft = snapToTarget(x, 0, resolved.edgeThreshold);
   if (snappedLeft.snapped) {
     x = snappedLeft.value;
-    guides.push({ orientation: 'vertical', position: 0, start: 0, end: terminalBounds.rows, kind: 'edge' });
+    guides.push({ orientation: 'vertical', position: 0, start: 0, end: rows, kind: 'edge' });
   }
 
   const snappedRight = snapToTarget(x, rightEdge, resolved.edgeThreshold);
   if (snappedRight.snapped) {
     x = snappedRight.value;
-    guides.push({ orientation: 'vertical', position: terminalBounds.cols, start: 0, end: terminalBounds.rows, kind: 'edge' });
+    guides.push({ orientation: 'vertical', position: cols, start: 0, end: rows, kind: 'edge' });
   }
 
   const snappedTop = snapToTarget(y, 0, resolved.edgeThreshold);
   if (snappedTop.snapped) {
     y = snappedTop.value;
-    guides.push({ orientation: 'horizontal', position: 0, start: 0, end: terminalBounds.cols, kind: 'edge' });
+    guides.push({ orientation: 'horizontal', position: 0, start: 0, end: cols, kind: 'edge' });
   }
 
   const snappedBottom = snapToTarget(y, bottomEdge, resolved.edgeThreshold);
   if (snappedBottom.snapped) {
     y = snappedBottom.value;
-    guides.push({ orientation: 'horizontal', position: terminalBounds.rows, start: 0, end: terminalBounds.cols, kind: 'edge' });
+    guides.push({ orientation: 'horizontal', position: rows, start: 0, end: cols, kind: 'edge' });
   }
 
   if (resolved.gridSize > 0) {
@@ -73,24 +87,32 @@ export function computeSnappedPosition(
     const snappedGridX = snapToTarget(x, gridX, resolved.edgeThreshold);
     if (snappedGridX.snapped) {
       x = Math.max(0, Math.min(rightEdge, snappedGridX.value));
-      guides.push({ orientation: 'vertical', position: x, start: 0, end: terminalBounds.rows, kind: 'grid' });
+      guides.push({ orientation: 'vertical', position: x, start: 0, end: rows, kind: 'grid' });
     }
 
     const snappedGridY = snapToTarget(y, gridY, resolved.edgeThreshold);
     if (snappedGridY.snapped) {
       y = Math.max(0, Math.min(bottomEdge, snappedGridY.value));
-      guides.push({ orientation: 'horizontal', position: y, start: 0, end: terminalBounds.cols, kind: 'grid' });
+      guides.push({ orientation: 'horizontal', position: y, start: 0, end: cols, kind: 'grid' });
     }
   }
 
-  for (const otherWindow of allWindows) {
-    const candidateX = snapAxisToWindow(x, windowBounds, otherWindow, resolved.windowThreshold, 'x');
+  for (const otherWindow of allWindows.slice(0, MAX_LAYOUT_ITEMS)) {
+    if (![otherWindow.x, otherWindow.y, otherWindow.width, otherWindow.height].every(Number.isFinite)) continue;
+    const normalizedOther: ManagedWindow = {
+      ...otherWindow,
+      x: finiteCell(otherWindow.x),
+      y: finiteCell(otherWindow.y),
+      width: positiveInteger(otherWindow.width, 1),
+      height: positiveInteger(otherWindow.height, 1),
+    };
+    const candidateX = snapAxisToWindow(x, bounds, normalizedOther, resolved.windowThreshold, 'x');
     if (candidateX) {
       x = Math.max(0, Math.min(rightEdge, candidateX.value));
       guides.push(candidateX.guide);
     }
 
-    const candidateY = snapAxisToWindow(y, windowBounds, otherWindow, resolved.windowThreshold, 'y');
+    const candidateY = snapAxisToWindow(y, bounds, normalizedOther, resolved.windowThreshold, 'y');
     if (candidateY) {
       y = Math.max(0, Math.min(bottomEdge, candidateY.value));
       guides.push(candidateY.guide);

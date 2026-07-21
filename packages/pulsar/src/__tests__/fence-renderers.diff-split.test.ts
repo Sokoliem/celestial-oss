@@ -38,7 +38,7 @@ describe('diffSplitFenceRenderer', () => {
     expect(plain).toContain('unchanged');
   });
 
-  it('colors deletions red and additions green', () => {
+  it('styles deletions and additions through semantic diff tokens', () => {
     const token = {
       type: 'code-block' as const,
       language: 'diff',
@@ -46,8 +46,9 @@ describe('diffSplitFenceRenderer', () => {
     };
     const result = diffSplitFenceRenderer(token, ctx(120));
     expect(result).not.toBeNull();
-    expect(result).toContain('\x1b[31m');
-    expect(result).toContain('\x1b[32m');
+    expect(result).toMatch(/\x1b\[38;2;/);
+    expect(stripAnsi(result!)).toContain('removed');
+    expect(stripAnsi(result!)).toContain('added');
   });
 
   it('renders hunk headers spanning the full width', () => {

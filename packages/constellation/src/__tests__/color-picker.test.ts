@@ -441,7 +441,7 @@ describe('colorPicker', () => {
   });
 
   describe('subscriptions', () => {
-    it('returns none when not focused', () => {
+    it('keeps pointer subscriptions active when not focused', () => {
       const component = colorPicker({});
       const model: ColorPickerModel = {
         hsl: { h: 0, s: 100, l: 50 },
@@ -455,7 +455,7 @@ describe('colorPicker', () => {
       const sub = component.subscriptions?.(model);
       expect(sub).toBeDefined();
       if (sub) {
-        expect(sub._kind.kind).toBe('none');
+        expect(sub._kind.kind).toBe('batch');
       }
     });
 
@@ -476,5 +476,25 @@ describe('colorPicker', () => {
         expect(sub._kind.kind).toBe('batch');
       }
     });
+  });
+
+  it('normalizes non-finite geometry and color channels', () => {
+    const component = colorPicker({});
+    const model = component.init()[0];
+    const layout = getColorPickerLayout(model, {}, { x: Number.NaN, y: Number.POSITIVE_INFINITY, width: Number.NaN });
+    expect(layout.root).toMatchObject({ x: 0, y: 0, width: 42 });
+    expect(getColorPickerHit(layout, Number.NaN, 0)).toBeNull();
+    expect(hslToRgb(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY)).toEqual({ r: 0, g: 0, b: 0 });
+    expect(rgbToHex(Number.NaN, Number.POSITIVE_INFINITY, -10)).toBe('#00FF00');
+  });
+
+  it('routes pointer slider and swatch selection through component messages', () => {
+    const component = colorPicker({ swatches: ['#000000', '#FFFFFF'] });
+    const initial = component.init()[0];
+    const [dragging] = component.update({ type: 'pointer-slider', field: 'hue', value: 180, dragging: true }, initial);
+    expect(dragging).toMatchObject({ focused: true, dragField: 'hue' });
+    expect(dragging.hsl.h).toBe(180);
+    const [swatched] = component.update({ type: 'select-swatch-at', index: 1 }, dragging);
+    expect(swatched.hexInput).toBe('#FFFFFF');
   });
 });

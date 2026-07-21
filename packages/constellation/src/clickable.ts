@@ -6,12 +6,12 @@
  */
 
 import type { Color, SemanticTheme, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { style } from '@celestial/core/corona';
+import { style, visualWidth } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { text } from '@celestial/core/nebula';
 import { HitMap, type HitRegion } from '@celestial/core/nexus';
 import type { ConstellationThemeInput, ConstellationTone } from './theme.js';
-import { resolveTheme, useTokens } from './theme.js';
+import { normalizeTone, resolveTheme, useTokens } from './theme.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
 
@@ -147,7 +147,7 @@ export function button<M>(config: ButtonConfig<M>): {
 
   // Width calculation depends on visual variant
   const effectiveVariant = useLegacy ? 'outline' : buttonVariant;
-  const width = effectiveVariant === 'ghost' ? label.length : label.length + 4; // "[ label ]" or "▐ label ▌"
+  const width = effectiveVariant === 'ghost' ? visualWidth(label) : visualWidth(label) + 4; // "[ label ]" or "▐ label ▌"
   const height = 1;
 
   const region: HitRegion<M> = {
@@ -188,7 +188,7 @@ export function button<M>(config: ButtonConfig<M>): {
     }
 
     // New variant + tone path
-    const tone = config.tone ?? 'neutral';
+    const tone = normalizeTone(config.tone);
     const toneColor = tone === 'neutral' ? tokens.accent : theme.colors.tones[tone];
     if (config.hovered) {
       const rendered = buttonVariant === 'ghost' ? label : buttonVariant === 'filled' ? `\u2590 ${label} \u258C` : `[ ${label} ]`;

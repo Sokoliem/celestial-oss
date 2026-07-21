@@ -35,6 +35,10 @@ describe('API inspector app', () => {
 
       handle.pressKey('s');
       await vi.waitFor(() => expect(handle.model.response?.status).toBe(200));
+      // The command result updates the model before Nebula's scheduled paint
+      // publishes the new footer hit map. Wait for that render boundary before
+      // deriving click coordinates from the new frame.
+      await handle.waitForUpdate();
       expect(handle.lastFrame()).toContain('200 OK');
       expect(handle.model.history).toHaveLength(1);
 

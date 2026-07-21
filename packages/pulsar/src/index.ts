@@ -51,11 +51,13 @@ export {
 export { bestImageProtocol, renderImage, renderImageAsync } from './image-render.js';
 export type { MarkdownInteractionHooks } from './interactions.js';
 // ── Interaction Wiring (A6) ─────────────────────────────────────────────
-export { findInteractiveNodes, wireMarkdownInteractions } from './interactions.js';
+export { dispatchMarkdownInteraction, findInteractiveNodes, wireMarkdownInteractions } from './interactions.js';
 // ── Internal Peer Loader ────────────────────────────────────────────────
 export { getPeerSync, hasPeer, loadPeer, type PeerRegistry } from './internal/peers.js';
 // ── Search Highlights (B4) ────────────────────────────────────────────
 export { markdownWithSearch } from './markdown-with-search.js';
+// ── Markdown glyph tokens ──────────────────────────────────────────────
+export { markdownGlyph, markdownGlyphTokens, type MarkdownGlyphName } from './markdown-glyphs.js';
 // ── Math Unicode (A3) ───────────────────────────────────────────────────
 export { mathToUnicode } from './math-unicode.js';
 export { getEmoji, parseInline, parseMarkdown, registerEmoji } from './parser.js';

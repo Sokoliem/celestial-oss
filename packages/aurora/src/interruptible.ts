@@ -1,5 +1,6 @@
 import { clone } from './interpolate.js';
 import type { Animation, MotionAnimation, PhysicalAnimatable } from './types.js';
+import { resolveTimestamp } from './validation.js';
 
 export interface InterruptState<T extends PhysicalAnimatable = number> {
   readonly value: T;
@@ -93,11 +94,11 @@ export function interruptible<T extends PhysicalAnimatable = number>(animation: 
     if (isMotionAnimation(current)) {
       sampleValue = clone(current.value());
       sampleVelocity = clone(current.velocity());
-      sampleTime = now ?? Date.now();
+      sampleTime = resolveTimestamp(now, sampleTime);
       return;
     }
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now, sampleTime);
     const nextValue = clone(current.value());
     if (sampleTime !== null) {
       const dtMs = time - sampleTime;

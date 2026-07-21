@@ -17,7 +17,9 @@
 
 import type { Color, SemanticTheme, ThemeInput, TokenContract } from '@celestial/corona';
 import { style } from '@celestial/corona';
-import { Cmd, column, type Msg, row, Sub, type ThemeContext, text, type VNode } from '@celestial/nebula';
+import { Cmd, column, event, type Msg, row, Sub, setVNodeMeta, type ThemeContext, text, type VNode } from '@celestial/nebula';
+import { generateFocusGroupId } from './focus-group.js';
+import { boundedInteger, MAX_RENDER_CELLS, positiveInteger } from './internal.js';
 import { resolveTheme, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
@@ -93,7 +95,9 @@ export type OptionListMsg =
   | Msg<'opt-arrow', { direction: 'up' | 'down' | 'home' | 'end' }>
   | Msg<'opt-hover', { id: string }>
   | Msg<'opt-select'>
-  | Msg<'opt-toggle', { id: string }>;
+  | Msg<'opt-toggle', { id: string }>
+  | Msg<'opt-click', { id: string }>
+  | Msg<'opt-noop'>;
 
 export type OptionListDirection = 'up' | 'down' | 'home' | 'end';
 
@@ -149,9 +153,18 @@ export function moveOptionHighlight(current: number, total: number, direction: O
 
 export function optionListView<T = unknown>(config: OptionListConfig<T>): ComponentDescriptor<OptionListModel<T>, OptionListMsg> {
   const filter: OptionListFilter<T> = config.filter ?? filterByLabel;
-  const maxVisible = Math.max(1, config.maxVisible ?? 50);
-  const initialQuery = config.query ?? '';
-  const initialHighlight = Math.max(0, config.initialHighlight ?? 0);
+  const maxVisible = positiveInteger(config.maxVisible, 50);
+  const initialQuery = String(config.query ?? '').slice(0, MAX_RENDER_CELLS);
+  const initialHighlight = boundedInteger(config.initialHighlight, 0, 0);
+  const interactionId = generateFocusGroupId('option-list');
+  const clickTag = `${interactionId}:click`;
+  const hoverTag = `${interactionId}:hover`;
+  const items = config.items.slice(0, MAX_RENDER_CELLS).map((item) => ({ ...item, id: String(item.id), label: String(item.label) }));
+  const ids = new Set<string>();
+  for (const item of items) {
+    if (ids.has(item.id)) throw new Error(`OptionList item ids must be unique; received duplicate id "${item.id}"`);
+    ids.add(item.id);
+  }
 
   function makeModel(query: string, items: readonly OptionListItem<T>[], prev?: OptionListModel<T>): OptionListModel<T> {
     const filteredIds = computeFilteredIds(items, filter, query);
@@ -167,26 +180,27 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
 
   return {
     init() {
-      const model = makeModel(initialQuery, config.items);
+      const model = makeModel(initialQuery, items);
       return [model, Cmd.none<OptionListMsg>()];
     },
 
     update(msg: OptionListMsg, model: OptionListModel<T>) {
-      const items = model._itemsRef ?? config.items;
+      const sourceItems = items;
       switch (msg.type) {
         case 'opt-query': {
-          if (msg.query === model.query) return [model, Cmd.none<OptionListMsg>()];
+          const query = String(msg.query).slice(0, MAX_RENDER_CELLS);
+          if (query === model.query) return [model, Cmd.none<OptionListMsg>()];
           // Reset highlight to 0 on query change — pattern matches every consuming builder.
-          const filteredIds = computeFilteredIds(items, filter, msg.query);
+          const filteredIds = computeFilteredIds(sourceItems, filter, query);
           const next: OptionListModel<T> = {
             ...model,
-            query: msg.query,
+            query,
             filteredIds,
             highlightedIndex: filteredIds.length === 0 ? 0 : 0,
           };
           if (config.onHighlight && filteredIds.length > 0) {
             const id = filteredIds[0]!;
-            const item = items.find((i) => i.id === id);
+            const item = sourceItems.find((i) => i.id === id);
             if (item) {
               try {
                 config.onHighlight(id, item.value);
@@ -204,7 +218,7 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
           if (config.onHighlight) {
             const id = model.filteredIds[next];
             if (id) {
-              const item = items.find((i) => i.id === id);
+              const item = sourceItems.find((i) => i.id === id);
               if (item) {
                 try {
                   config.onHighlight(id, item.value);
@@ -224,7 +238,7 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
         case 'opt-select': {
           const id = model.filteredIds[model.highlightedIndex];
           if (!id) return [model, Cmd.none<OptionListMsg>()];
-          const item = items.find((i) => i.id === id);
+          const item = sourceItems.find((i) => i.id === id);
           if (!item || item.disabled) return [model, Cmd.none<OptionListMsg>()];
           if (config.multiSelect) {
             const next = new Set(model.selectedIds);
@@ -245,18 +259,33 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
           return [model, Cmd.none<OptionListMsg>()];
         }
         case 'opt-toggle': {
-          const item = items.find((i) => i.id === msg.id);
+          const item = sourceItems.find((i) => i.id === msg.id);
           if (!item || item.disabled) return [model, Cmd.none<OptionListMsg>()];
           const next = new Set(model.selectedIds);
           if (next.has(msg.id)) next.delete(msg.id);
           else next.add(msg.id);
           return [{ ...model, selectedIds: next }, Cmd.none<OptionListMsg>()];
         }
+        case 'opt-click': {
+          const item = sourceItems.find((candidate) => candidate.id === msg.id);
+          const highlightedIndex = model.filteredIds.indexOf(msg.id);
+          if (!item || item.disabled || highlightedIndex === -1) return [model, Cmd.none<OptionListMsg>()];
+          if (config.multiSelect) {
+            const selectedIds = new Set(model.selectedIds);
+            selectedIds.has(msg.id) ? selectedIds.delete(msg.id) : selectedIds.add(msg.id);
+            config.onSelect?.(msg.id, item.value);
+            return [{ ...model, selectedIds, highlightedIndex }, Cmd.none<OptionListMsg>()];
+          }
+          config.onSelect?.(msg.id, item.value);
+          return [{ ...model, highlightedIndex }, Cmd.none<OptionListMsg>()];
+        }
+        case 'opt-noop':
+          return [model, Cmd.none<OptionListMsg>()];
       }
     },
 
     view(model: OptionListModel<T>): VNode {
-      const items = model._itemsRef ?? config.items;
+      const sourceItems = items;
       const tokens = useTokens(optionListContract, config, 'OptionList');
       void resolveTheme(config); // ensures reactive theme tracking
 
@@ -278,7 +307,7 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
       const rows: VNode[] = [];
       for (let i = startIdx; i < endIdx; i++) {
         const id = model.filteredIds[i]!;
-        const item = items.find((it) => it.id === id);
+        const item = sourceItems.find((it) => it.id === id);
         if (!item) continue;
         const isHighlighted = i === model.highlightedIndex;
         const isSelected = model.selectedIds.has(id);
@@ -295,17 +324,29 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
         if (item.icon) parts.push(item.icon);
         parts.push(text(item.label, rowStyle));
         if (item.trailing) parts.push(item.trailing);
-        rows.push(row(...parts));
+        const optionRow = row(...parts);
+        setVNodeMeta(optionRow, { testId: id, a11y: { role: 'listitem', label: item.label, checked: isSelected } });
+        rows.push(
+          event(
+            `${interactionId}:item:${id}`,
+            optionRow,
+            { onClick: clickTag, onMouseEnter: hoverTag },
+            { label: item.label, intent: 'select', affordances: ['hover', 'click'], cursor: isDisabled ? 'default' : 'pointer' },
+          ),
+        );
       }
 
       return column(...rows);
     },
 
     subscriptions(_model: OptionListModel<T>): Sub<OptionListMsg> {
-      // The primitive doesn't own input — consumer wires its own arrow/enter
-      // keys and dispatches the appropriate msg. We return none so consumers
-      // can wrap with their own Sub.batch.
-      return Sub.none<OptionListMsg>();
+      return Sub.elementMouse<OptionListMsg>((mouseEvent) => {
+        if (!mouseEvent.elementId.startsWith(`${interactionId}:item:`)) return { type: 'opt-noop' };
+        const id = mouseEvent.elementId.slice(`${interactionId}:item:`.length);
+        if (mouseEvent.handlerTag === clickTag) return { type: 'opt-click', id };
+        if (mouseEvent.handlerTag === hoverTag) return { type: 'opt-hover', id };
+        return { type: 'opt-noop' };
+      });
     },
   };
 }

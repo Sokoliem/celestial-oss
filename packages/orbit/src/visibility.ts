@@ -13,8 +13,8 @@
  */
 
 import { jsonValuesEqual } from './schema-json.js';
-import type { FormValueBag } from './types.js';
 import type { JsonValue, VisibilityPredicate } from './schema-types.js';
+import type { FormValueBag } from './types.js';
 
 /**
  * Evaluate a `VisibilityPredicate` against a value bag. Exposed as both a

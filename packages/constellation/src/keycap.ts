@@ -2,7 +2,7 @@ import type { Color, SemanticTheme, TokenContract, TypographyToken } from '@cele
 import { style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { row, text } from '@celestial/core/nebula';
-import { type ConstellationThemedOptions, resolveTheme, useTokens } from './theme.js';
+import { type ConstellationThemedOptions, normalizeTone, resolveTheme, useTokens } from './theme.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ export function keycap(config: KeycapConfig): VNode {
   const nodes: VNode[] = [];
   const separator = config.separator ?? ' + ';
   const pad = config.compact ? '' : ' ';
-  const tone = config.tone ?? 'accent';
+  const tone = normalizeTone(config.tone, 'accent');
   const borderColor = tone === 'neutral' ? tokens.border : theme.colors.tones[tone];
   const capStyle = style({ color: borderColor, bold: true, background: tokens.bg });
   const mutedStyle = style({ color: tokens.muted });

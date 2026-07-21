@@ -114,4 +114,18 @@ describe('pagination', () => {
       expect(ellipsisCount).toBeLessThanOrEqual(2);
     }
   });
+
+  it('renders extreme finite page counts in bounded work', () => {
+    const comp = pagination({ total: Number.MAX_VALUE, pageSize: Number.MIN_VALUE, current: Number.MAX_SAFE_INTEGER });
+    const [model] = comp.init();
+    expect(model.totalPages).toBe(Number.MAX_SAFE_INTEGER);
+    const vnode = comp.view(model);
+    if (vnode.kind === 'row') expect(vnode.children.length).toBeLessThan(15);
+  });
+
+  it('ignores non-finite goto messages', () => {
+    const comp = pagination({ total: 50, pageSize: 10, current: 3 });
+    const [model] = comp.init();
+    expect(comp.update({ type: 'goto', page: Number.NaN }, model)[0].current).toBe(3);
+  });
 });

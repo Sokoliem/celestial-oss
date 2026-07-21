@@ -10,71 +10,68 @@ export function installCombinators<Model, M>(ctx: RuntimeContext<Model, M>): voi
     return (kind as { sub: Sub<unknown> }).sub as Sub<M>;
   };
 
-  /**
-   * Walk a sub tree through combinator wrappers, installing dispatch overrides.
-   * The `recurse` callback is called with the unwrapped inner sub.
-   * Combinator behavior is applied by temporarily swapping `dispatchFn`.
-   */
-  ctx.walkCombinator = (kind: ReturnType<typeof subKind<M>>, recurse: (inner: Sub<M>) => void): void => {
-    const inner = ctx.combinatorInnerSub(kind);
-    const prevFn = ctx.dispatchFn;
-
+  ctx.wrapSubDispatch = (kind, key, dispatch) => {
+    const deliver = (message: M): void => {
+      try {
+        dispatch(message);
+      } catch (error: unknown) {
+        ctx.notifyRenderError(error);
+      }
+    };
     switch (kind.kind) {
       case 'filter': {
         const predicate = kind.predicate as (msg: M) => boolean;
-        ctx.dispatchFn = (msg: M) => {
-          if (predicate(msg)) prevFn(msg);
-        };
-        break;
-      }
-      case 'distinct': {
-        const eq = (kind.equals as ((a: M, b: M) => boolean) | undefined) ?? ((a: M, b: M) => a === b);
-        const id = ctx.combinatorIdCounter++;
-        ctx.dispatchFn = (msg: M) => {
-          const last = ctx.combinatorDistinctLast.get(id);
-          if (!last || !eq(last.value as M, msg)) {
-            ctx.combinatorDistinctLast.set(id, { value: msg });
-            prevFn(msg);
+        return (message: M) => {
+          try {
+            if (predicate(message)) deliver(message);
+          } catch (error: unknown) {
+            ctx.notifyRenderError(error);
           }
         };
-        break;
       }
-      case 'debounce': {
-        const id = ctx.combinatorIdCounter++;
-        ctx.dispatchFn = (msg: M) => {
-          const existing = ctx.combinatorDebounceTimers.get(id);
+      case 'distinct': {
+        const equals = (kind.equals as ((left: M, right: M) => boolean) | undefined) ?? ((left: M, right: M) => left === right);
+        return (message: M) => {
+          const last = ctx.combinatorDistinctLast.get(key);
+          try {
+            if (!last || !equals(last.value as M, message)) {
+              ctx.combinatorDistinctLast.set(key, { value: message });
+              deliver(message);
+            }
+          } catch (error: unknown) {
+            ctx.notifyRenderError(error);
+          }
+        };
+      }
+      case 'debounce':
+        return (message: M) => {
+          const existing = ctx.combinatorDebounceTimers.get(key);
           if (existing) clearTimeout(existing);
           ctx.combinatorDebounceTimers.set(
-            id,
+            key,
             setTimeout(() => {
-              ctx.combinatorDebounceTimers.delete(id);
-              prevFn(msg);
+              ctx.combinatorDebounceTimers.delete(key);
+              if (ctx.running && !ctx.suspended) deliver(message);
             }, kind.ms),
           );
         };
-        break;
-      }
-      case 'throttle': {
-        const id = ctx.combinatorIdCounter++;
-        ctx.dispatchFn = (msg: M) => {
-          const last = ctx.combinatorThrottleTimestamps.get(id) ?? 0;
+      case 'throttle':
+        return (message: M) => {
+          const last = ctx.combinatorThrottleTimestamps.get(key) ?? Number.NEGATIVE_INFINITY;
           const now = Date.now();
           if (now - last >= kind.ms) {
-            ctx.combinatorThrottleTimestamps.set(id, now);
-            prevFn(msg);
+            ctx.combinatorThrottleTimestamps.set(key, now);
+            deliver(message);
           }
         };
-        break;
-      }
+      default:
+        return deliver;
     }
-
-    recurse(inner);
-    ctx.dispatchFn = prevFn;
   };
 
   ctx.clearDebouncedCmdTimers = (): void => {
     for (const entry of ctx.debouncedCmdTimers.values()) {
-      clearTimeout(entry.timer);
+      entry.cancel();
     }
     ctx.debouncedCmdTimers.clear();
   };
@@ -93,7 +90,7 @@ export function installCombinators<Model, M>(ctx: RuntimeContext<Model, M>): voi
         ctx.idleTimers.delete(index);
         const latest = ctx.idleSubs[index];
         if (latest && ctx.running && !ctx.suspended) {
-          ctx.dispatch(latest.msg);
+          latest.fire();
         }
       }, idleSub.ms);
       ctx.idleTimers.set(index, timer);

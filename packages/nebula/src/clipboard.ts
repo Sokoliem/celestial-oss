@@ -7,6 +7,8 @@
 
 import { Cmd, type Result } from './types.js';
 
+const MAX_OSC52_DECODED_BYTES = 1024 * 1024;
+
 // ─── OSC 52 Protocol ────────────────────────────────────────────────────────
 
 /** Encode text as a base64 string for OSC 52 */
@@ -17,6 +19,13 @@ function toBase64(text: string): string {
 /** Decode a base64 string from OSC 52 */
 export function fromBase64(encoded: string): string {
   return Buffer.from(encoded, 'base64').toString('utf-8');
+}
+
+function decodeOsc52Payload(encoded: string): string | null {
+  if (encoded.length > Math.ceil((MAX_OSC52_DECODED_BYTES * 4) / 3) + 4) return null;
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)) return null;
+  const decoded = Buffer.from(encoded, 'base64');
+  return decoded.length <= MAX_OSC52_DECODED_BYTES ? decoded.toString('utf8') : null;
 }
 
 /**
@@ -110,7 +119,7 @@ export function parseOsc52Response(input: string): string | null {
   const base64Data = input.slice(dataStart, endIdx);
   if (base64Data === '?') return null; // This is a request, not a response
 
-  return fromBase64(base64Data);
+  return decodeOsc52Payload(base64Data);
 }
 
 export interface Osc52ResponseMatch {
@@ -137,8 +146,11 @@ export function matchOsc52Response(input: string): Osc52ResponseMatch | null {
   const base64Data = input.slice(dataStart, endIdx);
   if (base64Data === '?') return null;
 
+  const text = decodeOsc52Payload(base64Data);
+  if (text === null) return null;
+
   return {
-    text: fromBase64(base64Data),
+    text,
     start: startIdx,
     end: endIdx + terminatorLength,
   };

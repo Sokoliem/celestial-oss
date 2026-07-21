@@ -33,6 +33,15 @@ export interface SubprocessInvocation {
   input?: string;
 }
 
+interface FetchMockLayer {
+  readonly id: symbol;
+  readonly mocks: readonly FetchMockDefinition[];
+  readonly passthrough: boolean;
+}
+
+const fetchMockLayers: FetchMockLayer[] = [];
+let baseFetch: typeof fetch | undefined;
+
 export function mockFetch(pattern: Matcher<string>, response: FetchMockResponse): FetchMockDefinition {
   return {
     matches(input, init) {
@@ -61,29 +70,40 @@ export function mockSubprocess(pattern: Matcher<string>, response: SubprocessMoc
   };
 }
 
-export function installFetchMocks(mocks: readonly FetchMockDefinition[] | undefined): () => void {
+export function installFetchMocks(mocks: readonly FetchMockDefinition[] | undefined, passthrough = false): () => void {
   if (!mocks || mocks.length === 0) {
     return () => {};
   }
 
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    for (const mock of mocks) {
-      if (mock.matches(input, init)) {
-        return mock.resolve(input, init);
-      }
-    }
+  if (fetchMockLayers.length === 0) baseFetch = globalThis.fetch;
+  const layer: FetchMockLayer = { id: Symbol('fetch-mock-layer'), mocks: [...mocks], passthrough };
+  fetchMockLayers.push(layer);
+  globalThis.fetch = dispatchMockFetch;
 
-    if (originalFetch) {
-      return originalFetch(input, init);
-    }
-
-    throw new Error(`No fetch mock matched ${requestUrl(input, init)}`);
-  }) as typeof fetch;
-
+  let restored = false;
   return () => {
-    globalThis.fetch = originalFetch;
+    if (restored) return;
+    restored = true;
+    const index = fetchMockLayers.findIndex((candidate) => candidate.id === layer.id);
+    if (index >= 0) fetchMockLayers.splice(index, 1);
+    if (fetchMockLayers.length === 0) {
+      globalThis.fetch = baseFetch!;
+      baseFetch = undefined;
+    }
   };
+}
+
+async function dispatchMockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  for (let layerIndex = fetchMockLayers.length - 1; layerIndex >= 0; layerIndex--) {
+    const layer = fetchMockLayers[layerIndex]!;
+    for (const mock of layer.mocks) {
+      if (mock.matches(input, init)) return mock.resolve(input, init);
+    }
+    if (!layer.passthrough) throw new Error(`No fetch mock matched ${requestUrl(input, init)}`);
+  }
+
+  if (baseFetch) return baseFetch(input, init);
+  throw new Error(`No fetch implementation is available for ${requestUrl(input, init)}`);
 }
 
 function matchesPattern<T extends string>(pattern: Matcher<T>, value: T): boolean {
@@ -91,7 +111,10 @@ function matchesPattern<T extends string>(pattern: Matcher<T>, value: T): boolea
     return value === pattern;
   }
   if (pattern instanceof RegExp) {
-    return pattern.test(value);
+    pattern.lastIndex = 0;
+    const matched = pattern.test(value);
+    pattern.lastIndex = 0;
+    return matched;
   }
   return pattern(value);
 }

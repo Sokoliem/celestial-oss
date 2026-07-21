@@ -1,9 +1,10 @@
-import type { ThemeInput } from '@celestial/corona';
-import { style } from '@celestial/corona';
+import type { GlyphLevel, ThemeInput } from '@celestial/corona';
+import { DEFAULT_GLYPH_TOKENS, resolveGlyph, style } from '@celestial/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/nebula';
-import { Cmd, column, Sub, text } from '@celestial/nebula';
+import { Cmd, column, event, row, Sub, text } from '@celestial/nebula';
 import type { LocaleLike } from '@celestial/rosetta';
 import { type OrbitMessages, tr } from './i18n.js';
+import { MAX_COLLECTION_ITEMS, MAX_WIZARD_STEPS, nextInteractionId } from './internal.js';
 import { emitLedgerEvent, type OrbitLedger } from './ledger.js';
 import { formColor, orbitToneColor } from './theme.js';
 import type { ValidationResult } from './types.js';
@@ -92,6 +93,8 @@ export interface WizardConfig {
   messages?: OrbitMessages;
   /** Locale hint forwarded to rosetta. */
   locale?: LocaleLike;
+  /** Terminal glyph capability used by the progress indicator. Defaults to `wide`. */
+  glyphLevel?: GlyphLevel;
 }
 
 /** Runtime state for the wizard. */
@@ -119,7 +122,8 @@ export type WizardMsg =
   | Msg<'wizard:prev'>
   | Msg<'wizard:goto', { readonly step: WizardStepRef }>
   | Msg<'wizard:step-msg', { readonly msg: unknown }>
-  | Msg<'wizard:reset'>;
+  | Msg<'wizard:reset'>
+  | Msg<'wizard:noop'>;
 
 // ─── Descriptor ─────────────────────────────────────────────────────────────
 
@@ -146,10 +150,17 @@ export interface WizardDescriptor {
  * either predicate ends the wizard on that branch.
  */
 export function wizard(config: WizardConfig): WizardDescriptor {
-  const totalSteps = config.steps.length;
+  if (config.steps.length === 0) throw new RangeError('orbit/wizard: at least one step is required');
+  if (config.steps.length > MAX_WIZARD_STEPS) throw new RangeError(`orbit/wizard: steps cannot exceed ${MAX_WIZARD_STEPS}`);
+  const steps = config.steps.map((step) => ({ ...step }));
+  const totalSteps = steps.length;
   const allowBack = config.allowBack ?? true;
   const focusGroup = config.focusGroup ?? 'orbit-wizard';
   const ledgerWizardId = config.ledgerWizardId ?? focusGroup;
+  const interactionId = nextInteractionId('wizard');
+  const prevId = `${interactionId}:previous`;
+  const nextId = `${interactionId}:next`;
+  const activateTag = `${interactionId}:activate`;
   const emit = (kind: string, payload: Record<string, unknown>): void => {
     if (!config.ledger) return;
     void emitLedgerEvent(config.ledger, {
@@ -159,8 +170,8 @@ export function wizard(config: WizardConfig): WizardDescriptor {
   };
 
   const nameToIndex = new Map<string, number>();
-  for (let i = 0; i < config.steps.length; i++) {
-    const step = config.steps[i]!;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
     if (step.name) {
       if (nameToIndex.has(step.name)) {
         throw new Error(`orbit/wizard: duplicate step name "${step.name}"`);
@@ -169,11 +180,11 @@ export function wizard(config: WizardConfig): WizardDescriptor {
     }
   }
 
-  const stepOrder: WizardStepRef[] = config.steps.map((step, index) => step.name ?? index);
+  const stepOrder: WizardStepRef[] = steps.map((step, index) => step.name ?? index);
 
   const edges: { from: number; to: number | 'dynamic' | 'end' }[] = [];
-  for (let i = 0; i < config.steps.length; i++) {
-    const step = config.steps[i]!;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
     if (step.nextStep) {
       edges.push({ from: i, to: 'dynamic' });
     } else if (i >= totalSteps - 1) {
@@ -183,15 +194,17 @@ export function wizard(config: WizardConfig): WizardDescriptor {
     }
   }
 
-  const graph: WizardGraph = Object.freeze({
-    stepOrder,
-    nameToIndex,
-    edges,
-  });
+  function graphSnapshot(): WizardGraph {
+    return Object.freeze({
+      stepOrder: Object.freeze([...stepOrder]),
+      nameToIndex: new Map(nameToIndex),
+      edges: Object.freeze(edges.map((edge) => Object.freeze({ ...edge }))),
+    });
+  }
 
   function resolveRef(ref: WizardStepRef): number | null {
     if (typeof ref === 'number') {
-      return ref >= 0 && ref < totalSteps ? ref : null;
+      return Number.isInteger(ref) && ref >= 0 && ref < totalSteps ? ref : null;
     }
     const idx = nameToIndex.get(ref);
     return idx === undefined ? null : idx;
@@ -204,14 +217,14 @@ export function wizard(config: WizardConfig): WizardDescriptor {
 
   function initModel(): WizardModel {
     const stepModels: unknown[] = [];
-    for (const step of config.steps) {
+    for (const step of steps) {
       const [model] = step.component.init();
       stepModels.push(model);
     }
     return {
       currentStep: 0,
       stepModels,
-      completed: config.steps.map(() => false),
+      completed: steps.map(() => false),
       finished: false,
       visited: [0],
     };
@@ -223,9 +236,10 @@ export function wizard(config: WizardConfig): WizardDescriptor {
     },
 
     update(msg: WizardMsg, model: WizardModel): [WizardModel, Cmd<WizardMsg>] {
+      if (model.finished && msg.type !== 'wizard:reset') return [model, Cmd.none()];
       switch (msg.type) {
         case 'wizard:next': {
-          const step = config.steps[model.currentStep];
+          const step = steps[model.currentStep];
           if (!step) return [model, Cmd.none()];
 
           // Validate (skip for optional steps)
@@ -266,12 +280,12 @@ export function wizard(config: WizardConfig): WizardDescriptor {
               completed,
               finished: true,
             };
-            config.onComplete?.(model.stepModels);
+            config.onComplete?.([...model.stepModels]);
             emit('wizard:finished', { steps: model.visited.length });
             return [finishedModel, Cmd.none()];
           }
 
-          const nextStepName = config.steps[nextIndex]?.name ?? nextIndex;
+          const nextStepName = steps[nextIndex]?.name ?? nextIndex;
           emit('wizard:step-advanced', { from: stepName, to: nextStepName, index: nextIndex });
 
           return [
@@ -279,7 +293,7 @@ export function wizard(config: WizardConfig): WizardDescriptor {
               ...model,
               currentStep: nextIndex,
               completed,
-              visited: [...model.visited, nextIndex],
+              visited: appendVisited(model.visited, nextIndex),
             },
             Cmd.none(),
           ];
@@ -288,7 +302,7 @@ export function wizard(config: WizardConfig): WizardDescriptor {
         case 'wizard:prev': {
           if (!allowBack) return [model, Cmd.none()];
 
-          const step = config.steps[model.currentStep];
+          const step = steps[model.currentStep];
           // Custom previousStep wins when declared.
           if (step?.previousStep) {
             const decision = step.previousStep(model.stepModels[model.currentStep], model);
@@ -319,7 +333,7 @@ export function wizard(config: WizardConfig): WizardDescriptor {
             {
               ...model,
               currentStep: target,
-              visited: [...model.visited, target],
+              visited: appendVisited(model.visited, target),
             },
             Cmd.none(),
           ];
@@ -327,7 +341,7 @@ export function wizard(config: WizardConfig): WizardDescriptor {
 
         case 'wizard:step-msg': {
           const idx = model.currentStep;
-          const step = config.steps[idx];
+          const step = steps[idx];
           if (!step || idx >= model.stepModels.length) return [model, Cmd.none()];
 
           const [newStepModel, stepCmd] = step.component.update(msg.msg as any, model.stepModels[idx] as any);
@@ -359,8 +373,10 @@ export function wizard(config: WizardConfig): WizardDescriptor {
       // remaining static order to give consumers a sense of depth without
       // exposing branch internals.
       const visitedSet = new Set(model.visited);
-      const dots = config.steps.map((_, i) => (visitedSet.has(i) || i <= model.currentStep ? '●' : '○')).join(' ');
-      const step = config.steps[model.currentStep];
+      const selectedGlyph = resolveGlyph(DEFAULT_GLYPH_TOKENS.selected, config.glyphLevel ?? 'wide');
+      const unselectedGlyph = resolveGlyph(DEFAULT_GLYPH_TOKENS.unselected, config.glyphLevel ?? 'wide');
+      const dots = steps.map((_, i) => (visitedSet.has(i) || i <= model.currentStep ? selectedGlyph : unselectedGlyph)).join(' ');
+      const step = steps[model.currentStep];
       const title = step?.title ?? '';
       const progressStyle = style({ color: orbitToneColor(config, 'accent') });
       const stepLabel = tr(
@@ -385,27 +401,54 @@ export function wizard(config: WizardConfig): WizardDescriptor {
         children.push(step.component.view(stepModel as any));
       }
 
-      const navParts: string[] = [];
-      if (model.visited.length > 1 && allowBack) navParts.push(tr(config.messages, 'wizard.btn.prev', undefined, config.locale));
-      navParts.push(
-        isLastStaticStep(model, totalSteps, step)
-          ? tr(config.messages, 'wizard.btn.finish', undefined, config.locale)
-          : tr(config.messages, 'wizard.btn.next', undefined, config.locale),
-      );
       const navStyle = style({ color: formColor(config, 'muted'), dim: true });
-      children.push(text(`  ${navParts.join('  ')}`, navStyle));
+      if (!model.finished) {
+        const navNodes: VNode[] = [];
+        if (model.visited.length > 1 && allowBack) {
+          const previousLabel = tr(config.messages, 'wizard.btn.prev', undefined, config.locale);
+          navNodes.push(
+            event(
+              prevId,
+              text(`  ${previousLabel}`, navStyle),
+              { onClick: activateTag },
+              { label: previousLabel, intent: 'navigate-back', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Escape' },
+            ),
+          );
+        }
+        const nextLabel = isLastStaticStep(model, totalSteps, step)
+          ? tr(config.messages, 'wizard.btn.finish', undefined, config.locale)
+          : tr(config.messages, 'wizard.btn.next', undefined, config.locale);
+        navNodes.push(
+          event(
+            nextId,
+            text(`  ${nextLabel}`, navStyle),
+            { onClick: activateTag },
+            { label: nextLabel, intent: 'navigate-forward', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Enter' },
+          ),
+        );
+        children.push(row(...navNodes));
+      }
 
       return column(...children);
     },
 
     subscriptions(model: WizardModel): Sub<WizardMsg> {
-      const subs: Sub<WizardMsg>[] = [Sub.key('enter', { type: 'wizard:next' })];
+      if (model.finished) return Sub.none();
+      const subs: Sub<WizardMsg>[] = [
+        Sub.elementMouse<WizardMsg>((mouseEvent) => {
+          if (mouseEvent.handlerTag !== activateTag) return { type: 'wizard:noop' };
+          if (mouseEvent.elementId === prevId) return { type: 'wizard:prev' };
+          if (mouseEvent.elementId === nextId) return { type: 'wizard:next' };
+          return { type: 'wizard:noop' };
+        }),
+        Sub.key('enter', { type: 'wizard:next' }),
+      ];
 
       if (allowBack) {
         subs.push(Sub.key('escape', { type: 'wizard:prev' }));
       }
 
-      const step = config.steps[model.currentStep];
+      const step = steps[model.currentStep];
       if (step?.component.subscriptions) {
         const stepModel = model.stepModels[model.currentStep];
         const stepSub = step.component.subscriptions(stepModel as any);
@@ -421,7 +464,7 @@ export function wizard(config: WizardConfig): WizardDescriptor {
     },
 
     getGraph(): WizardGraph {
-      return graph;
+      return graphSnapshot();
     },
   };
 }
@@ -435,6 +478,12 @@ function trimVisitedTo(visited: readonly number[], target: number): number[] | n
   // outside history is a configuration error — we refuse to silently
   // navigate forward through the "back" door.
   return null;
+}
+
+function appendVisited(visited: readonly number[], target: number): number[] {
+  const next = [...visited, target];
+  if (next.length <= MAX_COLLECTION_ITEMS) return next;
+  return [next[0] ?? target, ...next.slice(-(MAX_COLLECTION_ITEMS - 1))];
 }
 
 function isLastStaticStep(model: WizardModel, totalSteps: number, step: WizardStepConfig | undefined): boolean {

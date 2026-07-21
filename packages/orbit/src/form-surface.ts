@@ -1,7 +1,8 @@
-import type { Color, ThemeInput } from '@celestial/corona';
-import { style } from '@celestial/corona';
+import type { Color, GlyphLevel, ThemeInput } from '@celestial/corona';
+import { resolveGlyph, statusGlyphTokens, style } from '@celestial/corona';
 import type { Cmd, Msg, Sub, ThemeContext, VNode } from '@celestial/nebula';
-import { Cmd as NebulaCmd, column, empty, row, Sub as NebulaSub, text } from '@celestial/nebula';
+import { column, empty, event, Cmd as NebulaCmd, Sub as NebulaSub, row, text } from '@celestial/nebula';
+import { nextInteractionId } from './internal.js';
 import { feedbackColor, formColor, resolveOrbitTheme } from './theme.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -49,6 +50,8 @@ export interface SurfaceConfig<ChildModel, ChildMsg> {
    * not a requirement.
    */
   readonly opaqueBackground?: Color;
+  /** Terminal glyph capability used by surface chrome. Defaults to `wide`. */
+  readonly glyphLevel?: GlyphLevel;
   /** Theme override for surface chrome. */
   readonly theme?: ThemeInput;
   readonly themeCtx?: ThemeContext;
@@ -63,7 +66,8 @@ export interface SurfaceModel<ChildModel> {
 export type SurfaceMsg<ChildMsg> =
   | Msg<'surface:open'>
   | Msg<'surface:close', { readonly reason: SurfaceCloseReason }>
-  | Msg<'surface:child', { readonly msg: ChildMsg }>;
+  | Msg<'surface:child', { readonly msg: ChildMsg }>
+  | Msg<'surface:noop'>;
 
 export interface SurfaceDescriptor<ChildModel, ChildMsg> extends SurfaceChild<SurfaceModel<ChildModel>, SurfaceMsg<ChildMsg>> {
   /** Read the open flag. */
@@ -92,7 +96,7 @@ const PANIC_MODIFIERS_META = { meta: true, shift: true };
  *    the subscription routes `Escape` plus `Ctrl+Shift+Backspace` AND
  *    `Cmd+Shift+Backspace` to a close message. The close-button is wired
  *    through the existing `'surface:close'` msg with reason `'close-button'`
- *    (hosts that hit-test the affordance dispatch that). For modals,
+ *    via a semantic pointer event and the element-mouse subscription. For modals,
  *    backdrop dismissal is dispatched via `'surface:close'` with reason
  *    `'backdrop'` — the host's hit-map fires the msg when the user clicks
  *    outside the body.
@@ -107,6 +111,9 @@ const PANIC_MODIFIERS_META = { meta: true, shift: true };
  */
 export function surface<ChildModel, ChildMsg>(config: SurfaceConfig<ChildModel, ChildMsg>): SurfaceDescriptor<ChildModel, ChildMsg> {
   const host: SurfaceHost = config.host ?? 'modal';
+  const interactionId = nextInteractionId('surface');
+  const closeId = `${interactionId}:close`;
+  const closeTag = `${interactionId}:activate-close`;
 
   function closeNow(model: SurfaceModel<ChildModel>, reason: SurfaceCloseReason): [SurfaceModel<ChildModel>, Cmd<SurfaceMsg<ChildMsg>>] {
     if (!model.open) return [model, NebulaCmd.none()];
@@ -116,10 +123,14 @@ export function surface<ChildModel, ChildMsg>(config: SurfaceConfig<ChildModel, 
     const sideEffect: Cmd<SurfaceMsg<ChildMsg>> = config.onClose
       ? NebulaCmd.perform(
           async () => {
-            config.onClose!(reason);
-            return reason;
+            try {
+              config.onClose!(reason);
+            } catch {
+              // Dismissal is client-owned. A telemetry/notification callback
+              // cannot reopen or crash an already-closed surface.
+            }
           },
-          () => ({ type: 'surface:close', reason }) as SurfaceMsg<ChildMsg>,
+          () => ({ type: 'surface:noop' }) as SurfaceMsg<ChildMsg>,
         )
       : NebulaCmd.none();
     return [{ ...model, open: false, closeReason: reason }, sideEffect];
@@ -147,11 +158,10 @@ export function surface<ChildModel, ChildMsg>(config: SurfaceConfig<ChildModel, 
         case 'surface:child': {
           if (!model.open) return [model, NebulaCmd.none()];
           const [nextChild, childCmd] = config.child.update(msg.msg, model.child);
-          return [
-            { ...model, child: nextChild },
-            NebulaCmd.map(childCmd, (childMsg) => ({ type: 'surface:child', msg: childMsg }) as SurfaceMsg<ChildMsg>),
-          ];
+          return [{ ...model, child: nextChild }, NebulaCmd.map(childCmd, (childMsg) => ({ type: 'surface:child', msg: childMsg }) as SurfaceMsg<ChildMsg>)];
         }
+        case 'surface:noop':
+          return [model, NebulaCmd.none()];
       }
     },
 
@@ -169,11 +179,14 @@ export function surface<ChildModel, ChildMsg>(config: SurfaceConfig<ChildModel, 
       const closeStyle = style({ color: feedbackColor(config, 'danger'), bold: true });
       const hintStyle = style({ dim: true, color: formColor(config, 'muted') });
 
-      const header = row(
-        text(`${config.title ?? hostLabel(host)}`, titleStyle),
-        text('  '),
-        text('[× Close]', closeStyle),
+      const closeGlyph = resolveGlyph(statusGlyphTokens.danger, config.glyphLevel ?? 'wide');
+      const closeControl = event(
+        closeId,
+        text(`[${closeGlyph} Close]`, closeStyle),
+        { onClick: closeTag },
+        { label: 'Close', intent: 'dismiss', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Escape' },
       );
+      const header = row(text(`${config.title ?? hostLabel(host)}`, titleStyle), text('  '), closeControl);
 
       const childView = config.child.view(model.child);
       const hint = text(' [Esc] close   [Ctrl/Cmd+Shift+Backspace] panic', hintStyle);
@@ -182,19 +195,17 @@ export function surface<ChildModel, ChildMsg>(config: SurfaceConfig<ChildModel, 
       // any renderer should honour. Renderers that ignore unknown attrs
       // still produce a readable surface because the title row + child view
       // sit at the top of the column.
-      return column(
-        header,
-        empty(0, 0),
-        childView,
-        empty(0, 0),
-        hint,
-        text('', style({ background: opaqueBg })),
-      );
+      return column(header, empty(0, 0), childView, empty(0, 0), hint, text('', style({ background: opaqueBg })));
     },
 
     subscriptions(model: SurfaceModel<ChildModel>): Sub<SurfaceMsg<ChildMsg>> {
       if (!model.open) return NebulaSub.none();
       const subs: Sub<SurfaceMsg<ChildMsg>>[] = [
+        NebulaSub.elementMouse<SurfaceMsg<ChildMsg>>((mouseEvent) =>
+          mouseEvent.elementId === closeId && mouseEvent.handlerTag === closeTag
+            ? ({ type: 'surface:close', reason: 'close-button' } as SurfaceMsg<ChildMsg>)
+            : ({ type: 'surface:noop' } as SurfaceMsg<ChildMsg>),
+        ),
         NebulaSub.key('escape', { type: 'surface:close', reason: 'escape' } as SurfaceMsg<ChildMsg>),
         NebulaSub.keyWithModifiers(PANIC_KEY, PANIC_MODIFIERS_CTRL, {
           type: 'surface:close',
@@ -207,9 +218,7 @@ export function surface<ChildModel, ChildMsg>(config: SurfaceConfig<ChildModel, 
       ];
       if (config.child.subscriptions) {
         const childSub = config.child.subscriptions(model.child);
-        subs.push(
-          NebulaSub.map(childSub, (childMsg) => ({ type: 'surface:child', msg: childMsg }) as SurfaceMsg<ChildMsg>),
-        );
+        subs.push(NebulaSub.map(childSub, (childMsg) => ({ type: 'surface:child', msg: childMsg }) as SurfaceMsg<ChildMsg>));
       }
       return NebulaSub.batch(...subs);
     },

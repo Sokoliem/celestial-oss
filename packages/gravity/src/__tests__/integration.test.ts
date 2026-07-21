@@ -82,10 +82,9 @@ describe('integration', () => {
     const row = colTree.children[0] as RowNode;
     expect(row.children.length).toBe(4);
 
-    // colWidth = floor((120 - 2*3) / 4) = floor(114/4) = 28
-    for (const child of row.children) {
-      expect((child as BoxNode).width).toBe(28);
-    }
+    const widths = row.children.map((child) => (child as BoxNode).width as number);
+    expect(widths).toEqual([29, 29, 28, 28]);
+    expect(widths.reduce((sum, width) => sum + width, 0) + 2 * 3).toBe(120);
   });
 
   it('nested flex layouts compose correctly', () => {

@@ -19,8 +19,9 @@
  */
 
 import { type Color, elevationTokens, resolveDomainTokens, style, type ThemeInput } from '@celestial/core/corona';
-import { box, Cmd, column, focus, type Msg, Sub, setVNodeMeta, type ThemeContext, type VNode } from '@celestial/core/nebula';
+import { box, Cmd, column, event, flex, focus, type Msg, row, Sub, setVNodeMeta, type ThemeContext, text, type VNode } from '@celestial/core/nebula';
 import { assignFocusGroup, generateFocusGroupId } from './focus-group.js';
+import { positiveInteger } from './internal.js';
 import { statusIcon } from './status-icon.js';
 import { resolveTheme } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
@@ -99,7 +100,8 @@ export type SurfaceContainerMsg =
   | Msg<'surface-close', { reason: SurfaceCloseReason }>
   | Msg<'surface-panic'>
   | Msg<'surface-panic-trigger'>
-  | Msg<'surface-backdrop-click'>;
+  | Msg<'surface-backdrop-click'>
+  | Msg<'surface-noop'>;
 
 // ─── Panic broadcast ────────────────────────────────────────────────────────
 //
@@ -151,13 +153,16 @@ function defaultCloseAffordance(): VNode {
 // ─── Factory ────────────────────────────────────────────────────────────────
 
 export function surfaceContainer(config: SurfaceContainerConfig): ComponentDescriptor<SurfaceContainerModel, SurfaceContainerMsg> {
-  const closable = config.closable ?? true;
-  const escapable = config.escapable ?? true;
+  if (config.closable === false || config.escapable === false) {
+    throw new Error('Surface containers must provide both a visible close action and Escape dismissal.');
+  }
   const backdropDismiss = config.backdropDismiss ?? true;
   const backdropMode = config.backdrop ?? 'opaque';
   const initialOpen = config.open ?? true;
   const groupId = generateFocusGroupId(`surface-${config.id}`);
   const closeFocusId = `${groupId}-close`;
+  const closeElementId = `${groupId}:close`;
+  const closeTag = `${groupId}:close-button`;
   const testId = config.testId ?? `surface-${config.id}`;
 
   function decideClose(reason: SurfaceCloseReason): SurfaceCloseAttemptDecision {
@@ -207,6 +212,8 @@ export function surfaceContainer(config: SurfaceContainerConfig): ComponentDescr
         case 'surface-backdrop-click':
           if (!backdropDismiss) return [model, Cmd.none<SurfaceContainerMsg>()];
           return applyClose(model, 'backdrop');
+        case 'surface-noop':
+          return [model, Cmd.none<SurfaceContainerMsg>()];
       }
     },
 
@@ -225,15 +232,24 @@ export function surfaceContainer(config: SurfaceContainerConfig): ComponentDescr
       const opaqueBg: Color = config.opaqueBackground ?? elevation.level5.background ?? theme.colors.surfaceRaised;
 
       const groupedContent = assignFocusGroup(config.content, groupId);
-      const closeNode = closable ? focus(closeFocusId, config.closeAffordance ?? defaultCloseAffordance(), { group: groupId }) : undefined;
-      const inner = closeNode ? column(closeNode, groupedContent) : column(groupedContent);
+      const closeNode = event(
+        closeElementId,
+        focus(closeFocusId, config.closeAffordance ?? defaultCloseAffordance(), { group: groupId }),
+        { onClick: closeTag },
+        { label: 'Close surface', intent: 'close', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Escape' },
+      );
+      setVNodeMeta(closeNode, { a11y: { role: 'button', label: 'Close surface' } });
 
-      const wrapperStyle =
-        backdropMode === 'none'
-          ? style({ background: opaqueBg })
-          : style({ background: opaqueBg, padding: 0, ...(config.width ? { width: config.width } : {}) });
+      const headerTitle = text(config.header?.title ?? '', style({ color: theme.colors.text, bold: true }), { wrap: true });
+      const headerMeta = text(config.header?.meta ?? '', style({ color: theme.colors.textSoft, dim: true }), { wrap: true });
+      const headerContent = config.header?.mirror ? row(headerMeta, text(' '), headerTitle) : row(headerTitle, text(' '), headerMeta);
+      const chrome = row(flex(headerContent, { flex: 1, minWidth: 0 }), closeNode);
+      const inner = column(chrome, groupedContent);
+      const width = config.width === undefined ? undefined : positiveInteger(config.width, 1);
 
-      const node = box(inner, wrapperStyle, config.width ? { width: config.width } : {});
+      const wrapperStyle = backdropMode === 'none' ? style({ background: opaqueBg }) : style({ background: opaqueBg, padding: 0, ...(width ? { width } : {}) });
+
+      const node = box(inner, wrapperStyle, width ? { width, overflow: 'hidden' } : {});
       setVNodeMeta(node, {
         testId,
         a11y: { role: 'dialog', label: config.ariaLabel },
@@ -244,9 +260,14 @@ export function surfaceContainer(config: SurfaceContainerConfig): ComponentDescr
     subscriptions(model: SurfaceContainerModel): Sub<SurfaceContainerMsg> {
       if (!model.open) return Sub.none<SurfaceContainerMsg>();
       const subs: Sub<SurfaceContainerMsg>[] = [];
-      if (escapable) {
-        subs.push(Sub.key<SurfaceContainerMsg>('escape', { type: 'surface-close', reason: 'escape' }));
-      }
+      subs.push(Sub.key<SurfaceContainerMsg>('escape', { type: 'surface-close', reason: 'escape' }));
+      subs.push(
+        Sub.elementMouse<SurfaceContainerMsg>((mouseEvent) =>
+          mouseEvent.elementId === closeElementId && mouseEvent.handlerTag === closeTag
+            ? { type: 'surface-close', reason: 'close-button' }
+            : { type: 'surface-noop' },
+        ),
+      );
       // Panic shortcut: layered defense — always wired, never user-configurable.
       // The keystroke goes to the focus-active surface, which fans out via
       // surface-panic-trigger so every other open surface also closes.

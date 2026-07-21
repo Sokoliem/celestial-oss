@@ -12,6 +12,7 @@ interface RuntimeState {
   writes: string[];
   inputHandler: ((data: Buffer) => void) | null;
   resizeHandler: (() => void) | null;
+  failWrite: ((data: string) => boolean) | null;
 }
 
 async function loadRuntime() {
@@ -20,12 +21,14 @@ async function loadRuntime() {
     writes: [],
     inputHandler: null,
     resizeHandler: null,
+    failWrite: null,
   };
   const terminal = {
     enterRawMode() {},
     exitRawMode() {},
     write(data: string) {
       state.writes.push(data);
+      if (state.failWrite?.(data)) throw new Error('render write failed');
     },
     onInput(handler: (data: Buffer) => void) {
       state.inputHandler = handler;
@@ -138,6 +141,37 @@ describe('synchronized output in render', () => {
     expect(bsuIndex).toBeLessThan(clearIndex);
     // ESU must come after all render output
     expect(esuIndex).toBeGreaterThan(clearIndex);
+
+    handle.stop();
+  });
+
+  it('closes synchronized output when a frame write fails', async () => {
+    const { state, terminal, app, Cmd, Sub, ansi } = await loadRuntime();
+    const errors: unknown[] = [];
+    let failed = false;
+    state.failWrite = (data) => {
+      if (!failed && data === ansi.clearScreen) {
+        failed = true;
+        return true;
+      }
+      return false;
+    };
+
+    const handle = app<number, string>(
+      {
+        init: () => [0, Cmd.none()],
+        update: (_msg, model) => [model, Cmd.none()],
+        view: () => ({ kind: 'text', content: 'test' }),
+        subscriptions: () => Sub.none(),
+      },
+      { terminal, onRenderError: (error) => errors.push(error) },
+    );
+
+    const bsuIndex = state.writes.indexOf(ansi.syncOutput.begin);
+    const esuIndex = state.writes.indexOf(ansi.syncOutput.end);
+    expect(errors).toHaveLength(1);
+    expect(bsuIndex).toBeGreaterThanOrEqual(0);
+    expect(esuIndex).toBeGreaterThan(bsuIndex);
 
     handle.stop();
   });

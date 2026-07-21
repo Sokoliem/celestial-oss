@@ -31,9 +31,10 @@ describe('createConnectionManager', () => {
   });
 
   describe('interface', () => {
-    it('returns an object with start, stop, send, stopAll', () => {
+    it('returns an object with start, update, stop, send, stopAll', () => {
       const manager = createConnectionManager<WrappedMsg>();
       expect(typeof manager.start).toBe('function');
+      expect(typeof manager.update).toBe('function');
       expect(typeof manager.stop).toBe('function');
       expect(typeof manager.send).toBe('function');
       expect(typeof manager.stopAll).toBe('function');

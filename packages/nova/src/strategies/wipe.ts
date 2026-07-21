@@ -7,21 +7,24 @@
  */
 
 import { fadeChar } from '../fade.js';
-import { padGraphemes, visibleLength } from './text.js';
+import { clampUnit } from '../validation.js';
+import { padCells, renderCells, safeContent, type TerminalCell, visibleLength } from './text.js';
 
 const RESET = '\x1b[0m';
 const FEATHER_WIDTH = 3; // characters of soft edge
 
 export function wipe(oldContent: string, newContent: string, progress: number, direction: 'left' | 'right' | 'up' | 'down'): string {
-  const p = Math.max(0, Math.min(1, progress));
+  const safeOldContent = safeContent(oldContent);
+  const safeNewContent = safeContent(newContent);
+  const p = clampUnit(progress);
 
-  if (p === 0) return oldContent;
-  if (p === 1) return newContent;
+  if (p === 0) return safeOldContent;
+  if (p === 1) return safeNewContent;
 
   if (direction === 'up' || direction === 'down') {
-    return wipeVertical(oldContent, newContent, p, direction);
+    return wipeVertical(safeOldContent, safeNewContent, p, direction);
   }
-  return wipeHorizontal(oldContent, newContent, p, direction);
+  return wipeHorizontal(safeOldContent, safeNewContent, p, direction);
 }
 
 function splitLines(content: string): string[] {
@@ -57,32 +60,24 @@ function wipeVertical(oldContent: string, newContent: string, progress: number, 
     // lineIdx === i since we always render to the correct output position
 
     const width = Math.max(visibleLength(oldLines[i]!), visibleLength(newLines[i]!));
-    const oldPadded = padGraphemes(oldLines[i]!, width);
-    const newPadded = padGraphemes(newLines[i]!, width);
+    const oldPadded = padCells(oldLines[i]!, width);
+    const newPadded = padCells(newLines[i]!, width);
 
     if (dist >= 1) {
       // Fully revealed — new content unmodified
-      resultLines[i] = newPadded.join('') + RESET;
+      resultLines[i] = renderCells(newPadded) + RESET;
     } else if (dist <= -1) {
       // Not yet reached — old content unmodified
-      resultLines[i] = oldPadded.join('') + RESET;
+      resultLines[i] = renderCells(oldPadded) + RESET;
     } else {
       // Feather zone: blend old fading out, new fading in
       const blend = Math.max(0, Math.min(1, (dist + 1) / 2));
       const oldOpacity = 1 - blend;
       const newOpacity = blend;
       if (newOpacity > 0.5) {
-        let line = '';
-        for (const ch of newPadded) {
-          line += fadeChar(ch, newOpacity);
-        }
-        resultLines[i] = line + RESET;
+        resultLines[i] = renderCells(newPadded, (text) => fadeChar(text, newOpacity)) + RESET;
       } else {
-        let line = '';
-        for (const ch of oldPadded) {
-          line += fadeChar(ch, oldOpacity);
-        }
-        resultLines[i] = line + RESET;
+        resultLines[i] = renderCells(oldPadded, (text) => fadeChar(text, oldOpacity)) + RESET;
       }
     }
   }
@@ -100,35 +95,35 @@ function wipeHorizontal(oldContent: string, newContent: string, progress: number
   const resultLines: string[] = [];
 
   for (let i = 0; i < lineCount; i++) {
-    const oldPadded = padGraphemes(oldLines[i] ?? '', width);
-    const newPadded = padGraphemes(newLines[i] ?? '', width);
-    let line = '';
+    const oldPadded = padCells(oldLines[i] ?? '', width);
+    const newPadded = padCells(newLines[i] ?? '', width);
+    const selected: TerminalCell[] = [];
+    const opacity: number[] = [];
 
     for (let col = 0; col < width; col++) {
       const effectiveCol = direction === 'right' ? col : width - 1 - col;
       const dist = wipeCol - effectiveCol;
 
-      const oldCh = oldPadded[effectiveCol] ?? ' ';
-      const newCh = newPadded[effectiveCol] ?? ' ';
-
       if (dist > FEATHER_WIDTH) {
-        // Fully revealed — new character
-        line += fadeChar(newCh, 1);
+        selected.push(newPadded[col]!);
+        opacity.push(1);
       } else if (dist < 0) {
-        // Not yet reached — old character
-        line += fadeChar(oldCh, 1);
+        selected.push(oldPadded[col]!);
+        opacity.push(1);
       } else {
         // Feather zone — blend
         const blend = dist / FEATHER_WIDTH;
         if (blend > 0.5) {
-          line += fadeChar(newCh, blend);
+          selected.push(newPadded[col]!);
+          opacity.push(blend);
         } else {
-          line += fadeChar(oldCh, 1 - blend);
+          selected.push(oldPadded[col]!);
+          opacity.push(1 - blend);
         }
       }
     }
 
-    resultLines.push(line + RESET);
+    resultLines.push(`${renderCells(selected, (text, column) => fadeChar(text, opacity[column] ?? 1))}${RESET}`);
   }
 
   return resultLines.join('\n');

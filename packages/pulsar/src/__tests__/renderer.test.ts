@@ -215,6 +215,17 @@ describe('ANSI-preserving word wrap', () => {
   });
 });
 
+describe('terminal input safety', () => {
+  it('neutralizes source-provided CSI and OSC control sequences', () => {
+    const source = 'safe\x1b[31m red \x1b]52;c;Y29weQ==\x07 end';
+    const result = renderMarkdown(source);
+    const plain = stripAnsi(result);
+
+    expect(result).not.toContain('\x1b]52;');
+    expect(plain).toContain('safe�[31m red �]52;c;Y29weQ==� end');
+  });
+});
+
 // ── Admonition Rendering ────────────────────────────────────────────────
 
 describe('admonition rendering', () => {

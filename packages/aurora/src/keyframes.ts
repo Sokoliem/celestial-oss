@@ -1,7 +1,7 @@
 import { easing } from './easing.js';
 import { clone, interpolateValue } from './interpolate.js';
 import type { Animatable, Animation, EasingFn, Keyframe, KeyframesConfig } from './types.js';
-import { assertNoNonFiniteNumbers, assertPositiveNumber, normalizeProgress, normalizeSpeed } from './validation.js';
+import { assertFiniteNumber, assertNoNonFiniteNumbers, assertPositiveNumber, normalizeProgress, normalizeSpeed, resolveTimestamp } from './validation.js';
 
 export function keyframes<T extends Animatable = number>(config: KeyframesConfig<T>): Animation<T> {
   const { keyframes: kf, duration, loop = false, onStart, onUpdate, onComplete, onCancel } = config;
@@ -69,7 +69,7 @@ export function keyframes<T extends Animatable = number>(config: KeyframesConfig
       usesExternalClock = true;
     }
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now, lastTickTime);
 
     if (pausedTime !== null && startTime !== null) {
       startTime += time - pausedTime;
@@ -133,7 +133,7 @@ export function keyframes<T extends Animatable = number>(config: KeyframesConfig
     const { from, to, localProgress } = segment;
 
     const easingFn: EasingFn = to.easing ?? easing.linear;
-    const easedProgress = easingFn(localProgress);
+    const easedProgress = assertFiniteNumber(easingFn(localProgress), 'keyframe easing result');
     const clampedProgress = Math.max(0, Math.min(1, rawProgress));
 
     currentValue = interpolateValue(clone(from.value), clone(to.value), easedProgress);
@@ -231,7 +231,7 @@ export function keyframes<T extends Animatable = number>(config: KeyframesConfig
     const segment = getSegment(clampedProgress);
     const { from, to, localProgress } = segment;
     const easingFn: EasingFn = to.easing ?? easing.linear;
-    const easedProgress = easingFn(localProgress);
+    const easedProgress = assertFiniteNumber(easingFn(localProgress), 'keyframe easing result');
 
     currentValue = interpolateValue(clone(from.value), clone(to.value), easedProgress);
     lastProgress = clampedProgress;

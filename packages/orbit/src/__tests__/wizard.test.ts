@@ -28,10 +28,11 @@ function makeStepComponent(title: string) {
   };
 }
 
-function vnodeToText(node: { kind: string; content?: string; children?: unknown[] }): string {
+function vnodeToText(node: { kind: string; content?: string; children?: unknown[]; child?: unknown }): string {
   if (node.kind === 'text') return node.content ?? '';
+  if (node.kind === 'event' && node.child) return vnodeToText(node.child as { kind: string; content?: string; children?: unknown[]; child?: unknown });
   if (node.kind === 'column' || node.kind === 'row') {
-    return (node.children as { kind: string; content?: string; children?: unknown[] }[]).map(vnodeToText).join('\n');
+    return (node.children as { kind: string; content?: string; children?: unknown[]; child?: unknown }[]).map(vnodeToText).join('\n');
   }
   return '';
 }
@@ -54,6 +55,22 @@ describe('wizard', () => {
       expect(model.stepModels).toHaveLength(2);
       expect(model.completed).toEqual([false, false]);
       expect(model.finished).toBe(false);
+    });
+
+    it('rejects empty and unreasonably large step lists', () => {
+      expect(() => wizard({ steps: [] })).toThrow(/at least one step/);
+      const component = makeStepComponent('step');
+      expect(() => wizard({ steps: Array.from({ length: 1001 }, (_, index) => ({ title: String(index), component })) })).toThrow(/cannot exceed/);
+    });
+
+    it('snapshots the step array and step metadata', () => {
+      const steps = [{ title: 'Original', component: makeStepComponent('A') }];
+      const w = wizard({ steps });
+      steps[0]!.title = 'Changed';
+      steps.length = 0;
+      const [model] = w.init();
+      expect(vnodeToText(w.view(model) as never)).toContain('Original');
+      expect(vnodeToText(w.view(model) as never)).not.toContain('Changed');
     });
 
     it('initializes each step model via step component init', () => {
@@ -143,6 +160,18 @@ describe('wizard', () => {
       const [model] = w.init();
       const [m1] = w.update({ type: 'wizard:goto', step: 5 }, model);
       expect(m1.currentStep).toBe(0);
+    });
+
+    it('wizard:goto ignores fractional and non-finite indices', () => {
+      const w = wizard({
+        steps: [
+          { title: 'A', component: makeStepComponent('A') },
+          { title: 'B', component: makeStepComponent('B') },
+        ],
+      });
+      const [model] = w.init();
+      expect(w.update({ type: 'wizard:goto', step: 0.5 }, model)[0]).toBe(model);
+      expect(w.update({ type: 'wizard:goto', step: Number.NaN }, model)[0]).toBe(model);
     });
   });
 
@@ -303,6 +332,19 @@ describe('wizard', () => {
       const output1 = vnodeToText(w.view(m1) as never);
       expect(output1).toContain('[Prev]');
       expect(output1).toContain('[Finish]');
+    });
+
+    it('provides pointer navigation and disables all input after completion', () => {
+      const onComplete = vi.fn();
+      const w = wizard({ steps: [{ title: 'Only', component: makeStepComponent('A') }], onComplete });
+      let [model] = w.init();
+      expect(JSON.stringify(w.subscriptions!(model))).toContain('elementMouse');
+      [model] = w.update({ type: 'wizard:next' }, model);
+      expect(model.finished).toBe(true);
+      expect(w.subscriptions!(model)._kind.kind).toBe('none');
+      const [unchanged] = w.update({ type: 'wizard:next' }, model);
+      expect(unchanged).toBe(model);
+      expect(onComplete).toHaveBeenCalledTimes(1);
     });
   });
 

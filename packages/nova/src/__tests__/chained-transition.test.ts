@@ -73,4 +73,12 @@ describe('createChainedTransition', () => {
     const b = txOther.render('hello', 'world', 5);
     expect(a).not.toBe(b);
   });
+
+  it('validates stage duration, clocks, and easing output', () => {
+    expect(() => createChainedTransition([{ strategy: 'wipe', duration: -1 }])).toThrow(RangeError);
+    const tx = createChainedTransition([{ strategy: 'wipe', duration: 10, easing: () => Number.NaN }]);
+    expect(() => tx.start(Number.NaN)).toThrow(TypeError);
+    tx.start(0);
+    expect(() => tx.render('old', 'new', 5)).toThrow(TypeError);
+  });
 });

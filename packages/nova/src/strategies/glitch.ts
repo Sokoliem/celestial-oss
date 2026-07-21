@@ -22,7 +22,8 @@
  * convention) so the same `seed` always yields identical frames.
  */
 
-import { padGraphemes, visibleLength } from './text.js';
+import { clampUnit, finiteNumber } from '../validation.js';
+import { padCells, renderCells, safeContent, type TerminalCell, visibleLength } from './text.js';
 
 const RESET = '\x1b[0m';
 const TINT_RED = '\x1b[31m';
@@ -49,40 +50,43 @@ function splitLines(content: string): string[] {
   return content === '' ? [''] : content.split('\n');
 }
 
-function applyJitter(line: string[], offset: number, width: number): string[] {
+function applyJitter(line: TerminalCell[], offset: number, width: number): TerminalCell[] {
+  const blank = padCells('', 1)[0]!;
   if (offset === 0) return [...line];
   if (offset > 0) {
     // Shift right: pad with spaces at start, truncate at end.
-    return [...Array<string>(offset).fill(' '), ...line.slice(0, Math.max(0, width - offset))];
+    return [...Array<TerminalCell>(offset).fill(blank), ...line.slice(0, Math.max(0, width - offset))];
   }
   // Shift left: drop leading chars, pad with spaces at end.
   const drop = -offset;
-  return [...line.slice(drop), ...Array<string>(drop).fill(' ')];
+  return [...line.slice(drop), ...Array<TerminalCell>(drop).fill(blank)];
 }
 
-function punchAt(line: string[], col: number, ch: string): string[] {
+function punchAt(line: TerminalCell[], col: number, ch: string): TerminalCell[] {
   if (col < 0 || col >= line.length) return line;
   const result = [...line];
-  result[col] = ch;
+  result[col] = padCells(ch, 1)[0]!;
   return result;
 }
 
 export function glitch(oldContent: string, newContent: string, progress: number, opts?: GlitchOpts): string {
-  const p = Math.max(0, Math.min(1, progress));
-  if (p <= 0) return oldContent;
-  if (p >= 1) return newContent;
+  const safeOldContent = safeContent(oldContent);
+  const safeNewContent = safeContent(newContent);
+  const p = clampUnit(progress);
+  if (p <= 0) return safeOldContent;
+  if (p >= 1) return safeNewContent;
 
-  const intensity = Math.max(0, Math.min(1, opts?.intensity ?? 1));
-  const scanlineCycle = Math.max(0, Math.min(1, opts?.scanlineCycle ?? 0.15));
-  const seed = opts?.seed ?? 42;
+  const intensity = clampUnit(opts?.intensity ?? 1, 'intensity');
+  const scanlineCycle = clampUnit(opts?.scanlineCycle ?? 0.15, 'scanlineCycle');
+  const seed = finiteNumber(opts?.seed ?? 42, 'seed');
 
   // Chaos peaks at p=0.5 and is zero at the endpoints — guarantees that
   // glitch artifacts (jitter, scanline punches, chromatic tint) fade
   // smoothly in and back out.
   const chaos = intensity * Math.sin(p * Math.PI);
 
-  const oldLines = splitLines(oldContent);
-  const newLines = splitLines(newContent);
+  const oldLines = splitLines(safeOldContent);
+  const newLines = splitLines(safeNewContent);
   const rows = Math.max(oldLines.length, newLines.length);
 
   let width = 0;
@@ -91,8 +95,8 @@ export function glitch(oldContent: string, newContent: string, progress: number,
 
   const result: string[] = [];
   for (let row = 0; row < rows; row++) {
-    const oldPlain = padGraphemes(oldLines[row] ?? '', width);
-    const newPlain = padGraphemes(newLines[row] ?? '', width);
+    const oldPlain = padCells(oldLines[row] ?? '', width);
+    const newPlain = padCells(newLines[row] ?? '', width);
 
     // Per-row swap: at p > rowThreshold the row shows new content.
     const swapThreshold = rowThreshold(row, 0, seed);
@@ -113,9 +117,9 @@ export function glitch(oldContent: string, newContent: string, progress: number,
     // Chromatic tint: only at peak chaos, only a small fraction of rows.
     if (chaos > 0.7 && rowThreshold(row, 4, seed) < 0.15) {
       const tint = rowThreshold(row, 5, seed) < 0.5 ? TINT_RED : TINT_CYAN;
-      result.push(tint + line.join('') + RESET);
+      result.push(tint + renderCells(line) + RESET);
     } else {
-      result.push(line.join('') + RESET);
+      result.push(renderCells(line) + RESET);
     }
   }
 

@@ -14,6 +14,7 @@
  *   // shimmer is a VNode column with committed lines + pending placeholders
  */
 
+import { defaultProgressBarTokens, resolveGlyph } from '@celestial/corona';
 import { measureTextWidth, sliceTextByWidth } from '@celestial/rosetta';
 import { renderMarkdown } from './renderer.js';
 import type { MarkdownStreamSnapshot, MarkdownTheme } from './types.js';
@@ -29,7 +30,9 @@ export interface StreamShimmerOptions {
 }
 
 function createSkeletonLine(width: number): string {
-  const pattern = '░▓░▓░▓░▓░▓░▓';
+  const empty = resolveGlyph(defaultProgressBarTokens.empty, 'wide');
+  const filled = resolveGlyph(defaultProgressBarTokens.filled, 'wide');
+  const pattern = `${empty}${filled}`;
   const repeat = Math.ceil(width / measureTextWidth(pattern));
   return sliceTextByWidth(pattern.repeat(repeat), width);
 }
@@ -44,7 +47,7 @@ function pendingToSkeletonLines(pendingSource: string, width: number): string[] 
  * Render a stream snapshot with shimmer placeholders for pending content.
  */
 export function markdownStreamShimmer(snapshot: MarkdownStreamSnapshot, theme: MarkdownTheme, options?: StreamShimmerOptions): VNode {
-  const width = options?.width ?? 80;
+  const width = options?.width !== undefined && Number.isFinite(options.width) ? Math.max(1, Math.min(100_000, Math.floor(options.width))) : 80;
   const reduceMotion = options?.reduceMotion ?? false;
 
   // Render committed content

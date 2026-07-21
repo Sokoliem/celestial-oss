@@ -141,6 +141,40 @@ describe('bracketed paste in app runtime', () => {
     handle.stop();
   });
 
+  it('reassembles a paste split across input chunks and preserves trailing keys', () => {
+    const terminal = createMockTerminal();
+    const received: Array<{ type: 'paste'; text: string } | { type: 'key'; key: string }> = [];
+    type Msg = (typeof received)[number];
+
+    const handle = app<{}, Msg>(
+      {
+        init: () => [{}, Cmd.none()],
+        update: (msg, model) => {
+          received.push(msg);
+          return [model, Cmd.none()];
+        },
+        view: () => text('test'),
+        subscriptions: () =>
+          Sub.batch<Msg>(
+            Sub.paste((value) => ({ type: 'paste', text: value })),
+            Sub.key('a', { type: 'key', key: 'a' }),
+          ),
+      },
+      { terminal },
+    );
+
+    terminal.simulateInput(BRACKETED_PASTE_START.slice(0, 3));
+    terminal.simulateInput(`${BRACKETED_PASTE_START.slice(3)}hello`);
+    terminal.simulateInput(` world${BRACKETED_PASTE_END.slice(0, 2)}`);
+    terminal.simulateInput(`${BRACKETED_PASTE_END.slice(2)}a`);
+
+    expect(received).toEqual([
+      { type: 'paste', text: 'hello world' },
+      { type: 'key', key: 'a' },
+    ]);
+    handle.stop();
+  });
+
   it('delivers regular input normally (not as paste)', () => {
     const terminal = createMockTerminal();
     const receivedMsgs: Array<{ type: string; text?: string; key?: string }> = [];
@@ -261,6 +295,32 @@ describe('bracketed paste in app runtime', () => {
     expect(received).toHaveLength(1);
     expect(received[0]?.result).toEqual({ ok: true, value: 'clipboard text' });
 
+    handle.stop();
+  });
+
+  it('removes a timed-out clipboard request before a later request is queued', async () => {
+    const terminal = createMockTerminal();
+    const received: string[] = [];
+    type Msg = { type: 'timeout' } | { type: 'clipboard'; result: Result<string, Error> };
+    const request = () => ClipboardCmd.requestPaste<Msg>((result) => ({ type: 'clipboard', result }));
+    const handle = app<{}, Msg>(
+      {
+        init: () => [{}, Cmd.timeout(request(), 5, { type: 'timeout' })],
+        update: (message, model) => {
+          if (message.type === 'timeout') return [model, request()];
+          if (message.result.ok) received.push(message.result.value);
+          return [model, Cmd.none()];
+        },
+        view: () => text('test'),
+        subscriptions: () => Sub.none(),
+      },
+      { terminal },
+    );
+
+    await vi.waitFor(() => expect(terminal.written.filter((value) => value === osc52PasteRequest())).toHaveLength(2));
+    const encoded = Buffer.from('second request', 'utf8').toString('base64');
+    terminal.simulateInput(`\x1b]52;c;${encoded}\x07`);
+    await vi.waitFor(() => expect(received).toEqual(['second request']));
     handle.stop();
   });
 

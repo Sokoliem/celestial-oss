@@ -36,6 +36,7 @@ describe('responsive transient surfaces', () => {
     const lines = renderToLines(component.view(model), { width, height: 32 });
 
     expect(lines.join('\n')).toContain('resized.');
+    expect(lines.join('\n')).toContain('[x]');
     expect(lines.every((line) => visualWidth(line) <= width)).toBe(true);
   });
 

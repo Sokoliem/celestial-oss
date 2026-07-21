@@ -1,5 +1,6 @@
 import type { Msg } from '@celestial/nebula';
 import { Cmd } from '@celestial/nebula';
+import { boundedInteger, MAX_COLLECTION_ITEMS, MAX_FIELD_ARRAY_INDEX } from './internal.js';
 import type { FieldArrayConfig, FieldArrayModel, FieldArrayPath } from './types.js';
 
 // ─── Messages ───────────────────────────────────────────────────────────────
@@ -42,8 +43,22 @@ export interface FieldArrayDescriptor<ItemModel, ItemMsg> {
  * min/max constraints are enforced.
  */
 export function fieldArray<ItemModel, ItemMsg>(config: FieldArrayConfig<ItemModel, ItemMsg>): FieldArrayDescriptor<ItemModel, ItemMsg> {
-  const minItems = config.minItems ?? 0;
-  const maxItems = config.maxItems ?? Infinity;
+  if (config.minItems !== undefined && (!Number.isInteger(config.minItems) || config.minItems < 0 || config.minItems > MAX_COLLECTION_ITEMS)) {
+    throw new RangeError(`orbit/fieldArray: minItems must be an integer between 0 and ${MAX_COLLECTION_ITEMS}`);
+  }
+  if (
+    config.maxItems !== undefined &&
+    config.maxItems !== Number.POSITIVE_INFINITY &&
+    (!Number.isInteger(config.maxItems) || config.maxItems < 0 || config.maxItems > MAX_COLLECTION_ITEMS)
+  ) {
+    throw new RangeError(`orbit/fieldArray: maxItems must be an integer between 0 and ${MAX_COLLECTION_ITEMS}, or Infinity`);
+  }
+  const minItems = boundedInteger(config.minItems, 0, 0, MAX_COLLECTION_ITEMS);
+  const maxItems =
+    config.maxItems === undefined || config.maxItems === Number.POSITIVE_INFINITY
+      ? MAX_COLLECTION_ITEMS
+      : boundedInteger(config.maxItems, MAX_COLLECTION_ITEMS, 0, MAX_COLLECTION_ITEMS);
+  if (minItems > maxItems) throw new RangeError('orbit/fieldArray: minItems must not exceed maxItems');
 
   function createInitial(): FieldArrayModel<ItemModel> {
     const items: ItemModel[] = [];
@@ -94,7 +109,7 @@ export function fieldArray<ItemModel, ItemMsg>(config: FieldArrayConfig<ItemMode
 
         case 'field-array:remove': {
           const { index } = msg;
-          if (index < 0 || index >= model.items.length) return [model, Cmd.none()];
+          if (!Number.isInteger(index) || index < 0 || index >= model.items.length) return [model, Cmd.none()];
           if (model.items.length <= minItems) return [model, Cmd.none()];
           return [
             {
@@ -108,8 +123,8 @@ export function fieldArray<ItemModel, ItemMsg>(config: FieldArrayConfig<ItemMode
 
         case 'field-array:move': {
           const { from, to } = msg;
-          if (from < 0 || from >= model.items.length) return [model, Cmd.none()];
-          if (to < 0 || to >= model.items.length) return [model, Cmd.none()];
+          if (!Number.isInteger(from) || from < 0 || from >= model.items.length) return [model, Cmd.none()];
+          if (!Number.isInteger(to) || to < 0 || to >= model.items.length) return [model, Cmd.none()];
           if (from === to) return [model, Cmd.none()];
 
           const newItems = [...model.items];
@@ -128,8 +143,8 @@ export function fieldArray<ItemModel, ItemMsg>(config: FieldArrayConfig<ItemMode
 
         case 'field-array:swap': {
           const { indexA, indexB } = msg;
-          if (indexA < 0 || indexA >= model.items.length) return [model, Cmd.none()];
-          if (indexB < 0 || indexB >= model.items.length) return [model, Cmd.none()];
+          if (!Number.isInteger(indexA) || indexA < 0 || indexA >= model.items.length) return [model, Cmd.none()];
+          if (!Number.isInteger(indexB) || indexB < 0 || indexB >= model.items.length) return [model, Cmd.none()];
           if (indexA === indexB) return [model, Cmd.none()];
 
           const newItems = [...model.items];
@@ -150,7 +165,7 @@ export function fieldArray<ItemModel, ItemMsg>(config: FieldArrayConfig<ItemMode
 
         case 'field-array:update-item': {
           const { index } = msg;
-          if (index < 0 || index >= model.items.length) return [model, Cmd.none()];
+          if (!Number.isInteger(index) || index < 0 || index >= model.items.length) return [model, Cmd.none()];
 
           // For update-item, the msg payload is passed directly as the new item model
           // This is the simplest approach; a more complex approach would delegate
@@ -177,11 +192,11 @@ export function fieldArray<ItemModel, ItemMsg>(config: FieldArrayConfig<ItemMode
     // ── Helpers ──────────────────────────────────────────────────────────
 
     getItems(model: FieldArrayModel<ItemModel>): ItemModel[] {
-      return model.items;
+      return [...model.items];
     },
 
     getKeys(model: FieldArrayModel<ItemModel>): number[] {
-      return model.keys;
+      return [...model.keys];
     },
 
     length(model: FieldArrayModel<ItemModel>): number {
@@ -200,26 +215,46 @@ export function fieldArray<ItemModel, ItemMsg>(config: FieldArrayConfig<ItemMode
 
 type PathSegment = string | number;
 
+const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
 export function parseFieldArrayPath(path: FieldArrayPath): PathSegment[] | undefined {
   if (!path) return undefined;
 
   const segments: PathSegment[] = [];
-  const pattern = /([^[.\]]+)|\[(\d+)\]/g;
-  let match: RegExpExecArray | null;
-  let consumed = '';
+  let cursor = 0;
 
-  while ((match = pattern.exec(path)) !== null) {
-    consumed += match[0];
-    if (match[1] !== undefined) {
-      segments.push(match[1]);
-    } else if (match[2] !== undefined) {
-      segments.push(Number(match[2]));
-    }
+  function readName(): string | undefined {
+    const start = cursor;
+    while (cursor < path.length && path[cursor] !== '.' && path[cursor] !== '[' && path[cursor] !== ']') cursor++;
+    if (cursor === start) return undefined;
+    return path.slice(start, cursor);
   }
 
-  if (segments.length === 0) return undefined;
-  if (consumed.replace(/\./g, '') !== path.replace(/\./g, '')) return undefined;
-  if (path.includes('[]')) return undefined;
+  const first = readName();
+  if (!first || UNSAFE_PATH_SEGMENTS.has(first)) return undefined;
+  segments.push(first);
+
+  while (cursor < path.length) {
+    if (path[cursor] === '.') {
+      cursor++;
+      const name = readName();
+      if (!name || UNSAFE_PATH_SEGMENTS.has(name)) return undefined;
+      segments.push(name);
+      continue;
+    }
+    if (path[cursor] === '[') {
+      const close = path.indexOf(']', cursor + 1);
+      if (close < 0) return undefined;
+      const rawIndex = path.slice(cursor + 1, close);
+      if (!/^\d+$/.test(rawIndex)) return undefined;
+      const index = Number(rawIndex);
+      if (!Number.isSafeInteger(index) || index > MAX_FIELD_ARRAY_INDEX) return undefined;
+      segments.push(index);
+      cursor = close + 1;
+      continue;
+    }
+    return undefined;
+  }
 
   return segments;
 }
@@ -231,6 +266,7 @@ export function getFieldArrayValue<T = unknown>(value: unknown, path: FieldArray
   let current: any = value;
   for (const segment of segments) {
     if (current == null) return undefined;
+    if ((typeof current !== 'object' && typeof current !== 'string') || !Object.hasOwn(current, segment)) return undefined;
     current = current[segment as any];
   }
 
@@ -262,13 +298,15 @@ export function setFieldArrayValue<T>(target: T, path: FieldArrayPath, value: un
 }
 
 export function appendValueAtPath<T>(target: T, path: FieldArrayPath, value: unknown): T {
-  const current = getFieldArrayValue<unknown[]>(target, path) ?? [];
+  const resolved = getFieldArrayValue<unknown>(target, path);
+  const current = Array.isArray(resolved) ? resolved : [];
+  if (current.length >= MAX_COLLECTION_ITEMS) return target;
   return setFieldArrayValue(target, path, [...current, value]);
 }
 
 export function removeValueAtPath<T>(target: T, path: FieldArrayPath, index: number): T {
   const current = getFieldArrayValue<unknown[]>(target, path);
-  if (!current || index < 0 || index >= current.length) return target;
+  if (!Array.isArray(current) || !Number.isInteger(index) || index < 0 || index >= current.length) return target;
   return setFieldArrayValue(
     target,
     path,

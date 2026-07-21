@@ -1,8 +1,8 @@
 import type { HitRegionInfo } from '../hit-regions.js';
 import { resolveMouseHandler } from '../mouse.js';
-import { type ElementMouseEvent, type MouseEventData, type Sub, subKind } from '../types.js';
+import type { ElementMouseEvent, MouseEventData, Sub } from '../types.js';
 import type { RuntimeContext } from './runtime-context.js';
-import { applySubMap } from './sub-map.js';
+import { walkSubscriptionLeaves } from './subscription-walk.js';
 
 export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): void {
   function findTopmostHit(x: number, y: number): HitRegionInfo | null {
@@ -58,7 +58,6 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
     mouseEv: MouseEventData,
     propagation: { stopped: boolean },
   ): void {
-    ctx.combinatorIdCounter = 0;
     ctx.dispatchElementMouseEvent(sub, createElementMouseEvent(tag, currentTargetId, targetId, phase, path, mouseEv, propagation));
   }
 
@@ -176,25 +175,8 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
   };
 
   ctx.dispatchElementMouseEvent = (sub: Sub<M>, event: ElementMouseEvent): void => {
-    const kind = subKind(sub);
-    switch (kind.kind) {
-      case 'elementMouse':
-        ctx.dispatchFn(kind.toMsg(event));
-        break;
-      case 'batch':
-        for (const s of kind.subs) ctx.dispatchElementMouseEvent(s, event);
-        break;
-      case 'map':
-        ctx.dispatchElementMouseEvent(applySubMap(kind.sub, kind.fn), event);
-        break;
-      case 'debounce':
-      case 'throttle':
-      case 'filter':
-      case 'distinct':
-        ctx.walkCombinator(kind, (inner) => ctx.dispatchElementMouseEvent(inner, event));
-        break;
-      default:
-        break;
-    }
+    walkSubscriptionLeaves(ctx, sub, 'subscriptions', (kind, emit) => {
+      if (kind.kind === 'elementMouse') emit(kind.toMsg(event));
+    });
   };
 }

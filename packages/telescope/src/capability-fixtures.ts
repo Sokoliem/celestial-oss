@@ -254,6 +254,13 @@ export const CAPABILITY_PRESETS: {
   },
 };
 
+for (const preset of Object.values(CAPABILITY_PRESETS)) {
+  Object.freeze(preset.capabilities);
+  if (preset.env) Object.freeze(preset.env);
+  Object.freeze(preset);
+}
+Object.freeze(CAPABILITY_PRESETS);
+
 // ── Fixture factory ────────────────────────────────────────────────────
 
 /**

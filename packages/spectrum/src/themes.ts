@@ -264,10 +264,11 @@ const themeCache = new Map<HighlightThemeName, HighlightTheme>();
  * Get a built-in theme by name. Instances are cached for performance.
  */
 export function getTheme(name: HighlightThemeName): HighlightTheme {
-  let theme = themeCache.get(name);
+  const safeName = typeof name === 'string' && name in THEME_REGISTRY ? name : 'default';
+  let theme = themeCache.get(safeName);
   if (!theme) {
-    theme = THEME_REGISTRY[name]();
-    themeCache.set(name, theme);
+    theme = THEME_REGISTRY[safeName]();
+    themeCache.set(safeName, theme);
   }
   return theme;
 }
@@ -276,16 +277,36 @@ export function getTheme(name: HighlightThemeName): HighlightTheme {
  * Create a custom theme by merging overrides onto the default.
  */
 export function createTheme(overrides: Partial<HighlightTheme>): HighlightTheme {
-  return { ...createDefaultTheme(), ...overrides };
+  const base = createDefaultTheme();
+  if (!overrides || typeof overrides !== 'object') return base;
+  const theme: HighlightTheme = { ...base };
+  if (typeof overrides.name === 'string' && overrides.name.trim()) theme.name = overrides.name.slice(0, 256);
+  for (const key of Object.keys(base) as Array<keyof HighlightTheme>) {
+    if (key === 'name') continue;
+    const candidate = overrides[key];
+    if (typeof candidate === 'function') Object.assign(theme, { [key]: candidate });
+  }
+  for (const key of ['meta', 'tag', 'attribute', 'regexp', 'constant', 'namespace', 'parameter', 'property', 'label', 'escape', 'text'] as const) {
+    const candidate = overrides[key];
+    if (typeof candidate === 'function') Object.assign(theme, { [key]: candidate });
+  }
+  return theme;
+}
+
+function isCompleteTheme(theme: HighlightTheme): boolean {
+  if (typeof theme.name !== 'string') return false;
+  return ['keyword', 'string', 'comment', 'number', 'operator', 'type', 'function', 'variable', 'punctuation', 'builtin'].every(
+    (key) => typeof theme[key as keyof HighlightTheme] === 'function',
+  );
 }
 
 /**
  * Resolve a theme argument — accepts a name string, a theme object, or undefined (= default).
  */
 export function resolveTheme(theme?: HighlightTheme | HighlightThemeName): HighlightTheme {
-  if (!theme) return createDefaultTheme();
-  if (typeof theme === 'string') return getTheme(theme);
-  return theme;
+  if (!theme) return getTheme('default');
+  if (typeof theme === 'string') return getTheme(theme.trim().toLowerCase() as HighlightThemeName);
+  return isCompleteTheme(theme) ? theme : createTheme(theme);
 }
 
 /**

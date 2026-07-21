@@ -1,3 +1,5 @@
+import type { Cmd, Sub, VNode } from '@celestial/nebula';
+import { segmentGraphemes } from '@celestial/rosetta';
 import {
   autocomplete,
   checkbox,
@@ -16,9 +18,8 @@ import {
   textInput,
   toggle,
 } from '@celestial/ui';
-import type { Cmd, Sub, VNode } from '@celestial/nebula';
-import { segmentGraphemes } from '@celestial/rosetta';
 import type { NormalizedOption } from './field-adapter.js';
+import { boundedInteger, MAX_COLLECTION_ITEMS } from './internal.js';
 import type { FieldConfig } from './types.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -76,9 +77,7 @@ export interface FormFieldTypeRegistry {
  * Identity helper for descriptor authoring — lets call sites get type
  * inference without restating generics.
  */
-export function defineFormField<T = unknown, M = unknown, Msg = unknown>(
-  descriptor: FormFieldTypeDescriptor<T, M, Msg>,
-): FormFieldTypeDescriptor<T, M, Msg> {
+export function defineFormField<T = unknown, M = unknown, Msg = unknown>(descriptor: FormFieldTypeDescriptor<T, M, Msg>): FormFieldTypeDescriptor<T, M, Msg> {
   return descriptor;
 }
 
@@ -89,15 +88,18 @@ export function defineFormField<T = unknown, M = unknown, Msg = unknown>(
 export function createFormFieldRegistry(initial: readonly FormFieldTypeDescriptor[] = []): FormFieldTypeRegistry {
   const descriptors = new Map<string, FormFieldTypeDescriptor>();
   for (const descriptor of initial) {
+    if (!descriptor.type) throw new Error('orbit/field-registry: descriptor type cannot be empty');
     descriptors.set(descriptor.type, descriptor);
   }
 
   return {
     register(descriptor: FormFieldTypeDescriptor): () => void {
-      descriptors.set(descriptor.type, descriptor);
+      const type = descriptor.type;
+      if (!type) throw new Error('orbit/field-registry: descriptor type cannot be empty');
+      descriptors.set(type, descriptor);
       return () => {
-        if (descriptors.get(descriptor.type) === descriptor) {
-          descriptors.delete(descriptor.type);
+        if (descriptors.get(type) === descriptor) {
+          descriptors.delete(type);
         }
       };
     },
@@ -125,6 +127,10 @@ function asNumber(value: unknown): number {
   return 0;
 }
 
+function safeCursor(value: unknown, length: number): number {
+  return boundedInteger(typeof value === 'number' ? value : undefined, 0, 0, length);
+}
+
 const textDescriptor = defineFormField<string>({
   type: 'text',
   create(config) {
@@ -139,7 +145,7 @@ const textDescriptor = defineFormField<string>({
   setValue(model, value) {
     const next = asString(value);
     const m = model as { cursor?: number };
-    return { ...(model as object), value: next, cursor: Math.min(m.cursor ?? 0, segmentGraphemes(next).length) } as typeof model;
+    return { ...(model as object), value: next, cursor: safeCursor(m.cursor, segmentGraphemes(next).length) } as typeof model;
   },
 });
 
@@ -158,7 +164,7 @@ const passwordDescriptor = defineFormField<string>({
   setValue(model, value) {
     const next = asString(value);
     const m = model as { cursor?: number };
-    return { ...(model as object), value: next, cursor: Math.min(m.cursor ?? 0, segmentGraphemes(next).length) } as typeof model;
+    return { ...(model as object), value: next, cursor: safeCursor(m.cursor, segmentGraphemes(next).length) } as typeof model;
   },
 });
 
@@ -172,7 +178,7 @@ const numberDescriptor = defineFormField<number>({
     });
   },
   getValue(model) {
-    return (model as { value?: number }).value ?? 0;
+    return asNumber((model as { value?: number }).value);
   },
   setValue(model, value) {
     return { ...(model as object), value: asNumber(value) } as typeof model;
@@ -245,7 +251,7 @@ const sliderDescriptor = defineFormField<number>({
     });
   },
   getValue(model) {
-    return (model as { value?: number }).value ?? 0;
+    return asNumber((model as { value?: number }).value);
   },
   setValue(model, value) {
     return { ...(model as object), value: asNumber(value) } as typeof model;
@@ -279,8 +285,7 @@ const autocompleteDescriptor = defineFormField<string>({
   type: 'autocomplete',
   create(config, options) {
     return autocomplete({
-      source: (query: string) =>
-        options.filter((option) => option.label.toLowerCase().includes(query.toLowerCase())).map((option) => option.label),
+      source: (query: string) => options.filter((option) => option.label.toLowerCase().includes(query.toLowerCase())).map((option) => option.label),
       placeholder: config.placeholder,
     });
   },
@@ -317,16 +322,18 @@ const colorDescriptor = defineFormField<string>({
 const tagsDescriptor = defineFormField<readonly string[]>({
   type: 'tags',
   create(config) {
-    const initial = Array.isArray(config.defaultValue) ? (config.defaultValue as readonly unknown[]).map((entry) => String(entry)) : [];
+    const initial = Array.isArray(config.defaultValue)
+      ? (config.defaultValue as readonly unknown[]).slice(0, MAX_COLLECTION_ITEMS).map((entry) => String(entry))
+      : [];
     return tagInput({ tags: [...initial], placeholder: config.placeholder });
   },
   getValue(model) {
     const tags = (model as { tags?: readonly unknown[] }).tags;
     if (!Array.isArray(tags)) return [];
-    return tags.map((entry) => String(entry));
+    return tags.slice(0, MAX_COLLECTION_ITEMS).map((entry) => String(entry));
   },
   setValue(model, value) {
-    const next = Array.isArray(value) ? value.map((entry) => String(entry)) : [];
+    const next = Array.isArray(value) ? value.slice(0, MAX_COLLECTION_ITEMS).map((entry) => String(entry)) : [];
     return { ...(model as object), tags: next, inputBuffer: '', cursorPos: 0, highlightedTag: -1 } as typeof model;
   },
 });
@@ -337,12 +344,12 @@ const ratingDescriptor = defineFormField<number>({
     return rating({ value: asNumber(config.defaultValue), interactive: true });
   },
   getValue(model) {
-    return (model as { value?: number }).value ?? 0;
+    return asNumber((model as { value?: number }).value);
   },
   setValue(model, value) {
     const m = model as { max?: number };
     const next = asNumber(value);
-    const max = typeof m.max === 'number' ? m.max : 5;
+    const max = Math.max(0, asNumber(m.max ?? 5));
     return { ...(model as object), value: Math.max(0, Math.min(max, next)) } as typeof model;
   },
 });
@@ -353,7 +360,7 @@ interface RangeValue {
 }
 
 function isRangeValue(value: unknown): value is RangeValue {
-  return Boolean(value) && typeof value === 'object' && typeof (value as RangeValue).low === 'number' && typeof (value as RangeValue).high === 'number';
+  return Boolean(value) && typeof value === 'object' && Number.isFinite((value as RangeValue).low) && Number.isFinite((value as RangeValue).high);
 }
 
 const rangeDescriptor = defineFormField<RangeValue>({
@@ -364,11 +371,15 @@ const rangeDescriptor = defineFormField<RangeValue>({
   },
   getValue(model) {
     const m = model as { low?: number; high?: number };
-    return { low: m.low ?? 0, high: m.high ?? 0 };
+    const low = asNumber(m.low);
+    const high = asNumber(m.high);
+    return low <= high ? { low, high } : { low: high, high: low };
   },
   setValue(model, value) {
     const range = isRangeValue(value) ? value : { low: 0, high: 0 };
-    return { ...(model as object), low: range.low, high: range.high } as typeof model;
+    const low = Math.min(range.low, range.high);
+    const high = Math.max(range.low, range.high);
+    return { ...(model as object), low, high } as typeof model;
   },
 });
 
@@ -431,7 +442,9 @@ const radioDescriptor = defineFormField<string>({
 const multiSelectDescriptor = defineFormField<readonly string[]>({
   type: 'multi-select',
   create(config, options) {
-    const defaults = Array.isArray(config.defaultValue) ? new Set((config.defaultValue as readonly unknown[]).map((entry) => String(entry))) : new Set<string>();
+    const defaults = Array.isArray(config.defaultValue)
+      ? new Set((config.defaultValue as readonly unknown[]).map((entry) => String(entry)))
+      : new Set<string>();
     const selectedIndexes: number[] = [];
     options.forEach((option, index) => {
       if (defaults.has(option.value)) selectedIndexes.push(index);
@@ -479,7 +492,7 @@ const fileDescriptor = defineFormField<string>({
   setValue(model, value) {
     const next = asString(value);
     const m = model as { cursor?: number };
-    return { ...(model as object), value: next, cursor: Math.min(m.cursor ?? 0, segmentGraphemes(next).length) } as typeof model;
+    return { ...(model as object), value: next, cursor: safeCursor(m.cursor, segmentGraphemes(next).length) } as typeof model;
   },
 });
 

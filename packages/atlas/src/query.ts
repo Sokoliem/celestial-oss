@@ -1,4 +1,5 @@
 import { detectCapabilities } from './detect.js';
+import { acquireTerminalLease, type TerminalInputStream } from './terminal-lease.js';
 import type { AtlasCapabilities, AtlasSurface, DeviceAttributeResult, SecondaryAttributeResult } from './types.js';
 
 export interface QueryOptions {
@@ -15,7 +16,7 @@ const DEFAULT_TIMEOUT = 500;
 
 function queryTerminal(sequence: string, responsePattern: RegExp, options?: QueryOptions): Promise<string | null> {
   const timeout = options?.timeout ?? DEFAULT_TIMEOUT;
-  const stdin = (options?.stdin ?? process.stdin) as NodeJS.ReadableStream & {
+  const stdin = (options?.stdin ?? process.stdin) as TerminalInputStream & {
     isTTY?: boolean;
     isRaw?: boolean;
     setRawMode?: (mode: boolean) => void;
@@ -34,21 +35,14 @@ function queryTerminal(sequence: string, responsePattern: RegExp, options?: Quer
   return new Promise<string | null>((resolve) => {
     let settled = false;
     let buffer = '';
-    let originalRawMode: boolean | undefined;
+    let releaseLease: (() => void) | undefined;
 
     const cleanup = (): void => {
       if (settled) return;
       settled = true;
       stdin.removeListener('data', onData);
       try {
-        if (originalRawMode !== undefined && stdin.setRawMode) {
-          stdin.setRawMode(originalRawMode);
-        }
-      } catch {
-        /* ignore */
-      }
-      try {
-        stdin.pause();
+        releaseLease?.();
       } catch {
         /* ignore */
       }
@@ -70,9 +64,7 @@ function queryTerminal(sequence: string, responsePattern: RegExp, options?: Quer
     };
 
     try {
-      originalRawMode = stdin.isRaw ?? false;
-      stdin.setRawMode?.(true);
-      stdin.resume();
+      releaseLease = acquireTerminalLease(stdin).release;
       stdin.on('data', onData);
       stdout.write(sequence);
     } catch {

@@ -12,6 +12,15 @@
 
 import type { HitMap } from '@celestial/nexus';
 import type { HitRegion } from './interactive.js';
+import { boundedPositiveInteger, finiteNumber, interpolateRange, nonNegativeNumber, rangeRatio } from './validation.js';
+
+const MAX_CHART_EXTENT = 1_000_000;
+const MAX_CHART_COORDINATE = 1_000_000_000;
+const MAX_GESTURE_OVERLAY_CELLS = 4_194_304;
+
+function chartCoordinate(value: number, fallback: number): number {
+  return Math.round(Math.max(-MAX_CHART_COORDINATE, Math.min(MAX_CHART_COORDINATE, finiteNumber(value, fallback))));
+}
 
 // ── Mouse event (structural, matches Nebula's shape) ────────────────────
 
@@ -71,29 +80,39 @@ export interface ChartCoordinateMap {
  * using linear interpolation.
  */
 export function createCoordinateMap(opts: CoordinateMapOpts): ChartCoordinateMap {
-  const { chartX, chartY, chartWidth, chartHeight, dataMinX, dataMaxX, dataMinY, dataMaxY } = opts;
-  const rawRangeX = dataMaxX - dataMinX;
-  const rawRangeY = dataMaxY - dataMinY;
-  const rangeX = rawRangeX || 1;
-  const rangeY = rawRangeY || 1;
+  const chartX = chartCoordinate(opts.chartX, 0);
+  const chartY = chartCoordinate(opts.chartY, 0);
+  const chartWidth = boundedPositiveInteger(opts.chartWidth, 1, MAX_CHART_EXTENT);
+  const chartHeight = boundedPositiveInteger(opts.chartHeight, 1, MAX_CHART_EXTENT);
+  let dataMinX = finiteNumber(opts.dataMinX, 0);
+  let dataMaxX = finiteNumber(opts.dataMaxX, dataMinX);
+  let dataMinY = finiteNumber(opts.dataMinY, 0);
+  let dataMaxY = finiteNumber(opts.dataMaxY, dataMinY);
+  if (dataMinX > dataMaxX) [dataMinX, dataMaxX] = [dataMaxX, dataMinX];
+  if (dataMinY > dataMaxY) [dataMinY, dataMaxY] = [dataMaxY, dataMinY];
+  const hasRangeX = dataMinX !== dataMaxX;
+  const hasRangeY = dataMinY !== dataMaxY;
   const cellMaxCol = chartX + chartWidth - 1;
   const cellMaxRow = chartY + chartHeight - 1;
   const cellRangeX = cellMaxCol - chartX || 1;
   const cellRangeY = cellMaxRow - chartY || 1;
 
   function cellToData(col: number, row: number): { x: number; y: number } | null {
+    if (!Number.isFinite(col) || !Number.isFinite(row)) return null;
     if (col < chartX || col > cellMaxCol || row < chartY || row > cellMaxRow) {
       return null;
     }
     // When the data range is zero, all positions map to the single value
-    const x = rawRangeX === 0 ? dataMinX : dataMinX + ((col - chartX) / cellRangeX) * rawRangeX;
-    const y = rawRangeY === 0 ? dataMinY : dataMaxY - ((row - chartY) / cellRangeY) * rawRangeY;
+    const x = hasRangeX ? interpolateRange(dataMinX, dataMaxX, (col - chartX) / cellRangeX) : dataMinX;
+    const y = hasRangeY ? interpolateRange(dataMinY, dataMaxY, 1 - (row - chartY) / cellRangeY) : dataMinY;
     return { x, y };
   }
 
   function dataToCell(dataX: number, dataY: number): { col: number; row: number } {
-    const tX = rawRangeX === 0 ? 0.5 : (dataX - dataMinX) / rangeX;
-    const tY = rawRangeY === 0 ? 0.5 : (dataMaxY - dataY) / rangeY;
+    const safeX = finiteNumber(dataX, dataMinX);
+    const safeY = finiteNumber(dataY, dataMinY);
+    const tX = hasRangeX ? rangeRatio(safeX, dataMinX, dataMaxX) : 0.5;
+    const tY = hasRangeY ? 1 - rangeRatio(safeY, dataMinY, dataMaxY) : 0.5;
     return {
       col: chartX + tX * cellRangeX,
       row: chartY + tY * cellRangeY,
@@ -201,7 +220,11 @@ export interface ChartGestureState {
 export function createChartGestureState(coordMap: ChartCoordinateMap, config: ChartGestureConfig): ChartGestureState {
   return {
     phase: 'idle',
-    config,
+    config: {
+      ...config,
+      dragThreshold: Math.min(MAX_CHART_EXTENT, nonNegativeNumber(config.dragThreshold, 2)),
+      longPressMs: Math.min(2_147_483_647, nonNegativeNumber(config.longPressMs, 500)),
+    },
     coordMap,
     pressCol: 0,
     pressRow: 0,
@@ -229,8 +252,9 @@ export function chartGestureUpdate(
   now: number = Date.now(),
 ): { state: ChartGestureState; messages: ChartGestureMsg[] } {
   const { coordMap, config } = state;
-  const col = event.x;
-  const row = event.y;
+  const col = finiteNumber(event.x, Number.NaN);
+  const row = finiteNumber(event.y, Number.NaN);
+  const timestamp = finiteNumber(now, state.pressTime);
   const messages: ChartGestureMsg[] = [];
 
   const inBounds = isInChartBounds(coordMap, col, row);
@@ -248,7 +272,7 @@ export function chartGestureUpdate(
           pressRow: row,
           currentCol: col,
           currentRow: row,
-          pressTime: now,
+          pressTime: timestamp,
           prevCol: col,
           prevRow: row,
           longPressFired: false,
@@ -503,7 +527,7 @@ export function checkChartLongPress(state: ChartGestureState, now: number = Date
   if (state.phase !== 'pending') return { message: null, state };
   if (state.longPressFired) return { message: null, state };
 
-  const elapsed = now - state.pressTime;
+  const elapsed = Math.max(0, finiteNumber(now, state.pressTime) - state.pressTime);
   if (elapsed <= state.config.longPressMs) return { message: null, state };
 
   const data = state.coordMap.cellToData(state.pressCol, state.pressRow);
@@ -537,10 +561,18 @@ const BOX_BR = '\u2518'; // ┘
 export function renderRangeSelection(state: ChartGestureState): string {
   if (state.phase !== 'range-selecting') return '';
 
-  const x1 = Math.min(state.pressCol, state.currentCol);
-  const x2 = Math.max(state.pressCol, state.currentCol);
-  const y1 = Math.min(state.pressRow, state.currentRow);
-  const y2 = Math.max(state.pressRow, state.currentRow);
+  const minCol = state.coordMap.chartX;
+  const maxCol = minCol + state.coordMap.chartWidth - 1;
+  const minRow = state.coordMap.chartY;
+  const maxRow = minRow + state.coordMap.chartHeight - 1;
+  const pressCol = Math.round(clamp(finiteNumber(state.pressCol, minCol), minCol, maxCol));
+  const currentCol = Math.round(clamp(finiteNumber(state.currentCol, pressCol), minCol, maxCol));
+  const pressRow = Math.round(clamp(finiteNumber(state.pressRow, minRow), minRow, maxRow));
+  const currentRow = Math.round(clamp(finiteNumber(state.currentRow, pressRow), minRow, maxRow));
+  const x1 = Math.min(pressCol, currentCol);
+  const x2 = Math.max(pressCol, currentCol);
+  const y1 = Math.min(pressRow, currentRow);
+  const y2 = Math.max(pressRow, currentRow);
 
   const width = x2 - x1 + 1;
   const height = y2 - y1 + 1;
@@ -549,6 +581,7 @@ export function renderRangeSelection(state: ChartGestureState): string {
     // Too small for a box — just show a single marker
     return BOX_TL;
   }
+  if (width > Math.floor(MAX_GESTURE_OVERLAY_CELLS / height)) return BOX_TL;
 
   const lines: string[] = [];
 
@@ -601,11 +634,12 @@ export function renderPanIndicator(state: ChartGestureState): string {
  */
 export function registerChartRegions<M>(regions: HitRegion[], hitMap: HitMap<M>, messageMapper: (region: HitRegion) => M): void {
   for (const region of regions) {
+    if (![region.x, region.y, region.width, region.height].every(Number.isFinite) || region.width <= 0 || region.height <= 0) continue;
     hitMap.register({
-      x: region.x,
-      y: region.y,
-      width: region.width,
-      height: region.height,
+      x: Math.floor(region.x),
+      y: Math.floor(region.y),
+      width: Math.max(1, Math.floor(region.width)),
+      height: Math.max(1, Math.floor(region.height)),
       onClick: messageMapper(region),
       cursor: 'pointer',
     });

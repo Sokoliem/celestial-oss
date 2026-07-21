@@ -114,4 +114,13 @@ describe('tokenizeDocumentEmbedded — validation', () => {
     ])!;
     expect(result.lines.length).toBe(4);
   });
+
+  it('rejects non-finite and fractional line indices', () => {
+    expect(() => tokenizeDocumentEmbedded('a\nb', 'markdown', [{ startLine: Number.NaN, endLine: 1, lang: 'typescript' }])).toThrow(/safe integers/);
+    expect(() => tokenizeDocumentEmbedded('a\nb', 'markdown', [{ startLine: 0.5, endLine: 1, lang: 'typescript' }])).toThrow(/safe integers/);
+  });
+
+  it('rejects empty embedded language identifiers', () => {
+    expect(() => tokenizeDocumentEmbedded('a', 'markdown', [{ startLine: 0, endLine: 0, lang: ' ' }])).toThrow(/non-empty/);
+  });
 });

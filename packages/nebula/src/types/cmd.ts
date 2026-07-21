@@ -39,6 +39,14 @@ function mkCmd<M>(kind: CmdKind<M>): Cmd<M> {
   return { _tag: 'cmd', _kind: kind };
 }
 
+const MAX_TIMER_MS = 2_147_483_647;
+
+function assertDuration(name: string, ms: number): void {
+  if (!Number.isFinite(ms) || ms < 0 || ms > MAX_TIMER_MS) {
+    throw new RangeError(`${name} must be between 0 and ${MAX_TIMER_MS} milliseconds`);
+  }
+}
+
 export const Cmd = {
   /** A command that does nothing. */
   none<M>(): Cmd<M> {
@@ -84,11 +92,12 @@ export const Cmd = {
 
   /** Fetch a URL and deliver the JSON-parsed result as a message. */
   fetch<M, T>(url: string, options: RequestInit & { timeout?: number }, toMsg: (result: Result<T, Error>) => M): Cmd<M> {
+    if (options.timeout !== undefined) assertDuration('Cmd.fetch timeout', options.timeout);
     return mkCmd({
       kind: 'attempt',
       task: (async (signal: AbortSignal) => {
         const { timeout, ...init } = options as RequestInit & { timeout?: number };
-        const signals = timeout ? [signal, AbortSignal.timeout(timeout)] : [signal];
+        const signals = timeout !== undefined ? [signal, AbortSignal.timeout(timeout)] : [signal];
         const combinedSignal = signals.length > 1 ? AbortSignal.any(signals) : signal;
         const response = await fetch(url, { ...init, signal: combinedSignal });
         if (!response.ok) {
@@ -102,11 +111,12 @@ export const Cmd = {
 
   /** Fetch a URL and deliver the response body as a string. */
   fetchText<M>(url: string, options: RequestInit & { timeout?: number }, toMsg: (result: Result<string, Error>) => M): Cmd<M> {
+    if (options.timeout !== undefined) assertDuration('Cmd.fetchText timeout', options.timeout);
     return mkCmd({
       kind: 'attempt',
       task: (async (signal: AbortSignal) => {
         const { timeout, ...init } = options as RequestInit & { timeout?: number };
-        const signals = timeout ? [signal, AbortSignal.timeout(timeout)] : [signal];
+        const signals = timeout !== undefined ? [signal, AbortSignal.timeout(timeout)] : [signal];
         const combinedSignal = signals.length > 1 ? AbortSignal.any(signals) : signal;
         const response = await fetch(url, { ...init, signal: combinedSignal });
         if (!response.ok) {
@@ -143,6 +153,7 @@ export const Cmd = {
 
   /** Dispatch a message after a delay. */
   delay<M>(ms: number, msg: M): Cmd<M> {
+    assertDuration('Cmd.delay duration', ms);
     return Cmd.perform(
       (signal) =>
         new Promise<void>((resolve, reject) => {
@@ -169,6 +180,7 @@ export const Cmd = {
 
   /** Delay starting a command and supersede any pending debounced command with the same key. */
   debounce<M>(ms: number, cmd: Cmd<M>, key = 'default'): Cmd<M> {
+    assertDuration('Cmd.debounce duration', ms);
     return mkCmd({ kind: 'debounce', ms, cmd, key });
   },
 
@@ -228,6 +240,9 @@ export const Cmd = {
 
   /** Race multiple async commands. First to resolve wins; others are aborted. */
   race<M>(cmds: Cmd<M>[], toMsg: (winner: { index: number; result: unknown }) => M): Cmd<M> {
+    if (cmds.length === 0) {
+      throw new RangeError('Cmd.race requires at least one command');
+    }
     return mkCmd({ kind: 'race', cmds, toMsg });
   },
 
@@ -238,6 +253,7 @@ export const Cmd = {
 
   /** Execute a command with a timeout. Dispatches fallbackMsg if cmd exceeds ms. */
   timeout<M>(cmd: Cmd<M>, ms: number, fallbackMsg: M): Cmd<M> {
+    assertDuration('Cmd.timeout duration', ms);
     return mkCmd({ kind: 'timeout', cmd, ms, fallbackMsg });
   },
 };

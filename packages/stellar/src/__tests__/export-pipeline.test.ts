@@ -1,7 +1,7 @@
 import { color } from '@celestial/corona';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type BrailleCanvas, canvas } from '../canvas.js';
-import { exportChartAsHtml, toAnsi, toHtml, toPixelData, toPlainText, toSvg } from '../export-pipeline.js';
+import { exportChartAsHtml, exportChartAsPlainText, toAnsi, toHtml, toPixelData, toPlainText, toSvg } from '../export-pipeline.js';
 
 describe('export-pipeline', () => {
   let c: BrailleCanvas;
@@ -353,5 +353,19 @@ describe('export-pipeline', () => {
       const rectCount = (svg.match(/<rect /g) || []).length;
       expect(rectCount).toBe(1);
     });
+  });
+});
+
+describe('export boundary hardening', () => {
+  it('normalizes invalid SVG geometry and zero-sized canvases', () => {
+    const svg = toSvg(canvas(0, 0), { pixelSize: Number.NaN, pixelGap: -5 });
+    expect(svg).toContain('viewBox="0 0 0 0"');
+    expect(svg).not.toMatch(/NaN|Infinity/);
+  });
+
+  it('strips non-style terminal controls from arbitrary chart exports', () => {
+    const output = { toString: () => 'safe\x1b[2Jtext' };
+    expect(exportChartAsPlainText(output, { trailingNewline: false })).toBe('safetext');
+    expect(exportChartAsHtml(output)).not.toContain('\x1b');
   });
 });

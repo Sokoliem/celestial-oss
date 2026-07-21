@@ -12,6 +12,7 @@ import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, component, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { measureTextWidth } from '@celestial/rosetta';
 import { generateFocusGroupId } from './focus-group.js';
+import { nonNegativeInteger, positiveInteger } from './internal.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
 import { applyState, applyTypography, resolveAnimatedBorderColor, resolveTheme, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
@@ -153,9 +154,9 @@ export function confirmDialog(config: ConfirmDialogConfig): ComponentDescriptor<
         case 'close':
           return [{ ...model, open: false }, model.open ? Cmd.popFocusGroup() : Cmd.none()];
         case 'tick':
-          return model.open ? [{ ...model, borderTick: (model.borderTick ?? 0) + 1 }, Cmd.none()] : [model, Cmd.none()];
+          return model.open ? [{ ...model, borderTick: nonNegativeInteger(model.borderTick, 0) + 1 }, Cmd.none()] : [model, Cmd.none()];
         case 'resize':
-          return [{ ...model, viewportCols: Math.max(1, Math.floor(msg.cols)), viewportRows: Math.max(1, Math.floor(msg.rows)) }, Cmd.none()];
+          return [{ ...model, viewportCols: positiveInteger(msg.cols, 1), viewportRows: positiveInteger(msg.rows, 1) }, Cmd.none()];
         case 'panic': {
           if (!model.open) return [model, Cmd.none()];
           broadcastSurfacePanic();
@@ -228,7 +229,7 @@ export function confirmDialog(config: ConfirmDialogConfig): ComponentDescriptor<
         style({ padding: 1, background: tokens.bg }),
       );
 
-      const preferredWidth = Math.max(20, Math.floor(config.width ?? 46));
+      const preferredWidth = Math.max(20, positiveInteger(config.width, 46));
       const viewportWidth = model.viewportCols === undefined ? preferredWidth : Math.max(1, model.viewportCols - 2);
       const width = Math.max(1, Math.min(preferredWidth, viewportWidth));
 

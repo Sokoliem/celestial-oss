@@ -1,3 +1,4 @@
+import { extractNodeText } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { multiSelect } from '../multi-select.js';
 
@@ -32,13 +33,8 @@ describe('multiSelect', () => {
       const component = multiSelect({ options });
       const [model] = component.init();
       const vnode = component.view(model);
-      expect(vnode.kind).toBe('row');
-      if (vnode.kind === 'row') {
-        const child = vnode.children[0];
-        if (child?.kind === 'text') {
-          expect(child.content).toBe('Select...');
-        }
-      }
+      expect(vnode.kind).toBe('event');
+      expect(extractNodeText(vnode)).toBe('Select...');
     });
   });
 
@@ -146,28 +142,17 @@ describe('multiSelect', () => {
       const component = multiSelect({ options, placeholder: 'Pick items' });
       const model = { open: false, highlighted: 0, selected: new Set<number>(), focused: false };
       const vnode = component.view(model);
-      expect(vnode.kind).toBe('row');
-      if (vnode.kind === 'row') {
-        const child = vnode.children[0];
-        expect(child?.kind).toBe('text');
-        if (child?.kind === 'text') {
-          expect(child.content).toBe('Pick items');
-        }
-      }
+      expect(vnode.kind).toBe('event');
+      expect(extractNodeText(vnode)).toBe('Pick items');
     });
 
     it('shows tags when items are selected and closed', () => {
       const component = multiSelect({ options });
       const model = { open: false, highlighted: 0, selected: new Set([0, 2]), focused: false };
       const vnode = component.view(model);
-      expect(vnode.kind).toBe('row');
-      if (vnode.kind === 'row') {
-        expect(vnode.children.length).toBe(2);
-        const first = vnode.children[0];
-        const second = vnode.children[1];
-        if (first?.kind === 'text') expect(first.content).toBe('[Apple]');
-        if (second?.kind === 'text') expect(second.content).toBe('[Cherry]');
-      }
+      expect(vnode.kind).toBe('event');
+      expect(extractNodeText(vnode)).toContain('[Apple]');
+      expect(extractNodeText(vnode)).toContain('[Cherry]');
     });
 
     it('shows options with checkmarks when open', () => {
@@ -178,15 +163,15 @@ describe('multiSelect', () => {
       if (vnode.kind === 'column') {
         expect(vnode.children.length).toBe(3);
         // Banana (index 1) should be checked
-        const bananaRow = vnode.children[1];
-        if (bananaRow?.kind === 'row') {
-          const prefix = bananaRow.children[0];
+        const bananaEvent = vnode.children[1];
+        if (bananaEvent?.kind === 'event' && bananaEvent.child.kind === 'row') {
+          const prefix = bananaEvent.child.children[0];
           if (prefix?.kind === 'text') expect(prefix.content).toBe('[✓] ');
         }
         // Apple (index 0) should be unchecked
-        const appleRow = vnode.children[0];
-        if (appleRow?.kind === 'row') {
-          const prefix = appleRow.children[0];
+        const appleEvent = vnode.children[0];
+        if (appleEvent?.kind === 'event' && appleEvent.child.kind === 'row') {
+          const prefix = appleEvent.child.children[0];
           if (prefix?.kind === 'text') expect(prefix.content).toBe('[ ] ');
         }
       }
@@ -197,11 +182,11 @@ describe('multiSelect', () => {
       const model = { open: true, highlighted: 1, selected: new Set<number>(), focused: true };
       const vnode = component.view(model);
       if (vnode.kind === 'column') {
-        const hlRow = vnode.children[1];
-        const otherRow = vnode.children[0];
-        if (hlRow?.kind === 'row' && otherRow?.kind === 'row') {
-          const hlLabel = hlRow.children[1];
-          const otherLabel = otherRow.children[1];
+        const hlEvent = vnode.children[1];
+        const otherEvent = vnode.children[0];
+        if (hlEvent?.kind === 'event' && otherEvent?.kind === 'event' && hlEvent.child.kind === 'row' && otherEvent.child.kind === 'row') {
+          const hlLabel = hlEvent.child.children[1];
+          const otherLabel = otherEvent.child.children[1];
           // Highlighted and non-highlighted should have different styles
           if (hlLabel?.kind === 'text' && otherLabel?.kind === 'text') {
             expect(hlLabel.style).not.toEqual(otherLabel.style);
@@ -214,18 +199,19 @@ describe('multiSelect', () => {
   // ─── subscriptions ──────────────────────────────────────────────────────
 
   describe('subscriptions', () => {
-    it('returns none when not focused', () => {
+    it('keeps pointer subscriptions active when not focused', () => {
       const component = multiSelect({ options });
       const model = { open: false, highlighted: 0, selected: new Set<number>(), focused: false };
       const sub = component.subscriptions!(model);
-      expect(sub._kind).toEqual({ kind: 'none' });
+      expect(sub._kind.kind).toBe('elementMouse');
     });
 
     it('returns enter key when focused and closed', () => {
       const component = multiSelect({ options });
       const model = { open: false, highlighted: 0, selected: new Set<number>(), focused: true };
       const sub = component.subscriptions!(model);
-      expect(sub._kind).toEqual({ kind: 'key', key: 'enter', msg: { type: 'toggle-open' } });
+      expect(sub._kind.kind).toBe('batch');
+      if (sub._kind.kind === 'batch') expect(sub._kind.subs.some((item) => item._kind.kind === 'key' && item._kind.key === 'enter')).toBe(true);
     });
 
     it('returns batch of keys when focused and open', () => {
@@ -243,5 +229,21 @@ describe('multiSelect', () => {
         expect(keys).toContain('escape');
       }
     });
+  });
+
+  it('snapshots options and filters invalid selected indices', () => {
+    const mutable = [{ label: 'Original', value: 'original' }];
+    const component = multiSelect({ options: mutable, selected: [0, -1, Number.NaN] });
+    mutable[0]!.label = 'Mutated';
+    const [model] = component.init();
+    expect([...model.selected]).toEqual([0]);
+    expect(extractNodeText(component.view(model))).toContain('Original');
+  });
+
+  it('windows large open option lists around the highlight', () => {
+    const many = Array.from({ length: 100 }, (_, index) => ({ label: `Item ${index}`, value: String(index) }));
+    const component = multiSelect({ options: many, maxVisibleOptions: 5 });
+    const view = component.view({ ...component.init()[0], open: true, focused: true, highlighted: 50 });
+    if (view.kind === 'column') expect(view.children).toHaveLength(5);
   });
 });

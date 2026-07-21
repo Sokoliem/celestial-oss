@@ -1,5 +1,5 @@
 import { color, style } from '@celestial/corona';
-import { row, text, type VNode } from '@celestial/nebula';
+import { text, type VNode } from '@celestial/nebula';
 import { registerLanguage } from './grammars.js';
 import { substitutionGrammar } from './substitution-grammar.js';
 import type { LanguageGrammar } from './types.js';
@@ -226,8 +226,45 @@ function defaultTheme(): Required<SubstitutionRenderTheme> {
   };
 }
 
+function safeUnaryTheme(
+  candidate: ((text: string) => string) | undefined,
+  fallback: (text: string) => string,
+): (text: string) => string {
+  if (typeof candidate !== 'function') return fallback;
+  return (value) => {
+    try {
+      const rendered = candidate(value);
+      return typeof rendered === 'string' ? rendered : fallback(value);
+    } catch {
+      return fallback(value);
+    }
+  };
+}
+
+function safeStatusTheme(
+  candidate: ((text: string, status: SubstitutionStatusKind) => string) | undefined,
+  fallback: (text: string, status: SubstitutionStatusKind) => string,
+): (text: string, status: SubstitutionStatusKind) => string {
+  if (typeof candidate !== 'function') return fallback;
+  return (value, status) => {
+    try {
+      const rendered = candidate(value, status);
+      return typeof rendered === 'string' ? rendered : fallback(value, status);
+    } catch {
+      return fallback(value, status);
+    }
+  };
+}
+
 function mergeTheme(theme?: SubstitutionRenderTheme): Required<SubstitutionRenderTheme> {
-  return { ...defaultTheme(), ...theme };
+  const fallback = defaultTheme();
+  return {
+    literal: safeUnaryTheme(theme?.literal, fallback.literal),
+    syntax: safeStatusTheme(theme?.syntax, fallback.syntax),
+    name: safeStatusTheme(theme?.name, fallback.name),
+    replacement: safeStatusTheme(theme?.replacement, fallback.replacement),
+    diffArrow: safeUnaryTheme(theme?.diffArrow, fallback.diffArrow),
+  };
 }
 
 function findStatusToken(tokens: readonly SubstitutionToken[], index: number): SubstitutionToken | null {
@@ -254,12 +291,12 @@ function strike(textValue: string): string {
 
 export function renderSubstitutions(tokens: readonly SubstitutionToken[], opts: { diffStyle?: boolean; theme?: SubstitutionRenderTheme } = {}): VNode {
   const theme = mergeTheme(opts.theme);
-  const nodes: VNode[] = [];
+  const parts: string[] = [];
 
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!;
     if (token.kind === 'literal') {
-      nodes.push(text(theme.literal(token.text)));
+      parts.push(theme.literal(token.text));
       continue;
     }
 
@@ -272,13 +309,13 @@ export function renderSubstitutions(tokens: readonly SubstitutionToken[], opts: 
       const original = placeholderText(openToken, nameToken, closeToken);
 
       if (opts.diffStyle && statusToken?.kind === 'substitution-filled') {
-        nodes.push(text(strike(original)));
-        nodes.push(text(theme.diffArrow(' -> ')));
-        nodes.push(text(theme.replacement(statusToken.text, status)));
+        parts.push(strike(original));
+        parts.push(theme.diffArrow(' -> '));
+        parts.push(theme.replacement(statusToken.text, status));
       } else {
-        nodes.push(text(theme.syntax(openToken.text, status)));
-        nodes.push(text(theme.name(nameToken.text, status)));
-        nodes.push(text(theme.syntax(closeToken.text, status)));
+        parts.push(theme.syntax(openToken.text, status));
+        parts.push(theme.name(nameToken.text, status));
+        parts.push(theme.syntax(closeToken.text, status));
       }
 
       index += statusToken ? 3 : 2;
@@ -286,10 +323,10 @@ export function renderSubstitutions(tokens: readonly SubstitutionToken[], opts: 
     }
 
     const fallbackStatus = token.kind === 'substitution-filled' || token.kind === 'substitution-unknown' ? token.kind : 'substitution-unfilled';
-    nodes.push(text(theme.replacement(token.text, fallbackStatus)));
+    parts.push(theme.replacement(token.text, fallbackStatus));
   }
 
-  return row(...nodes);
+  return text(parts.join(''), undefined, { wrap: true });
 }
 
 export function registerSubstitutionMode(

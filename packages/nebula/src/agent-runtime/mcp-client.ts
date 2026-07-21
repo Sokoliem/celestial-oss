@@ -1,6 +1,6 @@
 import type { AgentEvent, McpServerInfo, TokenUsage, ToolCall } from '../agent-types.js';
 import type { AgentTransport, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, McpClient } from './contracts.js';
-import { CLIENT_NAME, CLIENT_VERSION, PROTOCOL_VERSION, REQUEST_TIMEOUT_MS } from './contracts.js';
+import { CLIENT_NAME, CLIENT_VERSION, MAX_AGENT_MESSAGE_BYTES, MAX_PENDING_REQUESTS, PROTOCOL_VERSION, REQUEST_TIMEOUT_MS } from './contracts.js';
 
 export function createMcpClient(transport: AgentTransport, agentId: string): McpClient {
   let state: McpClient['state'] = 'disconnected';
@@ -15,9 +15,18 @@ export function createMcpClient(transport: AgentTransport, agentId: string): Mcp
   >();
   const eventHandlers = new Set<(event: AgentEvent) => void>();
   let closeResolvers: Array<() => void> = [];
+  let transportWired = false;
 
   function emit(event: AgentEvent): void {
-    for (const handler of eventHandlers) handler(event);
+    for (const handler of eventHandlers) {
+      try {
+        handler(event);
+      } catch (error: unknown) {
+        if (typeof process !== 'undefined' && process.stderr) {
+          process.stderr.write(`[agent:${agentId}] Event handler failed: ${error}\n`);
+        }
+      }
+    }
   }
 
   function transitionToDisconnected(reason?: string): void {
@@ -36,6 +45,12 @@ export function createMcpClient(transport: AgentTransport, agentId: string): Mcp
   }
 
   function sendRequest(method: string, params?: unknown): Promise<unknown> {
+    if (state === 'disconnected' || state === 'disconnecting') {
+      return Promise.reject(new Error(`Cannot send ${method}: client is not connected`));
+    }
+    if (pending.size >= MAX_PENDING_REQUESTS) {
+      return Promise.reject(new Error(`Cannot send ${method}: pending request limit (${MAX_PENDING_REQUESTS}) reached`));
+    }
     const id = nextId++;
     const request: JsonRpcRequest = { jsonrpc: '2.0', id, method, ...(params !== undefined ? { params } : {}) };
 
@@ -45,7 +60,13 @@ export function createMcpClient(transport: AgentTransport, agentId: string): Mcp
         reject(new Error(`Request ${method} (id=${id}) timed out after ${REQUEST_TIMEOUT_MS}ms`));
       }, REQUEST_TIMEOUT_MS);
       pending.set(id, { resolve, reject, timer });
-      transport.send(JSON.stringify(request));
+      try {
+        transport.send(JSON.stringify(request));
+      } catch (error: unknown) {
+        clearTimeout(timer);
+        pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
@@ -118,11 +139,16 @@ export function createMcpClient(transport: AgentTransport, agentId: string): Mcp
   }
 
   function handleInboundMessage(raw: string): void {
+    const bytes = Buffer.byteLength(raw, 'utf8');
+    if (bytes > MAX_AGENT_MESSAGE_BYTES) {
+      process.stderr.write(`[agent:${agentId}] Discarded inbound message larger than ${MAX_AGENT_MESSAGE_BYTES} bytes\n`);
+      return;
+    }
     let message: unknown;
     try {
       message = JSON.parse(raw);
     } catch {
-      process.stderr.write(`[agent:${agentId}] Failed to parse inbound JSON: ${raw}\n`);
+      process.stderr.write(`[agent:${agentId}] Failed to parse inbound JSON (${bytes} bytes)\n`);
       return;
     }
 
@@ -148,6 +174,8 @@ export function createMcpClient(transport: AgentTransport, agentId: string): Mcp
   }
 
   function wireTransport(): void {
+    if (transportWired) return;
+    transportWired = true;
     transport.onMessage(handleInboundMessage);
     transport.onClose((reason) => transitionToDisconnected(reason));
     transport.onError((error) => {
@@ -171,7 +199,7 @@ export function createMcpClient(transport: AgentTransport, agentId: string): Mcp
       } catch (error) {
         const normalized = error instanceof Error ? error : new Error(String(error));
         emit({ type: 'agent:error', agentId, error: normalized });
-        state = 'disconnected';
+        transitionToDisconnected(normalized.message);
         throw normalized;
       }
 
@@ -202,8 +230,8 @@ export function createMcpClient(transport: AgentTransport, agentId: string): Mcp
         } catch {
           /* ignore disconnect errors */
         }
-        state = 'disconnected';
         const normalized = error instanceof Error ? error : new Error(String(error));
+        transitionToDisconnected(normalized.message);
         emit({ type: 'agent:error', agentId, error: normalized });
         throw normalized;
       }
@@ -211,8 +239,11 @@ export function createMcpClient(transport: AgentTransport, agentId: string): Mcp
     disconnect() {
       if (state === 'disconnected') return;
       state = 'disconnecting';
-      transport.disconnect();
-      transitionToDisconnected();
+      try {
+        transport.disconnect();
+      } finally {
+        transitionToDisconnected();
+      }
     },
     onEvent(handler) {
       eventHandlers.add(handler);

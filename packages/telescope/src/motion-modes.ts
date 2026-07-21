@@ -49,7 +49,13 @@ export function renderInBothMotionModes<Model, M>(
   options?: TestAppOptions,
 ): MotionModeRunner<Model, M> {
   const motionOn = createTestApp(configFactory(false), options);
-  const motionOff = createTestApp(configFactory(true), options);
+  let motionOff: TestAppHandle<Model, M>;
+  try {
+    motionOff = createTestApp(configFactory(true), options);
+  } catch (error) {
+    motionOn.stop();
+    throw error;
+  }
   let stopped = false;
 
   return {
@@ -89,7 +95,11 @@ export async function assertFinalFramesMatchAcrossMotionModes<Model, M>(
   configFactory: (reduceMotion: boolean) => AppConfig<Model, M>,
   options?: FinalFrameMatchOptions,
 ): Promise<void> {
-  const settleTicks = options?.settleTicks ?? 8;
+  const requestedTicks = options?.settleTicks ?? 8;
+  if (!Number.isFinite(requestedTicks) || requestedTicks < 0) {
+    throw new RangeError('Motion settleTicks must be a non-negative finite number.');
+  }
+  const settleTicks = Math.min(10_000, Math.floor(requestedTicks));
   const runner = renderInBothMotionModes(configFactory, options);
   try {
     for (let i = 0; i < settleTicks; i++) {

@@ -24,6 +24,8 @@ import { type MotionPreference, shouldReduceMotion } from './motion.js';
 import { applyStrategy } from './strategies/dispatch.js';
 import type { FlipAxis } from './strategies/flip.js';
 import type { RippleOrigin } from './strategies/ripple.js';
+import { safeContent } from './strategies/text.js';
+import { finiteNumber } from './validation.js';
 
 export type SpringTransitionStrategy = 'slide' | 'crossfade' | 'wipe' | 'morph' | 'blur' | 'dissolve' | 'zoom' | 'ripple' | 'flip' | 'typewriter' | 'glitch';
 
@@ -112,6 +114,7 @@ export function createSpringTransition(config: SpringTransitionConfig): SpringTr
 
   return {
     start(now: number): void {
+      const time = finiteNumber(now, 'now');
       started = true;
       if (reducedMotion) {
         springAnim.setTarget(1);
@@ -119,18 +122,21 @@ export function createSpringTransition(config: SpringTransitionConfig): SpringTr
         return;
       }
       springAnim.start();
-      springAnim.tick(now);
+      springAnim.tick(time);
     },
 
     tick(now: number): void {
+      const time = finiteNumber(now, 'now');
       if (!started || reducedMotion) return;
-      springAnim.tick(now);
+      springAnim.tick(time);
     },
 
     render(oldContent: string, newContent: string): string {
-      if (!started) return oldContent;
-      if (reducedMotion) return newContent;
-      return applyStrategy(strategy, oldContent, newContent, springAnim.value(), {
+      const safeOldContent = safeContent(oldContent);
+      const safeNewContent = safeContent(newContent);
+      if (!started) return safeOldContent;
+      if (reducedMotion) return safeNewContent;
+      return applyStrategy(strategy, safeOldContent, safeNewContent, springAnim.value(), {
         direction,
         rippleOrigin,
         flipAxis,

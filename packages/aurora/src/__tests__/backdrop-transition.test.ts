@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createBackdropTransition,
   DEFAULT_BACKDROP_BOOTSTRAP_MS,
   DEFAULT_BACKDROP_DURATION_MS,
-  createBackdropTransition,
   getBackdropOpacity,
   isBackdropSettled,
   setBackdropVisible,
@@ -71,5 +71,13 @@ describe('createBackdropTransition (P0-12)', () => {
     state = setBackdropVisible(state, false);
     state = tickBackdropTransition(state, DEFAULT_BACKDROP_DURATION_MS);
     expect(getBackdropOpacity(state)).toBe(0);
+  });
+
+  it('rejects invalid duration, bootstrap, and tick values before corrupting state', () => {
+    expect(() => createBackdropTransition({ duration: 0 })).toThrow(RangeError);
+    expect(() => createBackdropTransition({ bootstrapMs: Number.NaN })).toThrow(TypeError);
+    const state = createBackdropTransition();
+    expect(() => tickBackdropTransition(state, -1)).toThrow(RangeError);
+    expect(() => tickBackdropTransition(state, Number.NaN)).toThrow(TypeError);
   });
 });

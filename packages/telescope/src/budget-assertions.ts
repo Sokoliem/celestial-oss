@@ -43,7 +43,10 @@ export interface RenderBudgetOptions {
  * average execution time stays within `budgetMs`.
  */
 export function assertRenderWithinBudget(renderFn: () => unknown, budgetMs: number, options?: RenderBudgetOptions): RenderBudgetResult {
-  const iterations = Math.max(1, Math.floor(options?.iterations ?? 10));
+  if (!Number.isFinite(budgetMs) || budgetMs < 0) throw new RangeError('Render budget must be a non-negative finite number.');
+  const requestedIterations = options?.iterations ?? 10;
+  if (!Number.isFinite(requestedIterations)) throw new RangeError('Render iterations must be finite.');
+  const iterations = Math.max(1, Math.min(1_000_000, Math.floor(requestedIterations)));
   let totalMs = 0;
   let maxMs = 0;
 
@@ -75,11 +78,13 @@ export function assertRenderWithinBudget(renderFn: () => unknown, budgetMs: numb
  * encountered in child arrays are skipped.
  */
 export function assertNodeCount(tree: unknown, maxNodes: number): NodeCountResult {
+  if (!Number.isFinite(maxNodes) || maxNodes < 0) throw new RangeError('Maximum node count must be a non-negative finite number.');
+  const normalizedMax = Math.floor(maxNodes);
   const count = countNodes(tree);
   return {
-    passed: count <= maxNodes,
+    passed: count <= normalizedMax,
     count,
-    max: maxNodes,
+    max: normalizedMax,
   };
 }
 
@@ -90,21 +95,31 @@ function countNodes(node: unknown): number {
     return 0;
   }
 
-  const obj = node as Record<string, unknown>;
-  let count = 1; // count self
+  const active = new WeakSet<object>();
+  const stack: Array<{ value: object; exiting: boolean }> = [{ value: node, exiting: false }];
+  let count = 0;
 
-  // Array of children
-  if (Array.isArray(obj.children)) {
-    for (const child of obj.children) {
-      if (typeof child === 'object' && child !== null) {
-        count += countNodes(child);
+  while (stack.length > 0) {
+    const frame = stack.pop()!;
+    if (frame.exiting) {
+      active.delete(frame.value);
+      continue;
+    }
+    if (active.has(frame.value)) continue;
+
+    count++;
+    active.add(frame.value);
+    stack.push({ value: frame.value, exiting: true });
+
+    const record = frame.value as Record<string, unknown>;
+    const child = record.child;
+    if (typeof child === 'object' && child !== null) stack.push({ value: child, exiting: false });
+    if (Array.isArray(record.children)) {
+      for (let index = record.children.length - 1; index >= 0; index--) {
+        const candidate = record.children[index];
+        if (typeof candidate === 'object' && candidate !== null) stack.push({ value: candidate, exiting: false });
       }
     }
-  }
-
-  // Single child
-  if (typeof obj.child === 'object' && obj.child !== null) {
-    count += countNodes(obj.child);
   }
 
   return count;

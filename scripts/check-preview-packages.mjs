@@ -40,10 +40,33 @@ function run(name, args, options = {}) {
 }
 
 function parseJsonOutput(output, operation) {
+  const normalize = (value) => {
+    const result = Array.isArray(value) ? value[0] : value;
+    return result && typeof result === 'object' ? result : null;
+  };
+
+  try {
+    const result = normalize(JSON.parse(output.trim()));
+    if (result) return result;
+  } catch {
+    // Some pnpm versions prefix their JSON result with a status line.
+  }
+
+  for (const line of output.split(/\r?\n/).reverse()) {
+    try {
+      const result = normalize(JSON.parse(line.trim()));
+      if (result) return result;
+    } catch {
+      // Keep looking for the final machine-readable line.
+    }
+  }
+
   const start = output.indexOf('{');
   const end = output.lastIndexOf('}');
   if (start < 0 || end < start) throw new Error(`${operation} did not return JSON.\n${output}`);
-  return JSON.parse(output.slice(start, end + 1));
+  const result = normalize(JSON.parse(output.slice(start, end + 1)));
+  if (!result) throw new Error(`${operation} returned JSON without a package result.\n${output}`);
+  return result;
 }
 
 function packedManifest(tarball) {

@@ -2,7 +2,9 @@ import type { Color, SemanticTheme, Style, ThemeInput, TokenContract, Typography
 import { style } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { Cmd, Sub, text } from '@celestial/core/nebula';
-import { useTokens } from './theme.js';
+import { measureTextWidth, segmentGraphemes } from '@celestial/rosetta';
+import { boundedInteger, clampRange, nonNegativeInteger, timerInterval } from './internal.js';
+import { resolveTheme, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
@@ -35,12 +37,17 @@ export interface ProgressBarConfig {
   theme?: ThemeInput;
 }
 
+function singleCellGlyph(value: string | undefined, fallback: string): string {
+  const candidate = segmentGraphemes(value ?? '')[0];
+  return candidate && measureTextWidth(candidate) === 1 ? candidate : fallback;
+}
+
 export function progressBar(config: ProgressBarConfig): VNode {
   const tokens = useTokens(progressContract, config, 'ProgressBar');
-  const w = config.width ?? 20;
-  const f = config.filled ?? '█',
-    e = config.empty ?? '░';
-  const clamped = Math.max(0, Math.min(1, config.value));
+  const w = nonNegativeInteger(config.width, 20);
+  const f = singleCellGlyph(config.filled, '█');
+  const e = singleCellGlyph(config.empty, '░');
+  const clamped = clampRange(config.value, 0, 1, 0);
   const filled = Math.round(clamped * w);
   const showPct = config.showPercentage ?? true;
   const pctStr = showPct ? ` ${Math.round(clamped * 100)}%` : '';
@@ -60,29 +67,33 @@ export interface IndeterminateProgressModel {
 export type IndeterminateProgressMsg = Msg<'tick'>;
 
 export function indeterminateProgress(config: IndeterminateProgressConfig): ComponentDescriptor<IndeterminateProgressModel, IndeterminateProgressMsg> {
-  const w = config.width ?? 20;
-  const speed = config.speed ?? 100;
+  const w = nonNegativeInteger(config.width, 20);
+  const speed = timerInterval(config.speed, 100);
   const bounceLen = 3;
+  const cycleLength = Math.max(1, w * 2);
   return {
     init(): [IndeterminateProgressModel, Cmd<IndeterminateProgressMsg>] {
       return [{ position: 0 }, Cmd.none()];
     },
     update(msg: IndeterminateProgressMsg, model: IndeterminateProgressModel): [IndeterminateProgressModel, Cmd<IndeterminateProgressMsg>] {
       if (msg.type === 'tick') {
-        return [{ position: (model.position + 1) % (w * 2) }, Cmd.none()];
+        const position = boundedInteger(model.position, 0, 0, cycleLength - 1);
+        return [{ position: (position + 1) % cycleLength }, Cmd.none()];
       }
       return [model, Cmd.none()];
     },
     view(model: IndeterminateProgressModel): VNode {
       const tokens = useTokens(progressContract, config, 'IndeterminateProgress');
-      const pos = model.position < w ? model.position : w * 2 - model.position;
+      const configuredPosition = boundedInteger(model.position, 0, 0, cycleLength - 1);
+      const position = resolveTheme(config).motion.reduceMotion ? 0 : configuredPosition;
+      const pos = position < w ? position : w * 2 - position;
       const before = Math.max(0, Math.min(pos, w - bounceLen));
       const blockLen = Math.min(bounceLen, w - before);
       const after = w - before - blockLen;
       return text(`[${' '.repeat(before)}${'█'.repeat(blockLen)}${' '.repeat(after)}]`, style({ color: tokens.bar }));
     },
     subscriptions(): Sub<IndeterminateProgressMsg> {
-      return Sub.timer(speed, () => ({ type: 'tick' }));
+      return w === 0 || resolveTheme(config).motion.reduceMotion ? Sub.none() : Sub.timer(speed, () => ({ type: 'tick' }));
     },
   };
 }
@@ -106,22 +117,27 @@ export interface SpinnerModel {
 export type SpinnerMsg = Msg<'tick'>;
 
 export function spinner(config: SpinnerConfig): ComponentDescriptor<SpinnerModel, SpinnerMsg> {
-  const frames = FRAMES[config.style ?? 'dots'];
-  const speed = config.speed ?? 80;
+  const requestedStyle = config.style ?? 'dots';
+  const frames = FRAMES[requestedStyle] ?? FRAMES.dots;
+  const speed = timerInterval(config.speed, 80);
   return {
     init(): [SpinnerModel, Cmd<SpinnerMsg>] {
       return [{ frame: 0 }, Cmd.none()];
     },
     update(msg: SpinnerMsg, model: SpinnerModel): [SpinnerModel, Cmd<SpinnerMsg>] {
-      if (msg.type === 'tick') return [{ frame: (model.frame + 1) % frames.length }, Cmd.none()];
+      if (msg.type === 'tick') {
+        const frame = boundedInteger(model.frame, 0, 0, frames.length - 1);
+        return [{ frame: (frame + 1) % frames.length }, Cmd.none()];
+      }
       return [model, Cmd.none()];
     },
     view(model: SpinnerModel): VNode {
       const tokens = useTokens(progressContract, config, 'Spinner');
-      return text(frames[model.frame % frames.length]!, style({ color: tokens.bar, bold: true }));
+      const frame = resolveTheme(config).motion.reduceMotion ? 0 : boundedInteger(model.frame, 0, 0, frames.length - 1);
+      return text(frames[frame]!, style({ color: tokens.bar, bold: true }));
     },
     subscriptions(): Sub<SpinnerMsg> {
-      return Sub.timer(speed, () => ({ type: 'tick' }));
+      return resolveTheme(config).motion.reduceMotion ? Sub.none() : Sub.timer(speed, () => ({ type: 'tick' }));
     },
   };
 }

@@ -17,7 +17,8 @@
  */
 
 import { fadeChar } from '../fade.js';
-import { padGraphemes, visibleLength } from './text.js';
+import { clampUnit } from '../validation.js';
+import { padCells, renderCells, safeContent, type TerminalCell, visibleLength } from './text.js';
 
 const RESET = '\x1b[0m';
 const FEATHER = 2; // characters of soft edge at reveal boundary
@@ -37,16 +38,18 @@ function splitLines(content: string): string[] {
 }
 
 export function zoom(oldContent: string, newContent: string, progress: number, mode: ZoomMode = 'in', origin?: ZoomOrigin): string {
-  const p = Math.max(0, Math.min(1, progress));
+  const safeOldContent = safeContent(oldContent);
+  const safeNewContent = safeContent(newContent);
+  const p = clampUnit(progress);
 
-  if (p <= 0) return oldContent;
-  if (p >= 1) return newContent;
+  if (p <= 0) return safeOldContent;
+  if (p >= 1) return safeNewContent;
 
-  const originX = origin?.x ?? 0.5;
-  const originY = origin?.y ?? 0.5;
+  const originX = clampUnit(origin?.x ?? 0.5, 'origin.x');
+  const originY = clampUnit(origin?.y ?? 0.5, 'origin.y');
 
-  const oldLines = splitLines(oldContent);
-  const newLines = splitLines(newContent);
+  const oldLines = splitLines(safeOldContent);
+  const newLines = splitLines(safeNewContent);
   const lineCount = Math.max(oldLines.length, newLines.length);
 
   // Compute max line width across both contents
@@ -74,16 +77,13 @@ export function zoom(oldContent: string, newContent: string, progress: number, m
     const oldLine = oldLines[row] ?? '';
     const newLine = newLines[row] ?? '';
     const width = Math.max(visibleLength(oldLine), visibleLength(newLine), maxWidth);
-    const oldPadded = padGraphemes(oldLine, width);
-    const newPadded = padGraphemes(newLine, width);
-
-    let line = '';
+    const oldPadded = padCells(oldLine, width);
+    const newPadded = padCells(newLine, width);
+    const selected: TerminalCell[] = [];
+    const opacity: number[] = [];
     for (let col = 0; col < width; col++) {
       // Euclidean distance from origin for smooth circular reveal
       const dist = Math.sqrt((col - cx) ** 2 + (row - cy) ** 2);
-
-      const oldCh = oldPadded[col] ?? ' ';
-      const newCh = newPadded[col] ?? ' ';
 
       let showNew: boolean;
       let featherBlend: number;
@@ -120,13 +120,15 @@ export function zoom(oldContent: string, newContent: string, progress: number, m
       }
 
       if (showNew) {
-        line += fadeChar(newCh, Math.max(0.3, featherBlend));
+        selected.push(newPadded[col]!);
+        opacity.push(Math.max(0.3, featherBlend));
       } else {
-        line += fadeChar(oldCh, Math.max(0.3, 1 - featherBlend));
+        selected.push(oldPadded[col]!);
+        opacity.push(Math.max(0.3, 1 - featherBlend));
       }
     }
 
-    resultLines.push(line + RESET);
+    resultLines.push(`${renderCells(selected, (text, column) => fadeChar(text, opacity[column] ?? 1))}${RESET}`);
   }
 
   return resultLines.join('\n');

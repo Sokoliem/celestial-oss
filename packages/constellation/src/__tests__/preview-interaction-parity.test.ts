@@ -2,9 +2,9 @@ import type { AppConfig, Cmd, Sub, VNode } from '@celestial/core/nebula';
 import { Sub as SubBuilder, text } from '@celestial/core/nebula';
 import { assertMouseKeyboardParity, createTestApp, type KeyModifiers, type TestAppHandle } from '@celestial/test';
 import { describe, expect, it } from 'vitest';
-import { type ConfirmDialogModel, type ConfirmDialogMsg, confirmDialog } from '../confirm-dialog.js';
 import { type BreadcrumbModel, type BreadcrumbMsg, breadcrumb } from '../breadcrumb.js';
 import { type CommandPaletteModel, type CommandPaletteMsg, commandPalette } from '../command-palette.js';
+import { type ConfirmDialogModel, type ConfirmDialogMsg, confirmDialog } from '../confirm-dialog.js';
 import { type DataTableModel, type DataTableMsg, dataTable } from '../data-table.js';
 import { type DrawerModel, type DrawerMsg, drawer } from '../drawer.js';
 import { type ModalModel, type ModalMsg, modal } from '../modal.js';
@@ -258,13 +258,41 @@ describe('preview interaction parity', () => {
     ).not.toThrow();
   });
 
+  it('drawer actions activate by mouse or focused keyboard input', () => {
+    const build = (): TestAppHandle<DrawerModel, DrawerMsg> =>
+      createTestApp(
+        asApp(
+          drawer({
+            content: text('Drawer content') as VNode,
+            title: 'Actions',
+            variant: 'overlay',
+            actions: [{ id: 'launch', label: 'Launch action' }],
+          }),
+        ),
+      );
+    expect(() =>
+      assertMouseKeyboardParity(build, [
+        {
+          name: 'activate a drawer action',
+          byMouse: (app) => clickText(app, 'Launch action'),
+          byKey: (app) => {
+            app.pressKey('tab');
+            app.pressKey('tab');
+            app.pressKey('enter');
+          },
+          predicate: (model) => model.activatedActionId === 'launch',
+        },
+      ]),
+    ).not.toThrow();
+  });
+
   it('modals dismiss by mouse or Escape', () => {
     const build = (): TestAppHandle<ModalModel, ModalMsg> => createTestApp(asApp(modal({ title: 'Details', content: text('Modal content') })));
     expect(() =>
       assertMouseKeyboardParity(build, [
         {
           name: 'dismiss the modal',
-          byMouse: (app) => clickText(app, '[esc] close'),
+          byMouse: (app) => clickText(app, '[x]'),
           byKey: (app) => app.pressKey('escape'),
           predicate: (model) => !model.open,
         },

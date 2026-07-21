@@ -2,7 +2,13 @@ import type { Color } from '@celestial/corona';
 import { gradient as coronaGradient } from '@celestial/corona';
 import { interpolateColor } from './interpolate.js';
 import { type MotionEffectOpts, motionTick } from './motion.js';
-import { graphemes, RESET, stripAnsi, tokenize } from './utils.js';
+import { graphemeCellWidth, positionedGraphemes, RESET, stripAnsi, tokenize, visualWidth } from './utils.js';
+import { finiteNumber, wrap } from './validation.js';
+
+function cellRatio(column: number, glyphWidth: number, totalWidth: number): number {
+  if (totalWidth <= glyphWidth) return 0;
+  return (column + (glyphWidth - 1) / 2) / (totalWidth - 1);
+}
 
 export interface BgGradientOpts {
   from?: Color;
@@ -48,22 +54,26 @@ function applyBgChar(ch: string, bgColor: Color, fgColor?: Color): string {
 function horizontalBgGradient(text: string, stops: Color[], fg?: Color): string {
   const grad = coronaGradient(stops);
   const tokens = tokenize(text);
-  const visibleChars = tokens.filter((t) => t.type === 'char');
-  const charCount = visibleChars.length;
+  const width = visualWidth(text);
 
-  if (charCount === 0) return '';
+  if (width === 0) return '';
 
-  let visibleIndex = 0;
+  let column = 0;
   let result = '';
 
   for (const token of tokens) {
     if (token.type === 'ansi') {
       result += token.value;
     } else {
-      const ratio = charCount === 1 ? 0 : visibleIndex / (charCount - 1);
+      if (token.value === '\n') {
+        result += '\n';
+        continue;
+      }
+      const glyphWidth = graphemeCellWidth(token.value);
+      const ratio = cellRatio(column, glyphWidth, width);
       const c = grad.sample(ratio);
       result += applyBgChar(token.value, c, fg);
-      visibleIndex++;
+      column += glyphWidth;
     }
   }
 
@@ -92,29 +102,28 @@ function diagonalBgGradient(text: string, stops: Color[], fg?: Color): string {
   const lines = text.split('\n');
   const lineCount = lines.length;
 
-  const cols = Math.max(...lines.map((l) => graphemes(stripAnsi(l)).length));
+  const cols = Math.max(...lines.map((line) => visualWidth(line)));
   if (cols === 0) return '';
 
   return lines
     .map((line, j) => {
       const tokens = tokenize(line);
-      const visibleChars = tokens.filter((t) => t.type === 'char');
-      const charCountInLine = visibleChars.length;
-      if (charCountInLine === 0) return line;
+      if (visualWidth(line) === 0) return line;
 
-      let visibleIndex = 0;
+      let column = 0;
       let result = '';
 
       for (const token of tokens) {
         if (token.type === 'ansi') {
           result += token.value;
         } else {
-          const colRatio = cols === 1 ? 0 : visibleIndex / (cols - 1);
+          const glyphWidth = graphemeCellWidth(token.value);
+          const colRatio = cellRatio(column, glyphWidth, cols);
           const rowRatio = lineCount === 1 ? 0 : j / (lineCount - 1);
           const ratio = (colRatio + rowRatio) / 2;
           const c = grad.sample(ratio);
           result += applyBgChar(token.value, c, fg);
-          visibleIndex++;
+          column += glyphWidth;
         }
       }
 
@@ -145,7 +154,7 @@ export function bgPulse(text: string, opts: BgPulseOpts): string {
   const visible = stripAnsi(text);
   if (visible.length === 0) return '';
 
-  const speed = opts.speed ?? 1;
+  const speed = finiteNumber(opts.speed, 1);
   const ratio = (Math.sin(motionTick(opts) * speed * 0.2) + 1) / 2;
   const bgColor = interpolateColor(opts.from, opts.to, ratio);
 
@@ -159,7 +168,7 @@ export function bgPulse(text: string, opts: BgPulseOpts): string {
 
 function shiftedInterpolate(stops: Color[], ratio: number, offset: number): Color {
   const segments = stops.length - 1;
-  const shifted = (ratio + offset) % 1;
+  const shifted = wrap(ratio + offset, 1);
   const scaledRatio = shifted * segments;
   const segmentIndex = Math.min(Math.floor(scaledRatio), segments - 1);
   const localRatio = scaledRatio - segmentIndex;
@@ -174,10 +183,10 @@ export function animatedBgGradient(text: string, opts: AnimatedBgGradientOpts): 
     throw new Error('animatedBgGradient requires at least 2 colors');
   }
 
-  const speed = opts.speed ?? 1;
+  const speed = finiteNumber(opts.speed, 1);
   const direction = opts.direction ?? 'horizontal';
   const fg = opts.fg;
-  const offset = (motionTick(opts) * speed * 0.01) % 1;
+  const offset = wrap(motionTick(opts) * speed * 0.01, 1);
 
   if (direction === 'vertical') {
     const lines = text.split('\n');
@@ -197,7 +206,7 @@ export function animatedBgGradient(text: string, opts: AnimatedBgGradientOpts): 
   if (direction === 'diagonal') {
     const lines = text.split('\n');
     const lineCount = lines.length;
-    const cols = Math.max(...lines.map((l) => graphemes(stripAnsi(l)).length));
+    const cols = Math.max(...lines.map((line) => visualWidth(line)));
     if (cols === 0) return '';
 
     return lines
@@ -205,14 +214,14 @@ export function animatedBgGradient(text: string, opts: AnimatedBgGradientOpts): 
         const stripped = stripAnsi(line);
         if (stripped.length === 0) return line;
 
-        const chars = graphemes(stripped);
+        const glyphs = positionedGraphemes(stripped);
         let lineResult = '';
-        for (let i = 0; i < chars.length; i++) {
-          const colRatio = cols === 1 ? 0 : i / (cols - 1);
+        for (const glyph of glyphs) {
+          const colRatio = cellRatio(glyph.column, glyph.width, cols);
           const rowRatio = lineCount === 1 ? 0 : j / (lineCount - 1);
           const ratio = (colRatio + rowRatio) / 2;
           const c = shiftedInterpolate(colors, ratio, offset);
-          lineResult += applyBgChar(chars[i]!, c, fg);
+          lineResult += applyBgChar(glyph.value, c, fg);
         }
         lineResult += RESET;
         return lineResult;
@@ -221,15 +230,19 @@ export function animatedBgGradient(text: string, opts: AnimatedBgGradientOpts): 
   }
 
   const visible = stripAnsi(text);
-  const chars = graphemes(visible);
-  const charCount = chars.length;
-  if (charCount === 0) return '';
+  const glyphs = positionedGraphemes(visible);
+  const width = visualWidth(visible);
+  if (width === 0) return '';
 
   let result = '';
-  for (let i = 0; i < charCount; i++) {
-    const ratio = charCount === 1 ? 0 : i / (charCount - 1);
+  for (const glyph of glyphs) {
+    if (glyph.value === '\n') {
+      result += '\n';
+      continue;
+    }
+    const ratio = cellRatio(glyph.column, glyph.width, width);
     const c = shiftedInterpolate(colors, ratio, offset);
-    result += applyBgChar(chars[i]!, c, fg);
+    result += applyBgChar(glyph.value, c, fg);
   }
 
   result += RESET;

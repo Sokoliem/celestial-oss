@@ -63,4 +63,26 @@ describe('transition builders', () => {
     expectState(state, 1, true);
     expect(controller.render('old', 'new', state)).toBe('new');
   });
+
+  it('rejects invalid clocks, duration, easing output, and state progress', () => {
+    expect(() => createTransition({ duration: -1 })).toThrow(RangeError);
+    expect(() => createTransition({ duration: Number.NaN })).toThrow(TypeError);
+
+    const controller = createTransition({ duration: 10, easing: () => Number.NaN });
+    expect(() => controller.start(Number.NaN)).toThrow(TypeError);
+    const started = controller.start(0);
+    expect(() => controller.tick(started, Number.POSITIVE_INFINITY)).toThrow(TypeError);
+    expect(() => controller.tick(started, 5)).toThrow(TypeError);
+    expect(() => controller.render('old', 'new', { ...started, progress: Number.NaN })).toThrow(TypeError);
+  });
+
+  it('ignores stale controller ticks', () => {
+    const controller = createTransition({ duration: 10 });
+    const started = controller.start(100);
+    const advanced = controller.tick(started, 108);
+    const stale = controller.tick(advanced, 104);
+
+    expectState(stale, 0.8, false);
+    expect(stale.lastTime).toBe(108);
+  });
 });

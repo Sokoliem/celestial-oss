@@ -7,6 +7,7 @@ import {
   breadcrumb,
   button,
   card,
+  cardGrid,
   checkbox,
   checkboxGroup,
   colorPicker,
@@ -24,6 +25,7 @@ import {
   emptyState,
   formField,
   hovercard,
+  indeterminateProgress,
   list,
   modal,
   multiSelect,
@@ -31,6 +33,7 @@ import {
   optionListView,
   pagination,
   popover,
+  popoverGroup,
   progressBar,
   radioGroup,
   rangeSlider,
@@ -56,13 +59,6 @@ interface CapabilityRow {
   package: string;
   state: string;
 }
-
-const capabilityRows: CapabilityRow[] = [
-  { id: 'runtime', capability: 'Elm runtime', package: '@celestial/core', state: 'ready' },
-  { id: 'components', capability: 'Curated UI', package: '@celestial/ui', state: '44 builders' },
-  { id: 'windows', capability: 'Window manager', package: '@celestial/horizon', state: 'beta' },
-  { id: 'testing', capability: 'Headless + PTY', package: '@celestial/test', state: 'ready' },
-];
 
 const headingStyle = style({ color: defaultTheme.colors.tones.accent, bold: true });
 const labelStyle = style({ color: defaultTheme.colors.textSoft, bold: true });
@@ -99,8 +95,10 @@ export const UI_BUILDER_NAMES = [
   'tree',
   'list',
   'progressBar',
+  'indeterminateProgress',
   'spinner',
   'card',
+  'cardGrid',
   'divider',
   'emptyState',
   'badge',
@@ -110,10 +108,20 @@ export const UI_BUILDER_NAMES = [
   'modal',
   'confirmDialog',
   'drawer',
-  'contextMenuView',
   'popover',
+  'popoverGroup',
   'hovercard',
 ] as const;
+
+export const UI_BUILDER_COUNT = UI_BUILDER_NAMES.length;
+export const GALLERY_PAGE_COUNT = 8;
+
+const capabilityRows: CapabilityRow[] = [
+  { id: 'runtime', capability: 'Elm runtime', package: '@celestial/core', state: 'ready' },
+  { id: 'components', capability: 'Curated UI', package: '@celestial/ui', state: `${UI_BUILDER_COUNT} builders` },
+  { id: 'windows', capability: 'Window manager', package: '@celestial/horizon', state: 'beta' },
+  { id: 'testing', capability: 'Headless + PTY', package: '@celestial/test', state: 'ready' },
+];
 
 const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }> = {
   core: {
@@ -124,7 +132,7 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
   components: {
     purpose: 'Tour every curated @celestial/ui builder across eight compact pages.',
     mouse: 'Click controls to focus, toggle, advance, or open their real layered surface.',
-    verify: 'Advance through pages 1-8 and confirm the counter reaches 44/44 builders.',
+    verify: `Advance through pages 1-8 and confirm the counter reaches ${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} builders.`,
   },
   workflows: {
     purpose: 'Exercise Orbit schema forms and branch-aware wizard state using the same Elm update loop.',
@@ -233,7 +241,7 @@ export function createShowcaseComponents() {
     ],
     selected: [0, 1],
   });
-  const numberInputComponent = numberInput({ value: 44, min: 1, max: 99, label: 'Builders' });
+  const numberInputComponent = numberInput({ value: UI_BUILDER_COUNT, min: 1, max: 99, label: 'Builders' });
   const rangeSliderComponent = rangeSlider({ min: 40, max: 160, low: 70, high: 120, width: 18 });
   const ratingComponent = rating({ value: 4, max: 5, interactive: true });
   const segmentedControlComponent = segmentedControl({ options: ['Compact', 'Wide'], selected: 1 });
@@ -252,7 +260,7 @@ export function createShowcaseComponents() {
             { label: 'Balanced', value: 'balanced' },
           ],
         },
-        { kind: 'toggle', name: 'reducedMotion', label: 'Reduced motion', default: true },
+        { kind: 'toggle', name: 'reducedMotion', label: 'Reduced motion', default: false },
         { kind: 'range', name: 'viewport', label: 'Target width', min: 70, max: 160, step: 10, default: [80, 120] },
       ],
       layout: {
@@ -345,6 +353,15 @@ export function createShowcaseComponents() {
     ],
   });
   const spinnerComponent = spinner({ style: 'arc', speed: 120 });
+  const indeterminateProgressComponent = indeterminateProgress({ width: 16, speed: 120 });
+  const cardGridComponent = cardGrid({
+    cards: [
+      { title: 'Runtime', content: text('Elm loop', mutedStyle), variant: 'outlined', size: 'sm', width: 15 },
+      { title: 'Render', content: text('Cell safe', mutedStyle), variant: 'outlined', size: 'sm', width: 15 },
+    ],
+    columns: 2,
+    gap: 1,
+  });
   const tooltipComponent = tooltip({
     content: 'Tooltip content is tokenized, capability-aware, animated, and Escape-dismissible.',
     position: 'bottom',
@@ -357,6 +374,7 @@ export function createShowcaseComponents() {
     title: 'Layer telemetry',
     content: column(
       text('Nebula stackedLayers preserved the flight deck.', undefined, { wrap: true }),
+      text('Responsive modal copy reflows by terminal cells around e\u0301 and long words without clipping the final boundary.'),
       text('Click the close hint or press Escape.', mutedStyle, { wrap: true }),
     ),
     width: 52,
@@ -371,7 +389,22 @@ export function createShowcaseComponents() {
   });
   const drawerComponent = drawer({
     title: 'Layer stack',
-    content: column(text('Base application'), text('Transparent backdrop'), text('Anchored right drawer'), text('Escape and click-away dismissal', mutedStyle)),
+    content: column(
+      text('Current stack', labelStyle),
+      text(`${defaultTheme.glyphs.bullet} Base application remains mounted.`),
+      text(`${defaultTheme.glyphs.bullet} Transparent backdrop shields click-through.`),
+      text(`${defaultTheme.glyphs.bullet} Right edge anchors this drawer.`),
+      text(`${defaultTheme.glyphs.bullet} Escape, [x], and click-away dismissal remain active.`, mutedStyle, { wrap: true }),
+      text(''),
+      text('Interactive layer actions', labelStyle),
+      text('Each control below updates the same Elm model used by the underlying lab.', mutedStyle, { wrap: true }),
+    ),
+    actions: [
+      { id: 'modal', label: 'Stack modal above drawer', tone: 'info' },
+      { id: 'confirm', label: 'Stack confirmation above', tone: 'success' },
+      { id: 'toast', label: 'Push toast', tone: 'info' },
+      { id: 'workflow-toggle-motion', label: 'Toggle reduced motion', tone: 'neutral' },
+    ],
     position: 'right',
     variant: 'overlay',
     width: 42,
@@ -383,6 +416,12 @@ export function createShowcaseComponents() {
     content: text('Only allowlisted packages ship.', undefined, { wrap: true }),
     position: 'bottom',
     width: 34,
+  });
+  const popoverGroupComponent = popoverGroup({
+    popovers: [
+      { trigger: '[ Runtime ]', content: 'Elm state remains explicit.', variant: 'info', position: 'bottom' },
+      { trigger: '[ Render ]', content: 'Terminal cells remain width-safe.', variant: 'success', position: 'bottom' },
+    ],
   });
   const hovercardComponent = hovercard({
     id: 'showcase-package-card',
@@ -448,12 +487,15 @@ export function createShowcaseComponents() {
     tableComponent,
     treeComponent,
     spinnerComponent,
+    indeterminateProgressComponent,
+    cardGridComponent,
     tooltipComponent,
     toastManager,
     modalComponent,
     confirmComponent,
     drawerComponent,
     popoverComponent,
+    popoverGroupComponent,
     hovercardComponent,
     paletteComponent,
     helpDrawers,
@@ -484,6 +526,37 @@ export function initialComponentModels(components: ShowcaseComponents) {
     confirm: components.confirmComponent.init()[0],
     drawer: { ...components.drawerComponent.init()[0], open: false, focusTrapActive: false },
     palette: components.paletteComponent.init()[0],
+    galleryModels: {
+      checkboxGroup: components.checkboxGroupComponent.init()[0],
+      toggleGroup: components.toggleGroupComponent.init()[0],
+      autocomplete: components.autocompleteComponent.init()[0],
+      combobox: components.comboboxComponent.init()[0],
+      datePicker: components.datePickerComponent.init()[0],
+      multiSelect: components.multiSelectComponent.init()[0],
+      numberInput: components.numberInputComponent.init()[0],
+      rangeSlider: components.rangeSliderComponent.init()[0],
+      rating: components.ratingComponent.init()[0],
+      segmentedControl: components.segmentedControlComponent.init()[0],
+      tagInput: components.tagInputComponent.init()[0],
+      colorPicker: components.colorPickerComponent.init()[0],
+      optionList: components.optionListComponent.init()[0],
+      cardGrid: components.cardGridComponent.init()[0],
+      popover: components.popoverComponent.init()[0],
+      popoverGroup: components.popoverGroupComponent.init()[0],
+      hovercard: components.hovercardComponent.init()[0],
+    },
+    galleryContextMenu: contextMenuUpdate(
+      {
+        type: 'ctx-open',
+        x: 0,
+        y: 0,
+        items: [
+          { label: 'Open', shortcut: 'Enter', msg: 'open' },
+          { label: 'Inspect', shortcut: 'I', msg: 'inspect' },
+        ],
+      },
+      createContextMenuState<string>(),
+    ),
   };
 }
 
@@ -524,12 +597,18 @@ function named(name: string, child: VNode): VNode {
 }
 
 function galleryHeader(page: number, subtitle: string): VNode {
-  return row(text(`CURATED UI  ${page + 1}/8`, headingStyle), text(`  ${subtitle}`, mutedStyle));
+  return row(text(`CURATED UI  ${page + 1}/${GALLERY_PAGE_COUNT}`, headingStyle), text(`  ${subtitle}`, mutedStyle));
 }
 
-function initialView<Model extends object>(descriptor: { init(): [Model, unknown]; view(model: Model): VNode }, overrides?: Partial<Model>): VNode {
-  const [model] = descriptor.init();
-  return descriptor.view(overrides ? { ...model, ...overrides } : model);
+function galleryView<Model extends object>(
+  model: CelestialShowcaseModel,
+  id: string,
+  descriptor: { view(state: Model): VNode },
+  overrides?: Partial<Model>,
+): VNode {
+  const state = model.galleryModels[id] as Model | undefined;
+  if (!state) return text(`${id} state unavailable`, mutedStyle);
+  return descriptor.view(overrides ? { ...state, ...overrides } : state);
 }
 
 export function renderComponentGallery(components: ShowcaseComponents, model: CelestialShowcaseModel): VNode {
@@ -556,33 +635,38 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
       return column(
         galleryHeader(1, 'Grouped and assisted inputs - 7 builders'),
         row(
-          named('checkboxGroup()', initialView(components.checkboxGroupComponent)),
+          named('checkboxGroup()', galleryView(model, 'checkboxGroup', components.checkboxGroupComponent)),
           text('    '),
-          named('toggleGroup()', initialView(components.toggleGroupComponent)),
+          named('toggleGroup()', galleryView(model, 'toggleGroup', components.toggleGroupComponent)),
         ),
         named(
           'autocomplete()',
-          initialView(components.autocompleteComponent, { query: 're', suggestions: ['release', 'resize', 'render'], highlighted: 0, open: true }),
+          galleryView(model, 'autocomplete', components.autocompleteComponent, {
+            query: 're',
+            suggestions: ['release', 'resize', 'render'],
+            highlighted: 0,
+            open: true,
+          }),
         ),
-        named('combobox()', initialView(components.comboboxComponent)),
-        named('datePicker()', initialView(components.datePickerComponent)),
+        named('combobox()', galleryView(model, 'combobox', components.comboboxComponent)),
+        named('datePicker()', galleryView(model, 'datePicker', components.datePickerComponent)),
         row(
-          named('multiSelect()', initialView(components.multiSelectComponent)),
+          named('multiSelect()', galleryView(model, 'multiSelect', components.multiSelectComponent)),
           text('    '),
-          named('numberInput()', initialView(components.numberInputComponent)),
+          named('numberInput()', galleryView(model, 'numberInput', components.numberInputComponent)),
         ),
       );
     case 2:
       return column(
         galleryHeader(2, 'Specialized form controls - 6 builders'),
-        named('rangeSlider()', initialView(components.rangeSliderComponent)),
+        named('rangeSlider()', galleryView(model, 'rangeSlider', components.rangeSliderComponent)),
         row(
-          named('rating()', initialView(components.ratingComponent)),
+          named('rating()', galleryView(model, 'rating', components.ratingComponent)),
           text('    '),
-          named('segmentedControl()', initialView(components.segmentedControlComponent)),
+          named('segmentedControl()', galleryView(model, 'segmentedControl', components.segmentedControlComponent)),
         ),
-        named('tagInput()', initialView(components.tagInputComponent)),
-        named('colorPicker()', initialView(components.colorPickerComponent)),
+        named('tagInput()', galleryView(model, 'tagInput', components.tagInputComponent)),
+        named('colorPicker()', galleryView(model, 'colorPicker', components.colorPickerComponent)),
         named(
           'formField()',
           formField({
@@ -601,7 +685,7 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
         named('breadcrumb()', components.breadcrumbComponent.view(model.breadcrumb)),
         named('pagination()', focusable('pagination', 'Pagination control', components.paginationComponent.view(model.pagination))),
         named('commandPalette()', action(model, 'palette', 'Open command palette', 'info')),
-        named('optionListView()', initialView(components.optionListComponent)),
+        named('optionListView()', galleryView(model, 'optionList', components.optionListComponent)),
         text('Mouse selects tabs/pages. Arrow keys operate the focused control.', mutedStyle, { wrap: true }),
       );
     case 4:
@@ -614,31 +698,42 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           named('list()', list({ items: ['deterministic runtime', 'semantic components', 'headless receipts'], ordered: true, maxRenderedItems: 3 })),
         ),
       );
-    case 5:
+    case 5: {
+      const determinateProgress = named(
+        'progressBar()',
+        progressBar({ label: 'Preview', value: model.completed.size / Object.keys(model.evidence).length, width: 20, showPercentage: true }),
+      );
+      const indeterminate = named('indeterminateProgress()', components.indeterminateProgressComponent.view({ position: model.tick }));
+      const activitySpinner = named('spinner()', row(components.spinnerComponent.view({ frame: model.tick }), text(' probe', mutedStyle)));
       return column(
-        galleryHeader(5, 'Display - 5 builders'),
-        named('progressBar()', progressBar({ label: 'Preview', value: model.completed.size / 8, width: 24, showPercentage: true })),
-        named('spinner()', row(components.spinnerComponent.view({ frame: model.tick }), text(' capability probe', mutedStyle))),
-        named(
-          'card()',
-          card({
-            title: 'Core facade',
-            subtitle: 'One understandable entry point',
-            content: text('Six foundations, one import.'),
-            variant: 'outlined',
-            size: 'sm',
-          }).view({
-            hovered: false,
-          }),
+        galleryHeader(5, 'Display - 7 builders'),
+        model.cols >= 100
+          ? row(determinateProgress, text('  '), indeterminate, text('  '), activitySpinner)
+          : column(row(determinateProgress, text('  '), indeterminate), activitySpinner),
+        row(
+          named(
+            'card()',
+            card({
+              title: 'Core facade',
+              subtitle: 'One entry point',
+              content: text('Six foundations.'),
+              variant: 'outlined',
+              size: 'sm',
+              width: 24,
+            }).view({ hovered: false }),
+          ),
+          text('  '),
+          named('cardGrid()', galleryView(model, 'cardGrid', components.cardGridComponent)),
         ),
         named('divider()', divider({ label: 'Preview boundary', width: 42, tone: 'accent' })),
         named('emptyState()', emptyState({ title: 'No private dependencies', description: 'The supported demo stays inside the focused preview.', width: 42 })),
       );
+    }
     case 6:
       return column(
         galleryHeader(6, 'Feedback and layers - 7 builders'),
         row(
-          named('badge()', badge({ label: '44/44 curated', variant: 'success', size: 'sm' }).view({ visible: true })),
+          named('badge()', badge({ label: `${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} curated`, variant: 'success', size: 'sm' }).view({ visible: true })),
           text('    '),
           named(
             'alert()',
@@ -660,20 +755,8 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
         text('Each layered builder opens as a real stacked surface; Escape always dismisses.', mutedStyle, { wrap: true }),
       );
     default: {
-      const contextState = contextMenuUpdate(
-        {
-          type: 'ctx-open',
-          x: 0,
-          y: 0,
-          items: [
-            { label: 'Open', shortcut: 'Enter', msg: 'open' },
-            { label: 'Inspect', shortcut: 'I', msg: 'inspect' },
-          ],
-        },
-        createContextMenuState<string>(),
-      );
       const contextNode = contextMenuView({
-        state: contextState,
+        state: model.galleryContextMenu,
         width: 22,
         viewport: { cols: Math.max(24, model.cols - 8), rows: Math.max(8, model.rows - 8) },
         tokens: {
@@ -687,11 +770,22 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           shortcut: defaultTheme.colors.textSoft,
         },
       });
+      const popoverNode = named(
+        'popover()',
+        galleryView(model, 'popover', components.popoverComponent, { visible: true, viewportCols: Math.max(36, model.cols - 8) }),
+      );
+      const hovercardNode = named(
+        'hovercard()',
+        galleryView(model, 'hovercard', components.hovercardComponent, { state: 'open', viewportCols: Math.max(36, model.cols - 8) }),
+      );
       return column(
-        galleryHeader(7, 'Contextual surfaces - 3 builders'),
-        named('contextMenuView()', contextNode ?? text('Context menu closed', mutedStyle)),
-        named('popover()', initialView(components.popoverComponent, { visible: true, viewportCols: Math.max(36, model.cols - 8) })),
-        named('hovercard()', initialView(components.hovercardComponent, { state: 'open', viewportCols: Math.max(36, model.cols - 8) })),
+        galleryHeader(7, 'Contextual surfaces - 3 builders + menu helper'),
+        named(
+          'contextMenuView() helper',
+          contextNode ?? row(text('Context menu dismissed.  ', mutedStyle), action(model, 'gallery-context-menu', 'Open sample menu', 'info')),
+        ),
+        model.cols >= 100 ? row(popoverNode, text('  '), hovercardNode) : column(popoverNode, hovercardNode),
+        named('popoverGroup()', galleryView(model, 'popoverGroup', components.popoverGroupComponent, { activeIndex: 0 })),
         text('Context surfaces expose visible close controls and Escape dismissal contracts.', mutedStyle, { wrap: true }),
       );
     }

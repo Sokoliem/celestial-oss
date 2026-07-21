@@ -1,3 +1,4 @@
+import { extractNodeText } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { segmentedControl, segmentedControlHitTest } from '../segmented-control.js';
 
@@ -31,6 +32,13 @@ describe('segmentedControl', () => {
       const [model] = comp.init();
       expect(model.selected).toBe(0);
     });
+
+    it('keeps an empty control in a stable unselected state', () => {
+      const comp = segmentedControl({ options: [] });
+      const [model] = comp.init();
+      const [updated] = comp.update({ type: 'highlight-right' }, model);
+      expect(updated).toEqual({ selected: -1, highlighted: -1, focused: false });
+    });
   });
 
   describe('update', () => {
@@ -56,6 +64,13 @@ describe('segmentedControl', () => {
       const model = { selected: 1, highlighted: 1, focused: true };
       comp.update({ type: 'select', index: 1 }, model);
       expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('ignores non-finite and out-of-range selections', () => {
+      const comp = segmentedControl({ options });
+      const model = { selected: 0, highlighted: 0, focused: true };
+      expect(comp.update({ type: 'select', index: Number.NaN }, model)[0]).toBe(model);
+      expect(comp.update({ type: 'select', index: 99 }, model)[0]).toBe(model);
     });
 
     it('highlight-left wraps from first to last', () => {
@@ -113,12 +128,9 @@ describe('segmentedControl', () => {
       const comp = segmentedControl({ options });
       const [model] = comp.init();
       const vnode = comp.view(model);
-      if (vnode.kind === 'row') {
-        const texts = vnode.children.filter((c) => c.kind === 'text').map((c) => (c.kind === 'text' ? c.content : ''));
-        expect(texts.some((t) => t.includes('S'))).toBe(true);
-        expect(texts.some((t) => t.includes('M'))).toBe(true);
-        expect(texts.some((t) => t.includes('L'))).toBe(true);
-      }
+      expect(extractNodeText(vnode)).toContain('S');
+      expect(extractNodeText(vnode)).toContain('M');
+      expect(extractNodeText(vnode)).toContain('L');
     });
 
     it('selected option has bold styling', () => {
@@ -136,16 +148,26 @@ describe('segmentedControl', () => {
   });
 
   describe('subscriptions', () => {
-    it('returns none when not focused', () => {
+    it('keeps pointer selection active when not focused', () => {
       const comp = segmentedControl({ options });
       const sub = comp.subscriptions!({ selected: 0, highlighted: 0, focused: false });
-      expect(sub._kind.kind).toBe('none');
+      expect(sub._kind.kind).toBe('elementMouse');
     });
 
     it('returns batch of key subscriptions when focused', () => {
       const comp = segmentedControl({ options });
       const sub = comp.subscriptions!({ selected: 0, highlighted: 0, focused: true });
       expect(sub._kind.kind).toBe('batch');
+    });
+
+    it('snapshots options and focuses a direct pointer selection', () => {
+      const mutable = ['Original'];
+      const comp = segmentedControl({ options: mutable });
+      mutable[0] = 'Changed';
+      const [model] = comp.init();
+      expect(extractNodeText(comp.view(model))).toContain('Original');
+      const [updated] = comp.update({ type: 'select', index: 0 }, model);
+      expect(updated.focused).toBe(true);
     });
   });
 });
@@ -172,5 +194,11 @@ describe('segmentedControlHitTest', () => {
     // Click on `[ ` bracket area (index 0) — falls back to first option
     const result = segmentedControlHitTest(['A', 'B', 'C'], 0);
     expect(result).toEqual({ type: 'select', index: 0 });
+  });
+
+  it('hit-tests wide option labels in terminal cells', () => {
+    expect(segmentedControlHitTest(['界', 'B'], 3)).toEqual({ type: 'select', index: 0 });
+    expect(segmentedControlHitTest(['界', 'B'], 7)).toEqual({ type: 'select', index: 1 });
+    expect(segmentedControlHitTest(['界'], Number.NaN)).toBeNull();
   });
 });

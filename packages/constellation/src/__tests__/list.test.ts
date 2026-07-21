@@ -104,4 +104,18 @@ describe('list', () => {
       expect(result.children).toHaveLength(3);
     }
   });
+
+  it('aligns descriptions using terminal-cell width for wide markers', () => {
+    const result = list({ items: [{ label: 'Item', prefix: '界', description: 'Details' }] });
+    expect(result.kind).toBe('column');
+    if (result.kind === 'column' && result.children[1]?.kind === 'text') {
+      expect(result.children[1].content).toBe('   Details');
+    }
+  });
+
+  it('treats invalid render caps as bounded values', () => {
+    const result = list({ items: ['A', 'B'], maxRenderedItems: Number.NaN });
+    expect(result.kind).toBe('column');
+    if (result.kind === 'column') expect(result.children).toHaveLength(2);
+  });
 });

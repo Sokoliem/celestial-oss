@@ -12,13 +12,13 @@ describe('openUrl', () => {
     expect(spawn.invocations[0]!.args).toEqual(['https://example.com']);
   });
 
-  it('uses `cmd /c start ""` on win32 (empty title prevents URL-as-title)', async () => {
+  it('uses rundll32 directly on win32 without a command shell', async () => {
     const spawn = makeSpawn();
     const result = await openUrl('https://example.com', { env: makeProbe('win32'), spawn });
     expect(result.ok).toBe(true);
-    expect(result.tool).toBe('start');
-    expect(spawn.invocations[0]!.cmd).toBe('cmd');
-    expect(spawn.invocations[0]!.args).toEqual(['/c', 'start', '""', 'https://example.com']);
+    expect(result.tool).toBe('rundll32');
+    expect(spawn.invocations[0]!.cmd).toBe('rundll32.exe');
+    expect(spawn.invocations[0]!.args).toEqual(['url.dll,FileProtocolHandler', 'https://example.com']);
   });
 
   it('uses xdg-open on linux', async () => {
@@ -53,6 +53,24 @@ describe('openUrl', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('invalid URL');
     expect(spawn.invocations).toHaveLength(0);
+  });
+
+  it('rejects executable URL schemes unless explicitly allowed', async () => {
+    const spawn = makeSpawn();
+    const result = await openUrl('javascript:alert(1)', { env: makeProbe('darwin'), spawn });
+    expect(result).toEqual({ ok: false, error: 'URL protocol is not allowed: javascript:' });
+    expect(spawn.invocations).toHaveLength(0);
+  });
+
+  it('supports explicit protocol opt-in', async () => {
+    const spawn = makeSpawn();
+    const result = await openUrl('file:///tmp/readme.txt', {
+      allowedProtocols: ['file'],
+      env: makeProbe('darwin'),
+      spawn,
+    });
+    expect(result.ok).toBe(true);
+    expect(spawn.invocations[0]!.args).toEqual(['file:///tmp/readme.txt']);
   });
 
   it('returns ok:false when the open tool exits non-zero', async () => {

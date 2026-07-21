@@ -108,6 +108,28 @@ describe('renderSubstitutions', () => {
     const rendered = renderSubstitutions(tokens);
     expect(stripAnsi(flattenText(rendered))).toBe('const ${ user }');
   });
+
+  it('returns a live-wrapping text node without dropping trailing text', () => {
+    const rendered = renderSubstitutions(tokenizeSubstitutions('prefix ${name} finalletter'));
+    expect(rendered.kind).toBe('text');
+    if (rendered.kind !== 'text') return;
+    expect(rendered.wrap).toBe(true);
+    expect(stripAnsi(rendered.content)).toBe('prefix ${name} finalletter');
+  });
+
+  it('falls back safely when runtime theme overrides are malformed or throw', () => {
+    const tokens = tokenizeSubstitutions('prefix ${name} tail');
+    const rendered = renderSubstitutions(tokens, {
+      theme: {
+        literal: null as unknown as (value: string) => string,
+        name: (() => {
+          throw new Error('theme failure');
+        }) as (value: string) => string,
+      },
+    });
+
+    expect(stripAnsi(flattenText(rendered))).toBe('prefix ${name} tail');
+  });
 });
 
 describe('registerSubstitutionMode', () => {

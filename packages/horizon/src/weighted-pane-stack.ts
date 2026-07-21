@@ -25,6 +25,7 @@
 
 import { type Style, style } from '@celestial/core/corona';
 import { box, type ColumnNode, type FlexNode, type RowNode, text, type VNode } from '@celestial/core/nebula';
+import { MAX_LAYOUT_ITEMS, nonNegativeInteger } from './internal.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -122,6 +123,38 @@ const HANDLE_SIZE = 1;
 
 function safeWeight(weight: number): number {
   return Number.isFinite(weight) && weight > 0 ? weight : 0;
+}
+
+function normalizeLayoutPanes(panes: readonly LayoutPaneInput[]): LayoutPaneInput[] {
+  const ids = new Set<string>();
+  return panes.slice(0, MAX_LAYOUT_ITEMS).map((pane, index) => {
+    const id = typeof pane.id === 'string' && pane.id.length > 0 ? pane.id : `pane-${index}`;
+    if (ids.has(id)) throw new Error(`horizon/weightedPaneStack: duplicate pane id "${id}"`);
+    ids.add(id);
+    const minSize = nonNegativeInteger(pane.minSize);
+    const maxSize =
+      pane.maxSize === undefined || pane.maxSize === Number.POSITIVE_INFINITY
+        ? Number.POSITIVE_INFINITY
+        : Math.max(minSize, nonNegativeInteger(pane.maxSize, minSize));
+    return {
+      id,
+      weight: safeWeight(pane.weight),
+      minSize,
+      maxSize,
+      collapsed: Boolean(pane.collapsed),
+    };
+  });
+}
+
+function fitSizesToBudget(sizes: number[], budget: number): number[] {
+  const fitted = sizes.map((size) => nonNegativeInteger(size));
+  let overflow = fitted.reduce((sum, size) => sum + size, 0) - budget;
+  for (let index = fitted.length - 1; index >= 0 && overflow > 0; index--) {
+    const reduction = Math.min(fitted[index]!, overflow);
+    fitted[index] = fitted[index]! - reduction;
+    overflow -= reduction;
+  }
+  return fitted;
 }
 
 /**
@@ -239,11 +272,10 @@ function distributeWithClamps(panes: readonly LayoutPaneInput[], available: numb
  * gesture handlers, devtools, and the renderer; all consumers see the
  * same coordinates.
  */
-export function getWeightedPaneStackLayout(
-  panes: readonly LayoutPaneInput[],
-  totalSize: number,
-): WeightedPaneStackLayout {
-  if (panes.length === 0 || totalSize <= 0) {
+export function getWeightedPaneStackLayout(panes: readonly LayoutPaneInput[], totalSize: number): WeightedPaneStackLayout {
+  const normalizedPanes = normalizeLayoutPanes(panes);
+  const safeTotalSize = nonNegativeInteger(totalSize);
+  if (normalizedPanes.length === 0 || safeTotalSize <= 0) {
     return { paneRanges: [], resizeHandleRows: [], usedSize: 0 };
   }
 
@@ -251,19 +283,19 @@ export function getWeightedPaneStackLayout(
   // size 0 but still appear in `paneRanges` so the consumer can position
   // chrome/headers consistently.
   const visibleIndices: number[] = [];
-  for (let i = 0; i < panes.length; i += 1) {
-    if (!panes[i]!.collapsed) visibleIndices.push(i);
+  for (let i = 0; i < normalizedPanes.length; i += 1) {
+    if (!normalizedPanes[i]!.collapsed) visibleIndices.push(i);
   }
 
   // Reserve one row per adjacent-visible-pair for resize handles.
   const handleCount = Math.max(0, visibleIndices.length - 1);
-  const availableForPanes = Math.max(0, totalSize - handleCount * HANDLE_SIZE);
+  const availableForPanes = Math.max(0, safeTotalSize - handleCount * HANDLE_SIZE);
 
-  const visiblePanes = visibleIndices.map((i) => panes[i]!);
-  const visibleSizes = distributeWithClamps(visiblePanes, availableForPanes);
+  const visiblePanes = visibleIndices.map((i) => normalizedPanes[i]!);
+  const visibleSizes = fitSizesToBudget(distributeWithClamps(visiblePanes, availableForPanes), availableForPanes);
 
   // Build final sizes (including 0 for collapsed panes).
-  const sizes = new Array<number>(panes.length).fill(0);
+  const sizes = new Array<number>(normalizedPanes.length).fill(0);
   for (let k = 0; k < visibleIndices.length; k += 1) {
     sizes[visibleIndices[k]!] = visibleSizes[k] ?? 0;
   }
@@ -275,10 +307,11 @@ export function getWeightedPaneStackLayout(
   let cursor = 0;
   let lastVisibleId: string | null = null;
 
-  for (let i = 0; i < panes.length; i += 1) {
-    const pane = panes[i]!;
-    const isVisible = !pane.collapsed;
-    if (isVisible && lastVisibleId !== null) {
+  for (let i = 0; i < normalizedPanes.length; i += 1) {
+    const pane = normalizedPanes[i]!;
+    const size = sizes[i] ?? 0;
+    const isVisible = !pane.collapsed && size > 0;
+    if (isVisible && lastVisibleId !== null && cursor < safeTotalSize) {
       // Emit a handle row *before* this pane.
       resizeHandleRows.push({
         rowIndex: cursor,
@@ -286,7 +319,6 @@ export function getWeightedPaneStackLayout(
       });
       cursor += HANDLE_SIZE;
     }
-    const size = sizes[i] ?? 0;
     paneRanges.push({
       id: pane.id,
       startRow: cursor,
@@ -317,16 +349,13 @@ const DEFAULT_HORIZONTAL_HANDLE_CHAR = '│';
  * `nexus` hitmap; the renderer keeps the same allocation by passing
  * `size`-derived `flex` values.
  */
-export function weightedPaneStack<Model, Msg>(
-  config: WeightedPaneStackConfig<Model, Msg>,
-  model: Model,
-): VNode {
+export function weightedPaneStack<Model, Msg>(config: WeightedPaneStackConfig<Model, Msg>, model: Model): VNode {
   const direction = config.direction ?? 'vertical';
-  const handleChar =
-    config.resizeHandleChar ?? (direction === 'vertical' ? DEFAULT_VERTICAL_HANDLE_CHAR : DEFAULT_HORIZONTAL_HANDLE_CHAR);
+  const handleChar = config.resizeHandleChar ?? (direction === 'vertical' ? DEFAULT_VERTICAL_HANDLE_CHAR : DEFAULT_HORIZONTAL_HANDLE_CHAR);
   const handleStyle = config.resizeHandleStyle ?? style({ dim: true });
 
-  const layoutInputs: LayoutPaneInput[] = config.panes.map((pane) => ({
+  const panes = config.panes.slice(0, MAX_LAYOUT_ITEMS);
+  const layoutInputs: LayoutPaneInput[] = panes.map((pane) => ({
     id: pane.id,
     weight: pane.weight,
     minSize: pane.minSize,
@@ -336,23 +365,21 @@ export function weightedPaneStack<Model, Msg>(
   const layout = getWeightedPaneStackLayout(layoutInputs, config.totalSize);
 
   const minProp: 'minHeight' | 'minWidth' = direction === 'vertical' ? 'minHeight' : 'minWidth';
-  const handleNode: VNode = text(handleChar, handleStyle);
-
   // Walk panes in order, interleaving handle rows between visible panes.
   const children: VNode[] = [];
   let lastVisibleEmitted = false;
-  for (let i = 0; i < config.panes.length; i += 1) {
-    const pane = config.panes[i]!;
+  for (let i = 0; i < panes.length; i += 1) {
+    const pane = panes[i]!;
     const range = layout.paneRanges[i]!;
     const isVisible = !range.collapsed && range.size > 0;
     if (isVisible && lastVisibleEmitted) {
-      children.push(handleNode);
+      children.push(text(handleChar, handleStyle));
     }
     if (isVisible) {
       const flexCell: FlexNode = {
         kind: 'flex',
         flex: Math.max(1, range.size),
-        [minProp]: pane.minSize ?? 0,
+        [minProp]: nonNegativeInteger(pane.minSize),
         child: box(pane.view(model), pane.paneStyle, { overflow: 'hidden' }),
       };
       children.push(flexCell);

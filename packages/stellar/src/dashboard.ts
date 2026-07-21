@@ -49,9 +49,22 @@
 import type { Style } from '@celestial/corona';
 import { border as borderPresets, style } from '@celestial/corona';
 import type { CellShader, Cmd, FrameInfo, LayoutRects, MouseEventData, Sub, VNode } from '@celestial/nebula';
-import { box, Cmd as CmdNS, column, row, Sub as SubNS, text as textNode } from '@celestial/nebula';
+import { box, Cmd as CmdNS, column, flex, row, Sub as SubNS, text as textNode } from '@celestial/nebula';
 
 import type { ChartModel, ChartMsg, EmbeddedChart } from './chart-component.js';
+import { boundedPositiveInteger, finiteNumber, nonNegativeInteger } from './validation.js';
+
+const MAX_DASHBOARD_COLUMNS = 256;
+const MAX_DASHBOARD_GAP = 100;
+const MAX_PANEL_EXTENT = 100_000;
+
+function dashboardColumns(value: number | undefined): number {
+  return boundedPositiveInteger(value, 2, MAX_DASHBOARD_COLUMNS);
+}
+
+function dashboardGap(value: number | undefined): number {
+  return Math.min(MAX_DASHBOARD_GAP, nonNegativeInteger(value, 1));
+}
 
 // ── Panel Types ─────────────────────────────────────────────────────────────
 
@@ -112,6 +125,8 @@ interface ChartPanelState<D = number[]> {
   model: ChartModel<D>;
   readonly chart: EmbeddedChart<D>;
   readonly colSpan: number;
+  readonly minWidth: number;
+  readonly minHeight: number;
 }
 
 /** State for a single static panel. */
@@ -121,6 +136,8 @@ interface StaticPanelState {
   readonly title: string | undefined;
   readonly content: VNode;
   readonly colSpan: number;
+  readonly minWidth: number;
+  readonly minHeight: number;
 }
 
 /** Union of panel states. */
@@ -189,22 +206,21 @@ export interface DashboardConfig {
  * a new row starts. Gaps are inserted as empty text nodes.
  */
 export function dashboardGrid(panels: Array<{ view: VNode; colSpan?: number }>, opts?: { columns?: number; gap?: number }): VNode {
-  const cols = opts?.columns ?? 2;
-  const gap = opts?.gap ?? 1;
+  const cols = dashboardColumns(opts?.columns);
+  const gap = dashboardGap(opts?.gap);
   const gapNode = gap > 0 ? textNode(' '.repeat(gap)) : undefined;
-  const rowGapNode = gap > 0 ? textNode('') : undefined;
 
   const rows: VNode[] = [];
   let currentRow: VNode[] = [];
   let usedCols = 0;
 
   for (const panel of panels) {
-    const span = Math.min(panel.colSpan ?? 1, cols);
+    const span = Math.min(boundedPositiveInteger(panel.colSpan, 1, MAX_DASHBOARD_COLUMNS), cols);
 
     // If this panel doesn't fit in the current row, flush it
     if (usedCols + span > cols && currentRow.length > 0) {
       rows.push(row(...currentRow));
-      if (rowGapNode) rows.push(rowGapNode);
+      for (let gapRow = 0; gapRow < gap; gapRow++) rows.push(textNode(''));
       currentRow = [];
       usedCols = 0;
     }
@@ -212,7 +228,7 @@ export function dashboardGrid(panels: Array<{ view: VNode; colSpan?: number }>, 
     if (currentRow.length > 0 && gapNode) {
       currentRow.push(gapNode);
     }
-    currentRow.push(panel.view);
+    currentRow.push(flex(panel.view, { flex: span }));
     usedCols += span;
   }
 
@@ -228,12 +244,12 @@ export function dashboardGrid(panels: Array<{ view: VNode; colSpan?: number }>, 
  * Arrange VNodes in a vertical stack with optional gap.
  */
 export function dashboardStack(panels: Array<{ view: VNode }>, opts?: { gap?: number }): VNode {
-  const gap = opts?.gap ?? 1;
+  const gap = dashboardGap(opts?.gap);
   const children: VNode[] = [];
 
   for (let i = 0; i < panels.length; i++) {
     if (i > 0 && gap > 0) {
-      children.push(textNode(''));
+      for (let gapRow = 0; gapRow < gap; gapRow++) children.push(textNode(''));
     }
     children.push(panels[i]!.view);
   }
@@ -245,7 +261,7 @@ export function dashboardStack(panels: Array<{ view: VNode }>, opts?: { gap?: nu
  * Arrange VNodes side by side in a single row with optional gap.
  */
 export function dashboardRow(panels: Array<{ view: VNode }>, opts?: { gap?: number }): VNode {
-  const gap = opts?.gap ?? 1;
+  const gap = dashboardGap(opts?.gap);
   const gapNode = gap > 0 ? textNode(' '.repeat(gap)) : undefined;
   const children: VNode[] = [];
 
@@ -299,6 +315,15 @@ export function dashboardAppConfig(config: DashboardConfig): {
   shaders: (model: DashboardModel) => CellShader[];
 } {
   const { panels: descriptors, layout = 'grid', columns: gridColumns = 2, gap = 1, title: dashboardTitle, customLayout, titleStyle: titleSt } = config;
+  const columns = dashboardColumns(gridColumns);
+  const panelGap = dashboardGap(gap);
+  const ids = new Set<string>();
+  for (const descriptor of descriptors) {
+    const id = descriptor.config.id;
+    if (id.trim() === '') throw new TypeError('dashboard panel id must not be empty');
+    if (ids.has(id)) throw new RangeError(`duplicate dashboard panel id: ${id}`);
+    ids.add(id);
+  }
 
   // ── init ───────────────────────────────────────────────────────────
 
@@ -308,9 +333,18 @@ export function dashboardAppConfig(config: DashboardConfig): {
 
     for (const desc of descriptors) {
       if (desc.kind === 'chart') {
-        const { id, title, chart, colSpan = 1 } = desc.config;
+        const { id, title, chart, colSpan = 1, minWidth = 20, minHeight = 5 } = desc.config;
         const [chartModel, chartCmd] = chart.init();
-        panels.push({ kind: 'chart', id, title, model: chartModel, chart, colSpan });
+        panels.push({
+          kind: 'chart',
+          id,
+          title,
+          model: chartModel,
+          chart,
+          colSpan: boundedPositiveInteger(colSpan, 1, MAX_DASHBOARD_COLUMNS),
+          minWidth: boundedPositiveInteger(minWidth, 20, MAX_PANEL_EXTENT),
+          minHeight: boundedPositiveInteger(minHeight, 5, MAX_PANEL_EXTENT),
+        });
         if (chartCmd) {
           cmds.push(
             CmdNS.map(
@@ -324,8 +358,16 @@ export function dashboardAppConfig(config: DashboardConfig): {
           );
         }
       } else {
-        const { id, title, content, colSpan = 1 } = desc.config;
-        panels.push({ kind: 'static', id, title, content, colSpan });
+        const { id, title, content, colSpan = 1, minWidth = 20, minHeight = 3 } = desc.config;
+        panels.push({
+          kind: 'static',
+          id,
+          title,
+          content,
+          colSpan: boundedPositiveInteger(colSpan, 1, MAX_DASHBOARD_COLUMNS),
+          minWidth: boundedPositiveInteger(minWidth, 20, MAX_PANEL_EXTENT),
+          minHeight: boundedPositiveInteger(minHeight, 3, MAX_PANEL_EXTENT),
+        });
       }
     }
 
@@ -368,21 +410,21 @@ export function dashboardAppConfig(config: DashboardConfig): {
       case 'dashboard:layout': {
         // Forward layout rects to each chart panel
         let newModel = model;
-        for (const panel of model.panels) {
+        const cmds: Cmd<DashboardMsg>[] = [];
+        for (let panelIndex = 0; panelIndex < newModel.panels.length; panelIndex++) {
+          const panel = newModel.panels[panelIndex]!;
           if (panel.kind === 'chart') {
             const layoutMsg: ChartMsg = { type: 'chart:layout', rects: msg.rects };
-            const [newChartModel] = panel.chart.update(layoutMsg, panel.model);
+            const [newChartModel, chartCmd] = panel.chart.update(layoutMsg, panel.model);
             if (newChartModel !== panel.model) {
               const newPanels = [...newModel.panels];
-              const idx = newPanels.findIndex((p) => p.id === panel.id);
-              if (idx >= 0) {
-                newPanels[idx] = { ...panel, model: newChartModel };
-                newModel = { ...newModel, panels: newPanels };
-              }
+              newPanels[panelIndex] = { ...panel, model: newChartModel };
+              newModel = { ...newModel, panels: newPanels };
             }
+            cmds.push(CmdNS.map(chartCmd, (chartMsg): DashboardMsg => ({ type: 'dashboard:chartMsg', panelId: panel.id, msg: chartMsg })));
           }
         }
-        return [newModel, CmdNS.none()];
+        return [newModel, cmds.length > 0 ? CmdNS.batch(...cmds) : CmdNS.none()];
       }
 
       case 'dashboard:mouse': {
@@ -439,16 +481,20 @@ export function dashboardAppConfig(config: DashboardConfig): {
       }
 
       case 'dashboard:focusPanel': {
-        const idx = Math.max(0, Math.min(msg.index, model.panels.length - 1));
+        if (model.panels.length === 0) return [model, CmdNS.none()];
+        const idx = Math.max(0, Math.min(Math.trunc(finiteNumber(msg.index, model.activePanelIndex)), model.panels.length - 1));
+        if (idx === model.activePanelIndex) return [model, CmdNS.none()];
         return [{ ...model, activePanelIndex: idx }, CmdNS.none()];
       }
 
       case 'dashboard:nextPanel': {
+        if (model.panels.length === 0) return [model, CmdNS.none()];
         const next = (model.activePanelIndex + 1) % model.panels.length;
         return [{ ...model, activePanelIndex: next }, CmdNS.none()];
       }
 
       case 'dashboard:prevPanel': {
+        if (model.panels.length === 0) return [model, CmdNS.none()];
         const prev = (model.activePanelIndex - 1 + model.panels.length) % model.panels.length;
         return [{ ...model, activePanelIndex: prev }, CmdNS.none()];
       }
@@ -496,10 +542,13 @@ export function dashboardAppConfig(config: DashboardConfig): {
       }
 
       // Wrap with panel frame (title + optional active indicator)
-      const framedView = panelFrame(panelView, {
-        title: panel.title ? (isActive ? `> ${panel.title}` : `  ${panel.title}`) : undefined,
-        titleStyle: isActive ? style({ bold: true }) : style({ dim: true }),
-      });
+      const framedView = flex(
+        panelFrame(panelView, {
+          title: panel.title ? (isActive ? `> ${panel.title}` : `  ${panel.title}`) : undefined,
+          titleStyle: isActive ? style({ bold: true }) : style({ dim: true }),
+        }),
+        { flex: 1, minWidth: panel.minWidth, minHeight: panel.minHeight },
+      );
 
       panelViews.push({ id: panel.id, view: framedView, colSpan: panel.colSpan });
     }
@@ -509,12 +558,12 @@ export function dashboardAppConfig(config: DashboardConfig): {
     if (layout === 'custom' && customLayout) {
       body = customLayout(panelViews);
     } else if (layout === 'rows') {
-      body = dashboardStack(panelViews, { gap });
+      body = dashboardStack(panelViews, { gap: panelGap });
     } else if (layout === 'columns') {
-      body = dashboardRow(panelViews, { gap });
+      body = dashboardRow(panelViews, { gap: panelGap });
     } else {
       // grid (default)
-      body = dashboardGrid(panelViews, { columns: gridColumns, gap });
+      body = dashboardGrid(panelViews, { columns, gap: panelGap });
     }
 
     // Add global title if configured
@@ -566,7 +615,7 @@ export function dashboardAppConfig(config: DashboardConfig): {
     }
 
     // Keyboard navigation: Tab/Shift+Tab to switch panels
-    subs.push(SubNS.key<DashboardMsg>('tab', { type: 'dashboard:nextPanel' }));
+    if (model.panels.length > 1) subs.push(SubNS.key<DashboardMsg>('tab', { type: 'dashboard:nextPanel' }));
 
     return subs.length > 0 ? SubNS.batch(...subs) : SubNS.none<DashboardMsg>();
   }

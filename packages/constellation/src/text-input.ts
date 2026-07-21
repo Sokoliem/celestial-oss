@@ -12,6 +12,7 @@ import {
   replaceSelection,
   selectionRange,
 } from './editable-text.js';
+import { generateFocusGroupId } from './focus-group.js';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 import type { Validator } from './validation.js';
@@ -87,7 +88,7 @@ export function textInput(config: TextInputConfig): ComponentDescriptor<TextInpu
   const placeholder = config.placeholder ?? '';
   const mask = config.mask;
   const maskGrapheme = mask ? (graphemes(mask)[0] ?? '*') : undefined;
-  const inputId = `text-input-${Math.random().toString(36).slice(2, 10)}`;
+  const inputId = generateFocusGroupId('text-input');
   const surfaceId = `${inputId}:surface`;
   const focusTag = `${inputId}:focus`;
   const hoverTag = `${inputId}:hover`;
@@ -132,7 +133,11 @@ export function textInput(config: TextInputConfig): ComponentDescriptor<TextInpu
     const before = parts.slice(0, model.cursor).join('');
     const cursor = model.cursor < parts.length ? parts[model.cursor]! : ' ';
     const after = parts.slice(model.cursor + 1).join('');
-    return row(text(before, style({ color: tokens.text })), text(cursor, style({ color: tokens.text, reverse: true })), text(after, style({ color: tokens.text })));
+    return row(
+      text(before, style({ color: tokens.text })),
+      text(cursor, style({ color: tokens.text, reverse: true })),
+      text(after, style({ color: tokens.text })),
+    );
   }
 
   function submit(model: TextInputModel): TextInputModel {

@@ -1,4 +1,4 @@
-import { app, Cmd, cmdKind, collectFocusNodes, column, focus, Sub, text } from '@celestial/nebula';
+import { app, Cmd, cmdKind, collectFocusNodes, column, extractNodeText, focus, Sub, text } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { popover, popoverGroup } from '../popover.js';
 import * as SurfaceContainer from '../surface-container.js';
@@ -262,8 +262,31 @@ describe('popoverGroup', () => {
     });
 
     const sub = comp.subscriptions!({ activeIndex: 0 });
-    expect((sub as any)._kind.kind).toBe('key');
-    expect((sub as any)._kind.key).toBe('escape');
+    expect((sub as any)._kind.kind).toBe('batch');
+    expect(JSON.stringify(sub)).toContain('escape');
+  });
+
+  it('keeps pointer triggers active and opens the clicked grouped popover', () => {
+    const mutable = [
+      { trigger: 'A', content: 'Content A' },
+      { trigger: 'B', content: 'Content B' },
+    ];
+    const comp = popoverGroup({ popovers: mutable });
+    mutable[1]!.content = 'Changed';
+    const [initial] = comp.init();
+    expect(comp.subscriptions!(initial)._kind.kind).toBe('elementMouse');
+    const [opened] = comp.update({ type: 'toggle-at', index: 1 }, initial);
+    expect(opened.activeIndex).toBe(1);
+    const rendered = extractNodeText(comp.view(opened));
+    expect(rendered).toContain('Content B');
+    expect(rendered).toContain('[x] close');
+    expect(rendered).not.toContain('Changed');
+  });
+
+  it('ignores invalid grouped pointer indices', () => {
+    const comp = popoverGroup({ popovers: [{ trigger: 'A', content: 'Content A' }] });
+    const [model] = comp.init();
+    expect(comp.update({ type: 'toggle-at', index: Number.NaN }, model)[0]).toBe(model);
   });
 });
 

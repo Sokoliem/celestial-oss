@@ -184,6 +184,7 @@ export function snapshotThemeInput(theme: SemanticTheme): ThemeInput {
       },
     },
     responsiveTypography: theme.responsiveTypography ? { ...theme.responsiveTypography } : undefined,
+    unicodeLevel: theme.unicodeLevel,
     components: getComponentOverrides(theme),
     contrast: { enforce: true },
   };

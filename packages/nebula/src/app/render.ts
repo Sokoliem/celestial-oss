@@ -4,6 +4,7 @@ import { collectHitRegions } from '../hit-regions.js';
 import { createRenderCauseBuilder, type RenderCauseBuilder } from '../message-priority.js';
 import { applyShaders, shaders } from '../shader.js';
 import { ansi } from '../terminal.js';
+import { activateVNodeStateScope, withVNodeStateFrame } from '../vdom/state.js';
 import { diff, extractRawBlobs, type LayoutPlan, planLayout, rasterize, renderUpdates, snapLayoutPlanToGrid } from '../vdom.js';
 import { FRAME_MS } from './constants.js';
 import type { RenderFrameTelemetry } from './contracts.js';
@@ -21,6 +22,7 @@ export function installRender<Model, M>(ctx: RuntimeContext<Model, M>): void {
     let renderCols = 0;
     let renderRows = 0;
     let layoutStats: LayoutPlan['stats'] | undefined;
+    let syncOutputOpen = false;
 
     function traced<T>(name: string, fn: () => T): T {
       const start = performance.now();
@@ -53,6 +55,7 @@ export function installRender<Model, M>(ctx: RuntimeContext<Model, M>): void {
     }
 
     const renderStart = performance.now();
+    const restoreVNodeStateScope = activateVNodeStateScope(ctx.vnodeStateScope);
     ctx.renderWatchdog?.beginRender();
     t?.beginSpan('render');
     try {
@@ -79,7 +82,6 @@ export function installRender<Model, M>(ctx: RuntimeContext<Model, M>): void {
             navigable = focusableIds.filter((id) => groupIds.has(id));
           }
           ctx.focusState = { ...ctx.focusState, currentId: navigable.length > 0 ? navigable[0]! : null };
-          ctx.combinatorIdCounter = 0;
           ctx.dispatchFocusChange(subs, ctx.focusState.currentId);
         }
       });
@@ -90,7 +92,7 @@ export function installRender<Model, M>(ctx: RuntimeContext<Model, M>): void {
         return;
       }
 
-      const targetPlan = traced('layout', () => planLayout(vnode, cols, rows));
+      const targetPlan = traced('layout', () => withVNodeStateFrame(ctx.vnodeStateScope, () => planLayout(vnode, cols, rows)));
       layoutStats = targetPlan.stats;
       const visualPlan = ctx.compositor ? ctx.compositor.update(targetPlan, Date.now()) : targetPlan;
       const plan = ctx.compositor ? snapLayoutPlanToGrid(visualPlan) : visualPlan;
@@ -134,6 +136,7 @@ export function installRender<Model, M>(ctx: RuntimeContext<Model, M>): void {
 
       if (ctx.useSyncOutput) {
         ctx.terminal.write(ansi.syncOutput.begin);
+        syncOutputOpen = true;
       }
       if (ctx.inlineMode) {
         ctx.terminal.write('\x1b8');
@@ -157,6 +160,7 @@ export function installRender<Model, M>(ctx: RuntimeContext<Model, M>): void {
 
       if (ctx.useSyncOutput) {
         ctx.terminal.write(ansi.syncOutput.end);
+        syncOutputOpen = false;
       }
 
       ctx.prevGrid = shadedGrid;
@@ -173,12 +177,19 @@ export function installRender<Model, M>(ctx: RuntimeContext<Model, M>): void {
         ctx.options?.onRenderRecovery?.();
       }
 
-      ctx.combinatorIdCounter = 0;
       ctx.dispatchLayoutFeedback(subs, targetPlan);
     } catch (err: unknown) {
       renderError = err;
       ctx.notifyRenderError(err);
     } finally {
+      if (syncOutputOpen) {
+        try {
+          ctx.terminal.write(ansi.syncOutput.end);
+        } catch {
+          // The original render error remains the actionable failure.
+        }
+      }
+      restoreVNodeStateScope();
       ctx.renderWatchdog?.endRender();
       t?.endSpan();
       ctx.isRendering = false;

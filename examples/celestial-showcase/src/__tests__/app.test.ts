@@ -1,7 +1,7 @@
 import { createScreen, createTestApp, fireMouse, type TestAppHandle } from '@celestial/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
-import { UI_BUILDER_NAMES } from '../components.js';
+import { GALLERY_PAGE_COUNT, UI_BUILDER_COUNT, UI_BUILDER_NAMES } from '../components.js';
 import { viewportTier } from '../labs.js';
 import type { CelestialShowcaseModel, CelestialShowcaseMsg } from '../types.js';
 
@@ -10,6 +10,28 @@ function findText(frame: string, needle: string): { col: number; row: number } {
   const row = lines.findIndex((line) => line.includes(needle));
   if (row < 0) throw new Error(`Could not find ${needle} in frame:\n${frame}`);
   return { row, col: lines[row]!.indexOf(needle) };
+}
+
+function findLastText(frame: string, needle: string): { col: number; row: number } {
+  const lines = frame.split('\n');
+  let row = -1;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (!lines[index]!.includes(needle)) continue;
+    row = index;
+    break;
+  }
+  if (row < 0) throw new Error(`Could not find ${needle} in frame:\n${frame}`);
+  return { row, col: lines[row]!.indexOf(needle) };
+}
+
+function timerIntervals(subscription: unknown): number[] {
+  if (!subscription || typeof subscription !== 'object') return [];
+  const kind = (subscription as { _kind?: { kind?: string; ms?: number; subs?: unknown[]; sub?: unknown } })._kind;
+  if (!kind) return [];
+  if (kind.kind === 'timer' && typeof kind.ms === 'number') return [kind.ms];
+  if (kind.kind === 'batch') return (kind.subs ?? []).flatMap(timerIntervals);
+  if (kind.sub) return timerIntervals(kind.sub);
+  return [];
 }
 
 describe('Celestial Flight Deck', () => {
@@ -90,7 +112,7 @@ describe('Celestial Flight Deck', () => {
   });
 
   it.each([
-    ['modal', 'Escape.'],
+    ['modal', 'boundary.'],
     ['confirm', 'verified?'],
     ['tooltip', 'dismissible.'],
     ['palette', 'close'],
@@ -108,18 +130,80 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.rows).toBe(SHOWCASE_MIN_ROWS);
   });
 
-  it('shows every curated UI builder and changes a component through its mouse region', async () => {
-    const handle = flightDeck(140, 48);
+  it('applies workflow density to spacing and responsive composition', async () => {
+    const handle = flightDeck(90, 42);
+    handle.dispatch({ type: 'switch-lab', lab: 'workflows' });
+    await handle.waitForUpdate();
+
+    const balanced = handle.lastFrame();
+    expect(balanced).toContain('Balanced density');
+    expect(balanced).toContain('adds panel padding');
+
+    const compactOption = findText(balanced, 'Compact');
+    handle.click(compactOption.col + 1, compactOption.row);
+    await handle.waitForUpdate();
+
+    const compact = handle.lastFrame();
+    expect(handle.model.schemaForm.values['density']).toBe('compact');
+    expect(compact).toContain('Compact density');
+    expect(compact).toContain('removes spacer rows');
+    expect(compact).not.toBe(balanced);
+  });
+
+  it('exposes functional actions inside the drawer instead of placeholder rows', async () => {
+    const handle = flightDeck(100, 40);
+    handle.dispatch({ type: 'open-surface', surface: 'drawer' });
+    await handle.waitForUpdate();
+
+    expect(handle.lastFrame()).toContain('Interactive layer actions');
+    const motion = findText(handle.lastFrame(), 'Toggle reduced motion');
+    fireMouse(handle.terminal, { type: 'move', col: motion.col + 1, row: motion.row });
+    expect(handle.model.drawer.hoveredActionId).toBe('workflow-toggle-motion');
+    handle.click(motion.col + 1, motion.row);
+    await handle.waitForUpdate();
+    expect(handle.model.schemaForm.values['reducedMotion']).toBe(true);
+    expect(handle.model.drawer.open).toBe(true);
+
+    const modal = findText(handle.lastFrame(), 'Stack modal above drawer');
+    handle.click(modal.col + 1, modal.row);
+    await handle.waitForUpdate();
+    expect(handle.model.modal.open).toBe(true);
+    const modalLines = handle.lastFrame().split('\n');
+    const modalTitleRow = modalLines.findIndex((line) => line.includes('Layer telemetry'));
+    const modalTitle = modalLines[modalTitleRow];
+    expect(modalTitle).toContain('[x]');
+    handle.click(modalTitle!.lastIndexOf('[x]') + 1, modalTitleRow);
+    await handle.waitForUpdate();
+    expect(handle.model.modal.open).toBe(false);
+    expect(handle.model.drawer.open).toBe(true);
+
+    const confirm = findText(handle.lastFrame(), 'Stack confirmation above');
+    handle.click(confirm.col + 1, confirm.row);
+    await handle.waitForUpdate();
+    expect(handle.model.drawer.open).toBe(true);
+    expect(handle.model.confirm.open).toBe(true);
+  });
+
+  it.each([
+    [SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS],
+    [140, 48],
+  ] as const)('shows every curated UI builder and changes a component through its mouse region at %ix%i', async (cols, rows) => {
+    const handle = flightDeck(cols, rows);
     handle.pressKey('2');
     await handle.waitForUpdate();
 
+    expect(UI_BUILDER_COUNT).toBe(46);
+    expect([...UI_BUILDER_NAMES]).toEqual(expect.arrayContaining(['indeterminateProgress', 'cardGrid', 'popoverGroup']));
+    expect([...UI_BUILDER_NAMES]).not.toContain('contextMenuView');
+
     const builders = new Set<string>();
-    for (let page = 0; page < 8; page += 1) {
+    for (let page = 0; page < GALLERY_PAGE_COUNT; page += 1) {
       const frame = handle.lastFrame();
       for (const builder of UI_BUILDER_NAMES) {
         if (frame.includes(`${builder}()`)) builders.add(builder);
       }
-      if (page < 7) {
+      expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
+      if (page < GALLERY_PAGE_COUNT - 1) {
         handle.pressKey(']');
         await handle.waitForUpdate();
       }
@@ -225,9 +309,9 @@ describe('Celestial Flight Deck', () => {
     expect(handle.lastFrame()).toContain('Close menu');
 
     screen.fireResize(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
-    expect(handle.model.contextMenu.open).toBe(true);
-    expect(handle.lastFrame()).toContain('Open Core help');
-    expect(handle.lastFrame()).toContain('Close menu');
+    expect(handle.model.contextMenu.open).toBe(false);
+    expect(handle.model.contextMenuSource).toBeNull();
+    expect(handle.lastFrame()).not.toContain('Open Core help');
 
     const outside = findText(handle.lastFrame(), 'CELESTIAL FLIGHT DECK');
     handle.click(outside.col, outside.row);
@@ -269,6 +353,29 @@ describe('Celestial Flight Deck', () => {
     await handle.waitForUpdate();
     expect(handle.model.contextMenuSource).toBe('action:palette');
     expect(handle.lastFrame()).toContain('Open command palette');
+  });
+
+  it('maps pointer activation through the visible window of a vertically clipped context menu', async () => {
+    const handle = flightDeck(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
+    const items = Array.from({ length: 40 }, (_, index) => ({
+      label: `Windowed action ${index}`,
+      msg: { type: 'switch-lab' as const, lab: index === 35 ? ('visuals' as const) : ('core' as const) },
+    }));
+
+    handle.dispatch({ type: 'context-menu', msg: { type: 'ctx-open', x: 2, y: 2, items } });
+    for (let index = 0; index < 35; index += 1) {
+      handle.dispatch({ type: 'context-menu', msg: { type: 'ctx-down' } });
+    }
+    await handle.waitForUpdate();
+
+    expect(handle.model.contextMenu.selectedIndex).toBe(35);
+    expect(handle.lastFrame()).not.toContain('Windowed action 0');
+    const visibleSelection = findText(handle.lastFrame(), 'Windowed action 35');
+    handle.click(visibleSelection.col + 1, visibleSelection.row);
+    await handle.waitForUpdate();
+
+    expect(handle.model.contextMenu.open).toBe(false);
+    expect(handle.model.activeLab).toBe('visuals');
   });
 
   it('routes a window context-menu action by mouse without clicking through to the window canvas', async () => {
@@ -387,6 +494,173 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.helpOpen).toBe(false);
   });
 
+  it('records smoke receipts only after the corresponding behavior changes state', () => {
+    const handle = flightDeck(140, 42);
+
+    expect(handle.model.completed).toEqual(new Set(['core']));
+    expect(handle.model.evidence.coreVisits).toBe(1);
+
+    handle.dispatch({ type: 'component-page', page: 3 });
+    handle.dispatch({ type: 'component-focus', focus: 'tabs' });
+    handle.dispatch({ type: 'schema-form', msg: { type: 'schema-form:set-field', field: 'density', value: 'compact' } });
+    handle.dispatch({ type: 'wizard', msg: { type: 'wizard:prev' } });
+    handle.dispatch({ type: 'window-action', id: 'missing', action: 'focus' });
+    handle.dispatch({ type: 'modal', msg: { type: 'close' } });
+
+    expect(handle.model.completed.has('component')).toBe(false);
+    expect(handle.model.completed.has('workflow')).toBe(false);
+    expect(handle.model.completed.has('window')).toBe(false);
+    expect(handle.model.completed.has('layer')).toBe(false);
+    expect(handle.model.evidence).toMatchObject({ componentChanges: 0, workflowAdvances: 0, windowChanges: 0, layersOpened: 0 });
+
+    handle.dispatch({ type: 'checkbox', msg: { type: 'toggle' } });
+    handle.dispatch({ type: 'wizard', msg: { type: 'wizard:next' } });
+    handle.dispatch({ type: 'open-surface', surface: 'modal' });
+
+    expect(handle.model.completed).toEqual(new Set(['core', 'component', 'workflow', 'layer']));
+    expect(handle.model.evidence).toMatchObject({ componentChanges: 1, workflowAdvances: 1, windowChanges: 0, layersOpened: 1 });
+  });
+
+  it('keeps gallery state durable and makes the sample context menu Escape-dismissible and reopenable', async () => {
+    const handle = flightDeck(100, 40);
+    handle.dispatch({ type: 'switch-lab', lab: 'components' });
+    const registry = handle.model.galleryModels;
+    handle.dispatch({ type: 'component-page', page: GALLERY_PAGE_COUNT - 1 });
+    await handle.waitForUpdate();
+
+    expect(handle.model.galleryContextMenu.open).toBe(true);
+    expect(handle.lastFrame()).toContain('Inspect');
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+    expect(handle.model.galleryContextMenu.open).toBe(false);
+    expect(handle.lastFrame()).toContain('Open sample menu');
+
+    const reopen = findText(handle.lastFrame(), 'Open sample menu');
+    handle.click(reopen.col + 1, reopen.row);
+    await handle.waitForUpdate();
+    expect(handle.model.galleryContextMenu.open).toBe(true);
+
+    handle.dispatch({ type: 'component-page', page: 0 });
+    expect(handle.model.galleryModels).toBe(registry);
+    expect(handle.model.galleryContextMenu.open).toBe(false);
+  });
+
+  it('cancels stale pointer and contextual interactions at navigation, overlay, and resize boundaries', async () => {
+    const handle = flightDeck(140, 42);
+    const screen = createScreen(handle);
+    handle.dispatch({
+      type: 'element-mouse',
+      event: {
+        handlerTag: 'showcase-drag:start',
+        elementId: 'showcase-drag-source',
+        x: 4,
+        y: 8,
+        type: 'press',
+        stopPropagation() {},
+      },
+    });
+    expect(handle.model.dragDemo.phase).toBe('dragging');
+
+    handle.dispatch({ type: 'open-surface', surface: 'modal' });
+    expect(handle.model.dragDemo.phase).not.toBe('dragging');
+    expect(handle.model.modal.open).toBe(true);
+
+    handle.dispatch({ type: 'context-menu', msg: { type: 'ctx-open', x: 4, y: 4, items: [{ label: 'Close', msg: { type: 'close' } }] } });
+    expect(handle.model.contextMenu.open).toBe(true);
+    screen.fireResize(100, 36);
+    expect(handle.model.contextMenu.open).toBe(false);
+    expect(handle.model.modal.open).toBe(true);
+    expect(handle.model.windowDrag).toBeNull();
+
+    handle.dispatch({ type: 'switch-lab', lab: 'visuals' });
+    await handle.waitForUpdate();
+    expect(handle.model.modal.open).toBe(false);
+  });
+
+  it('keeps toast expiry subscribed behind modal surfaces and honors the live reduced-motion preference', () => {
+    const app = createCelestialShowcaseApp({ initialSize: { cols: 100, rows: 36 }, fast: true });
+    let [model] = app.init();
+    [model] = app.update({ type: 'schema-form', msg: { type: 'schema-form:set-field', field: 'reducedMotion', value: true } }, model);
+    [model] = app.update({ type: 'open-surface', surface: 'toast' }, model);
+    [model] = app.update({ type: 'open-surface', surface: 'modal' }, model);
+
+    const intervals = timerIntervals(app.subscriptions(model));
+    expect(model.schemaForm.values['reducedMotion']).toBe(true);
+    expect(model.toast.toasts).toHaveLength(1);
+    expect(model.modal.open).toBe(true);
+    expect(intervals).toContain(500);
+    expect(intervals).not.toContain(50);
+  });
+
+  it('renders an all-workspace minimized shelf with activation and right-click context actions', async () => {
+    const handle = flightDeck(140, 42);
+    handle.dispatch({ type: 'switch-lab', lab: 'windows' });
+    handle.dispatch({ type: 'switch-workspace', index: 1 });
+    handle.dispatch({ type: 'window-action', id: 'events', action: 'minimize' });
+    await handle.waitForUpdate();
+
+    expect(handle.model.windows.bounds.bottomInset).toBe(3);
+    expect(handle.model.windows.windows.find((window) => window.id === 'events')?.mode).toBe('minimized');
+    expect(handle.lastFrame()).toContain('MINIMIZED 1');
+    expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
+    let shelf = findLastText(handle.lastFrame(), 'Event instrument');
+
+    handle.click(shelf.col + 1, shelf.row, 'right');
+    await handle.waitForUpdate();
+    expect(handle.model.contextMenuSource).toBe('window:events');
+    expect(handle.lastFrame()).toContain('Restore window');
+    handle.pressKey('escape');
+
+    handle.dispatch({ type: 'switch-workspace', index: 0 });
+    await handle.waitForUpdate();
+    shelf = findLastText(handle.lastFrame(), 'Event instrument');
+    handle.click(shelf.col + 1, shelf.row);
+    await handle.waitForUpdate();
+
+    expect(handle.model.windows.windows.find((window) => window.id === 'events')?.mode).toBe('normal');
+    expect(handle.model.windows.activeWorkspaceId).toBe('systems');
+    expect(handle.model.workspaces.activeIndex).toBe(1);
+    expect(handle.model.windows.bounds.bottomInset).toBe(2);
+  });
+
+  it('brings both instruments into the active workspace when Open or Bring is used', async () => {
+    const handle = flightDeck(140, 42);
+    handle.dispatch({ type: 'switch-lab', lab: 'windows' });
+    await handle.waitForUpdate();
+
+    expect(handle.model.windows.activeWorkspaceId).toBe('flight');
+    expect(handle.model.windows.windows.find((window) => window.id === 'events')?.workspaceId).toBe('systems');
+    expect(handle.lastFrame()).toContain('Bring events here');
+
+    const bringEvents = findText(handle.lastFrame(), 'Bring events here');
+    handle.click(bringEvents.col + 1, bringEvents.row);
+    await handle.waitForUpdate();
+
+    expect(handle.model.windows.activeWorkspaceId).toBe('flight');
+    expect(handle.model.windows.windows.find((window) => window.id === 'events')?.workspaceId).toBe('flight');
+    expect(
+      handle.model.windows.windows.filter(
+        (window) => window.workspaceId === 'flight' && window.mode !== 'minimized' && window.mode !== 'hidden' && window.mode !== 'closed',
+      ),
+    ).toHaveLength(2);
+    expect(handle.lastFrame()).toContain('Telemetry instrument');
+    expect(handle.lastFrame()).toContain('Event instrument');
+  });
+
+  it('keeps maximized windows inside shell insets and fullscreen windows on the complete viewport', () => {
+    const handle = flightDeck(140, 42);
+    const screen = createScreen(handle);
+
+    handle.dispatch({ type: 'window-action', id: 'telemetry', action: 'maximize' });
+    expect(handle.model.windows.windows.find((window) => window.id === 'telemetry')).toMatchObject({ x: 0, y: 3, width: 140, height: 37, mode: 'maximized' });
+
+    handle.dispatch({ type: 'window-action', id: 'telemetry', action: 'fullscreen' });
+    expect(handle.model.windows.windows.find((window) => window.id === 'telemetry')).toMatchObject({ x: 0, y: 0, width: 140, height: 42, mode: 'fullscreen' });
+
+    screen.fireResize(120, 40);
+    expect(handle.model.windows.windows.find((window) => window.id === 'telemetry')).toMatchObject({ x: 0, y: 0, width: 120, height: 40, mode: 'fullscreen' });
+  });
+
   it('drags and manages Horizon windows, then preserves state across adaptive representations', async () => {
     const handle = flightDeck(140, 42);
     const screen = createScreen(handle);
@@ -398,12 +672,13 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.windows.windows.find((window) => window.id === 'telemetry')?.chrome?.hoveredTarget).toBe('titlebar');
     fireMouse(handle.terminal, { type: 'move', col: before.x, row: before.y + 3 });
     expect(handle.model.windows.windows.find((window) => window.id === 'telemetry')?.chrome?.hoveredTarget).toBe('resize:left');
-    const blankTitlebarCol = before.x + before.width - 11;
+    const blankTitlebarCol = before.x + 10;
     handle.drag(blankTitlebarCol, before.y + 1, blankTitlebarCol + 8, before.y + 4);
     await handle.waitForUpdate();
     const after = handle.model.windows.windows.find((window) => window.id === 'telemetry')!;
     expect({ x: after.x, y: after.y }).toEqual({ x: before.x + 8, y: before.y + 3 });
-    expect(handle.model.completed.has('mouse-drag')).toBe(true);
+    expect(handle.model.completed.has('mouse-drag')).toBe(false);
+    expect(handle.model.evidence.payloadDrops).toBe(0);
     expect(handle.model.completed.has('window')).toBe(true);
 
     const widthBeforeResize = after.width;
@@ -414,7 +689,7 @@ describe('Celestial Flight Deck', () => {
     expect(resized.width).toBe(widthBeforeResize + 5);
     expect(resized.height).toBe(heightBeforeResize + 3);
 
-    const title = findText(handle.lastFrame(), 'Telemetry instrument');
+    const title = findLastText(handle.lastFrame(), 'Telemetry instrument');
     const titleLine = handle.lastFrame().split('\n')[title.row]!;
     const maximizeCol = titleLine.indexOf('[ ]', title.col);
     expect(maximizeCol).toBeGreaterThan(title.col);

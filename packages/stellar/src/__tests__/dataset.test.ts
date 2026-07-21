@@ -588,6 +588,34 @@ describe('merge', () => {
   });
 });
 
+describe('dataset numeric and ownership hardening', () => {
+  it('normalizes the full finite number range without overflow', () => {
+    const result = normalize(fromValues([-Number.MAX_VALUE, 0, Number.MAX_VALUE]));
+    expect(result.toValues()).toEqual([0, 0.5, 1]);
+  });
+
+  it('keeps cumulative sums and moving averages finite', () => {
+    expect(cumulative(fromValues([Number.MAX_VALUE, Number.MAX_VALUE])).toValues()).toEqual([Number.MAX_VALUE, Number.MAX_VALUE]);
+    expect(
+      movingAverage(fromValues([Number.MAX_VALUE, Number.MAX_VALUE]), 2)
+        .toValues()
+        .every(Number.isFinite),
+    ).toBe(true);
+  });
+
+  it('does not expose mutable point references', () => {
+    const ds = fromLabeled([{ label: 'A', value: 1 }]);
+    const point = ds.at(0)! as { label?: string; y: number };
+    point.y = 99;
+    point.label = 'changed';
+    expect(ds.at(0)).toEqual({ x: 0, y: 1, label: 'A' });
+  });
+
+  it('normalizes non-finite resample targets without looping', () => {
+    expect(resample(fromValues([1, 2, 3]), Number.POSITIVE_INFINITY).length).toBe(0);
+  });
+});
+
 // ── Edge cases ───────────────────────────────────────────────────────────
 
 describe('edge cases', () => {

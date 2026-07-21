@@ -604,11 +604,11 @@ export const sourceColorTokens: DomainTokenContract<SourceTokenValues> = defineD
  */
 export const SOURCE_GLYPHS: Readonly<Record<SourceTokenValue, { level1: string; level2: string; level3: string }>> = {
   slash: { level1: '/', level2: '/', level3: '/' },
-  skill: { level1: '▲', level2: '▲', level3: '▲' },
-  mcp: { level1: '◇', level2: '◇', level3: '◇' },
-  plugin: { level1: '◎', level2: '◎', level3: '◎' },
-  builtin: { level1: '●', level2: '●', level3: '●' },
-  generated: { level1: '✦', level2: '✦', level3: '✦' },
+  skill: { level1: 'S', level2: '▲', level3: '▲' },
+  mcp: { level1: 'M', level2: '◇', level3: '◇' },
+  plugin: { level1: 'P', level2: '◎', level3: '◎' },
+  builtin: { level1: 'B', level2: '●', level3: '●' },
+  generated: { level1: 'G', level2: '✦', level3: '✦' },
 };
 
 /**
@@ -712,10 +712,10 @@ export interface AppChromeTokenValues {
 
 /**
  * Glyph used by the sidebar library pin badge (chromeTokens `pin` role).
- * Plan §C.2 pins `⚲` at both level1 and level2.
+ * The ASCII level uses `P`; Unicode-capable tiers use the pin mark.
  */
 export const CHROME_PIN_GLYPH: Readonly<{ level1: string; level2: string; level3: string }> = Object.freeze({
-  level1: '⚲',
+  level1: 'P',
   level2: '⚲',
   level3: '⚲',
 });
@@ -866,7 +866,7 @@ export interface PhaseTokenValues {
 export const PHASE_TOKEN_VALUES: readonly SessionPhase[] = ['idle', 'exploring', 'planning', 'implementing', 'testing', 'delegating'] as const;
 
 export const PHASE_GLYPHS: Readonly<Record<SessionPhase, DomainTokenGlyph>> = {
-  idle: { level1: '·', level2: '○', level3: '' },
+  idle: { level1: '.', level2: '○', level3: '' },
   exploring: { level1: '?', level2: '◇', level3: '' },
   planning: { level1: '*', level2: '◆', level3: '' },
   implementing: { level1: '+', level2: '▸', level3: '' },

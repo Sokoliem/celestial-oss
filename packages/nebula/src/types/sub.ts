@@ -29,7 +29,7 @@ export type SubKind<M> =
       toMsg: (state: unknown, prev: unknown | null) => M;
       filter?: (state: unknown) => boolean;
     }
-  | { kind: 'stream'; id: string; setup: () => StreamSource; toMsg: (data: unknown) => M }
+  | { kind: 'stream'; id: string; setup: () => StreamSource; toMsg: (data: unknown) => M; restartKey?: string | number }
   | { kind: 'map'; sub: Sub<unknown>; fn: (a: unknown) => M }
   | { kind: 'debounce'; sub: Sub<unknown>; ms: number }
   | { kind: 'throttle'; sub: Sub<unknown>; ms: number }
@@ -49,6 +49,14 @@ export interface Sub<M> {
 
 function mkSub<M>(kind: SubKind<M>): Sub<M> {
   return { _tag: 'sub', _kind: kind };
+}
+
+const MAX_TIMER_MS = 2_147_483_647;
+
+function assertDuration(name: string, ms: number): void {
+  if (!Number.isFinite(ms) || ms < 0 || ms > MAX_TIMER_MS) {
+    throw new RangeError(`${name} must be between 0 and ${MAX_TIMER_MS} milliseconds`);
+  }
 }
 
 export const Sub = {
@@ -79,12 +87,14 @@ export const Sub = {
 
   /** Subscribe to a periodic timer. Accepts a callback or a plain message value. */
   timer<M>(ms: number, toMsg: M | (() => M)): Sub<M> {
+    assertDuration('Sub.timer interval', ms);
     const fn = typeof toMsg === 'function' ? (toMsg as () => M) : () => toMsg;
     return mkSub({ kind: 'timer', ms, toMsg: fn });
   },
 
   /** Fire once after no user input occurs for ms milliseconds. */
   idle<M>(ms: number, msg: M): Sub<M> {
+    assertDuration('Sub.idle duration', ms);
     return mkSub({ kind: 'idle', ms, msg });
   },
 
@@ -145,7 +155,7 @@ export const Sub = {
   },
 
   /** Subscribe to an external event source. */
-  stream<M>(config: { id: string; setup: () => StreamSource; toMsg: (data: unknown) => M }): Sub<M> {
+  stream<M>(config: { id: string; setup: () => StreamSource; toMsg: (data: unknown) => M; restartKey?: string | number }): Sub<M> {
     return mkSub({ kind: 'stream', ...config });
   },
 
@@ -160,11 +170,13 @@ export const Sub = {
 
   /** Debounce — delay message delivery until events settle for ms. */
   debounce<M>(sub: Sub<M>, ms: number): Sub<M> {
+    assertDuration('Sub.debounce duration', ms);
     return mkSub({ kind: 'debounce', sub: sub as Sub<unknown>, ms } as SubKind<M>);
   },
 
   /** Throttle — deliver at most one message per ms window. */
   throttle<M>(sub: Sub<M>, ms: number): Sub<M> {
+    assertDuration('Sub.throttle duration', ms);
     return mkSub({ kind: 'throttle', sub: sub as Sub<unknown>, ms } as SubKind<M>);
   },
 

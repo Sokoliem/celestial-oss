@@ -10,19 +10,29 @@ export interface CellColor {
 
 export class ColorMap {
   private readonly map = new Map<number, CellColor>();
+  private readonly width: number;
 
-  constructor(private readonly width: number) {}
+  constructor(width: number) {
+    if (!Number.isSafeInteger(width)) throw new TypeError('color map width must be a safe integer');
+    if (width < 0) throw new RangeError('color map width must be >= 0');
+    this.width = width;
+  }
 
-  private key(row: number, col: number): number {
-    return row * this.width + col;
+  private key(row: number, col: number): number | undefined {
+    if (!Number.isSafeInteger(row) || !Number.isSafeInteger(col) || row < 0 || col < 0 || col >= this.width) return undefined;
+    const key = row * this.width + col;
+    return Number.isSafeInteger(key) ? key : undefined;
   }
 
   get(row: number, col: number): CellColor | undefined {
-    return this.map.get(this.key(row, col));
+    const key = this.key(row, col);
+    const value = key === undefined ? undefined : this.map.get(key);
+    return value ? { ...value } : undefined;
   }
 
   set(row: number, col: number, cellColor: CellColor): void {
-    this.map.set(this.key(row, col), cellColor);
+    const key = this.key(row, col);
+    if (key !== undefined) this.map.set(key, { ...cellColor });
   }
 
   reset(): void {

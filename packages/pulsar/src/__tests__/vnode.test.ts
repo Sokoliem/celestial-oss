@@ -1,11 +1,32 @@
 import type { VNode as NebulaVNode } from '@celestial/nebula';
+import { measureTextWidth } from '@celestial/rosetta';
 import { describe, expect, it } from 'vitest';
-import { markdown } from '../vnode.js';
+import { markdown, type VNode } from '../vnode.js';
 
 /** Strip ANSI codes for content assertions */
 function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
   return str.replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
+}
+
+function resolveComponent(node: VNode, width = 80): VNode {
+  if (node.kind !== 'component') return node;
+  const space = { cols: width, rows: 100 };
+  return node.render({ terminal: space, available: space, container: space });
+}
+
+function visibleText(node: VNode): string {
+  switch (node.kind) {
+    case 'text':
+      return stripAnsi(node.content);
+    case 'row':
+      return node.children.map(visibleText).join('');
+    case 'column':
+    case 'box':
+      return node.children.map(visibleText).join('\n');
+    case 'component':
+      return visibleText(resolveComponent(node));
+  }
 }
 
 describe('markdown()', () => {
@@ -42,7 +63,7 @@ describe('markdown()', () => {
       expect(vnode.kind).toBe('column');
       if (vnode.kind === 'column') {
         expect(vnode.children).toHaveLength(1);
-        const child = vnode.children[0]!;
+        const child = resolveComponent(vnode.children[0]!);
         expect(child.kind).toBe('text');
         if (child.kind === 'text') {
           expect(stripAnsi(child.content)).toContain('Hello');
@@ -83,12 +104,12 @@ describe('markdown()', () => {
   // ── Code Block ────────────────────────────────────────────────────────
 
   describe('code block', () => {
-    it('returns a column with one text VNode for a code block', () => {
+    it('returns a responsive component whose rendered code contains the source', () => {
       const vnode = markdown('```typescript\nconst x = 1;\n```');
       expect(vnode.kind).toBe('column');
       if (vnode.kind === 'column') {
         expect(vnode.children).toHaveLength(1);
-        const child = vnode.children[0]!;
+        const child = resolveComponent(vnode.children[0]!);
         expect(child.kind).toBe('text');
         if (child.kind === 'text') {
           expect(stripAnsi(child.content)).toContain('const');
@@ -152,16 +173,16 @@ describe('markdown()', () => {
   // ── Horizontal Rule ───────────────────────────────────────────────────
 
   describe('horizontal rule', () => {
-    it('returns a styled text node for hr', () => {
+    it('returns a live-width styled text node for hr', () => {
       const vnode = markdown('---');
       expect(vnode.kind).toBe('column');
       if (vnode.kind === 'column') {
         expect(vnode.children).toHaveLength(1);
-        const child = vnode.children[0]!;
+        const child = resolveComponent(vnode.children[0]!, 20);
         expect(child.kind).toBe('text');
         if (child.kind === 'text') {
           expect(child.style).toEqual({ dim: true });
-          expect(stripAnsi(child.content)).toContain('─');
+          expect(stripAnsi(child.content)).toBe('─'.repeat(20));
         }
       }
     });
@@ -175,18 +196,27 @@ describe('markdown()', () => {
       expect(vnode.kind).toBe('column');
       if (vnode.kind === 'column') {
         expect(vnode.children).toHaveLength(1);
-        const tableNode = vnode.children[0]!;
-        // Table renders as column(headerRow, ...bodyRows)
+        const tableNode = resolveComponent(vnode.children[0]!);
+        // Table renders as a responsive column(header, ...bodyRows)
         expect(tableNode.kind).toBe('column');
         if (tableNode.kind === 'column') {
           // header row + 1 body row = 2 children
           expect(tableNode.children).toHaveLength(2);
-          // Header row is a row node
-          expect(tableNode.children[0]!.kind).toBe('row');
-          // Body row is also a row node
-          expect(tableNode.children[1]!.kind).toBe('row');
+          expect(tableNode.children[0]!.kind).toBe('text');
+          expect(tableNode.children[1]!.kind).toBe('text');
         }
       }
+    });
+
+    it('switches narrow tables to wrapping label/value rows', () => {
+      const vnode = markdown('| Name | Value |\n| --- | --- |\n| Alpha | finalletter |');
+      if (vnode.kind !== 'column') throw new Error('expected column');
+      const table = resolveComponent(vnode.children[0]!, 4);
+      expect(table.kind).toBe('column');
+      if (table.kind !== 'column') return;
+      expect(table.children).toHaveLength(2);
+      expect(table.children.every((node) => node.kind === 'text' && node.wrap === true)).toBe(true);
+      expect(visibleText(table)).toContain('finalletter');
     });
   });
 
@@ -219,7 +249,7 @@ describe('markdown()', () => {
       expect(vnode.kind).toBe('column');
       if (vnode.kind === 'column') {
         expect(vnode.children).toHaveLength(1);
-        const child = vnode.children[0]!;
+        const child = resolveComponent(vnode.children[0]!);
         expect(child.kind).toBe('text');
         if (child.kind === 'text') {
           const plain = stripAnsi(child.content);
@@ -304,14 +334,14 @@ describe('markdown()', () => {
       expect(child.kind).toBe('text');
     });
 
-    it('splits a paragraph containing a link into a row of segments', () => {
+    it('splits a paragraph containing a link into responsive rows of segments', () => {
       const vnode = markdown('Read [the docs](https://example.com) for more.');
       if (vnode.kind !== 'column') throw new Error('expected column');
-      const child = vnode.children[0]!;
-      expect(child.kind).toBe('row');
-      if (child.kind !== 'row') return;
+      const child = resolveComponent(vnode.children[0]!);
+      expect(child.kind).toBe('column');
+      if (child.kind !== 'column') return;
       // Expect at least one segment to be a link-tagged text node.
-      const linkSegment = child.children.find((seg) => seg.kind === 'text' && seg.data?.kind === 'link');
+      const linkSegment = child.children.flatMap((line) => (line.kind === 'row' ? line.children : [line])).find((seg) => seg.kind === 'text' && seg.data?.kind === 'link');
       expect(linkSegment).toBeDefined();
       if (linkSegment && linkSegment.kind === 'text' && linkSegment.data?.kind === 'link') {
         expect(linkSegment.data.url).toBe('https://example.com');
@@ -322,9 +352,9 @@ describe('markdown()', () => {
     it('emits href on link nodes when hyperlinks option is enabled', () => {
       const vnode = markdown('Visit [home](https://example.com).', { hyperlinks: true });
       if (vnode.kind !== 'column') throw new Error('expected column');
-      const child = vnode.children[0]!;
-      if (child.kind !== 'row') throw new Error('expected row');
-      const linkSegment = child.children.find((seg) => seg.kind === 'text' && seg.data?.kind === 'link');
+      const child = resolveComponent(vnode.children[0]!);
+      if (child.kind !== 'column') throw new Error('expected responsive column');
+      const linkSegment = child.children.flatMap((line) => (line.kind === 'row' ? line.children : [line])).find((seg) => seg.kind === 'text' && seg.data?.kind === 'link');
       if (!linkSegment || linkSegment.kind !== 'text') throw new Error('expected link segment');
       expect(linkSegment.href).toBe('https://example.com');
     });
@@ -332,9 +362,9 @@ describe('markdown()', () => {
     it('does not set href when hyperlinks option is unset', () => {
       const vnode = markdown('Visit [home](https://example.com).');
       if (vnode.kind !== 'column') throw new Error('expected column');
-      const child = vnode.children[0]!;
-      if (child.kind !== 'row') throw new Error('expected row');
-      const linkSegment = child.children.find((seg) => seg.kind === 'text' && seg.data?.kind === 'link');
+      const child = resolveComponent(vnode.children[0]!);
+      if (child.kind !== 'column') throw new Error('expected responsive column');
+      const linkSegment = child.children.flatMap((line) => (line.kind === 'row' ? line.children : [line])).find((seg) => seg.kind === 'text' && seg.data?.kind === 'link');
       if (!linkSegment || linkSegment.kind !== 'text') throw new Error('expected link segment');
       expect(linkSegment.href).toBeUndefined();
     });
@@ -342,14 +372,35 @@ describe('markdown()', () => {
     it('tags footnote references in a paragraph', () => {
       const vnode = markdown('See note[^1] for context.\n\n[^1]: details');
       if (vnode.kind !== 'column') throw new Error('expected column');
-      const para = vnode.children[0]!;
-      expect(para.kind).toBe('row');
-      if (para.kind !== 'row') return;
-      const refSegment = para.children.find((seg) => seg.kind === 'text' && seg.data?.kind === 'footnote-ref');
+      const para = resolveComponent(vnode.children[0]!);
+      expect(para.kind).toBe('column');
+      if (para.kind !== 'column') return;
+      const refSegment = para.children.flatMap((line) => (line.kind === 'row' ? line.children : [line])).find((seg) => seg.kind === 'text' && seg.data?.kind === 'footnote-ref');
       expect(refSegment).toBeDefined();
       if (refSegment && refSegment.kind === 'text' && refSegment.data?.kind === 'footnote-ref') {
         expect(refSegment.data.label).toBe('1');
       }
+    });
+
+    it('reflows link segments on resize without clipping the final character', () => {
+      const vnode = markdown('prefix [linkedtext](https://example.com) suffix', { hyperlinks: true });
+      if (vnode.kind !== 'column') throw new Error('expected column');
+      const flow = vnode.children[0]!;
+      expect(flow.kind).toBe('component');
+
+      const wide = resolveComponent(flow, 28);
+      const narrow = resolveComponent(flow, 8);
+      if (wide.kind !== 'column' || narrow.kind !== 'column') throw new Error('expected responsive columns');
+
+      expect(narrow.children.length).toBeGreaterThan(wide.children.length);
+      for (const line of narrow.children) expect(measureTextWidth(visibleText(line))).toBeLessThanOrEqual(8);
+      expect(visibleText(narrow).replace(/\s/gu, '')).toBe('prefixlinkedtextsuffix');
+
+      const taggedFragments = narrow.children
+        .flatMap((line) => (line.kind === 'row' ? line.children : [line]))
+        .filter((node) => node.kind === 'text' && node.data?.kind === 'link');
+      expect(taggedFragments.length).toBeGreaterThan(1);
+      expect(taggedFragments.every((node) => node.kind === 'text' && node.href === 'https://example.com')).toBe(true);
     });
   });
 

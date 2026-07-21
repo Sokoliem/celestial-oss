@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { markdownWithSearch } from '../markdown-with-search.js';
 import { renderMarkdown } from '../renderer.js';
+import { createTheme } from '../theme.js';
 
 function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
@@ -35,8 +36,9 @@ describe('markdownWithSearch', () => {
     expect(secondChild?.kind).not.toBe('row');
   });
 
-  it('highlights non-current blocks without a border in VNode mode', () => {
-    const { vnode } = markdownWithSearch('alpha\n\nbeta\n\nalpha', 'alpha');
+  it('marks non-current matching blocks without the current marker in VNode mode', () => {
+    const theme = createTheme({ mark: (text) => `<<${text}>>` });
+    const { vnode } = markdownWithSearch('alpha\n\nbeta\n\nalpha', 'alpha', { theme });
     expect(vnode.kind).toBe('column');
     if (vnode.kind !== 'column') return;
     // First match is current → border
@@ -45,6 +47,7 @@ describe('markdownWithSearch', () => {
     // Third match is not current → no border
     const thirdChild = vnode.children[2];
     expect(thirdChild?.kind).not.toBe('row');
+    expect(thirdChild).toMatchObject({ kind: 'text', content: '<<alpha>>' });
   });
 });
 

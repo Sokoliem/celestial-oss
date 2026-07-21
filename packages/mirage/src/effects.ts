@@ -1,7 +1,8 @@
 import { type Color, color as coronaColor, highlightColor as defaultHighlightColor } from '@celestial/corona';
 import { colorToHSL, interpolateColor } from './interpolate.js';
 import { type MotionEffectOpts, motionTick } from './motion.js';
-import { graphemes, RESET, stripAnsi } from './utils.js';
+import { positionedGraphemes, RESET, stripAnsi, visualWidth } from './utils.js';
+import { clamp, finiteNumber, nonNegativeInteger, positiveNumber, wrap } from './validation.js';
 
 export interface ShimmerOpts extends MotionEffectOpts {
   tick: number;
@@ -42,13 +43,13 @@ export interface ColorCycleOpts extends MotionEffectOpts {
  */
 export function shimmer(text: string, opts: ShimmerOpts): string {
   const visible = stripAnsi(text);
-  const chars = graphemes(visible);
-  const visibleLen = chars.length;
+  const glyphs = positionedGraphemes(visible);
+  const visibleLen = visualWidth(visible);
   if (visibleLen === 0) return '';
 
-  const speed = opts.speed ?? 1;
+  const speed = finiteNumber(opts.speed, 1);
   const highlightColor = opts.color ?? defaultHighlightColor;
-  const width = opts.width ?? 3;
+  const width = positiveNumber(opts.width, 3);
   const halfWidth = width / 2;
 
   const [hh, sh, lh] = colorToHSL(highlightColor);
@@ -64,11 +65,16 @@ export function shimmer(text: string, opts: ShimmerOpts): string {
     baseLightness = bl;
   }
 
-  const pos = (motionTick(opts) * speed) % visibleLen;
+  const pos = wrap(motionTick(opts) * speed, visibleLen);
 
   let result = '';
-  for (let i = 0; i < visibleLen; i++) {
-    const dist = Math.abs(i - pos);
+  for (const glyph of glyphs) {
+    if (glyph.value === '\n') {
+      result += '\n';
+      continue;
+    }
+    const center = glyph.column + (glyph.width - 1) / 2;
+    const dist = Math.abs(center - pos);
     // Wrap-around distance
     const wrappedDist = Math.min(dist, visibleLen - dist);
 
@@ -80,11 +86,11 @@ export function shimmer(text: string, opts: ShimmerOpts): string {
       const s = baseS + (sh - baseS) * blend;
       const h = hh;
       const c = coronaColor.hsl(h, s, l);
-      result += c.fg() + chars[i];
+      result += c.fg() + glyph.value;
     } else {
       // Outside the band: dim base color
       const c = coronaColor.hsl(baseH, baseS, baseLightness);
-      result += c.fg() + chars[i];
+      result += c.fg() + glyph.value;
     }
   }
 
@@ -97,7 +103,7 @@ export function shimmer(text: string, opts: ShimmerOpts): string {
  * decreasing intensity of the glow color.
  */
 export function glow(text: string, opts: GlowOpts): string {
-  const intensity = opts.intensity ?? 2;
+  const intensity = nonNegativeInteger(opts.intensity, 2);
   const [h, s, l] = colorToHSL(opts.color);
 
   let result = '';
@@ -134,7 +140,7 @@ export function breathe(text: string, opts: BreatheOpts): string {
   const visible = stripAnsi(text);
   if (visible.length === 0) return '';
 
-  const speed = opts.speed ?? 1;
+  const speed = finiteNumber(opts.speed, 1);
   const ratio = (Math.sin(motionTick(opts) * speed * 0.2) + 1) / 2;
   const c = interpolateColor(opts.from, opts.to, ratio);
 
@@ -147,18 +153,23 @@ export function breathe(text: string, opts: BreatheOpts): string {
  */
 export function colorCycle(text: string, opts: ColorCycleOpts): string {
   const visible = stripAnsi(text);
-  const chars = graphemes(visible);
-  if (chars.length === 0) return '';
+  const glyphs = positionedGraphemes(visible);
+  if (glyphs.length === 0) return '';
 
-  const speed = opts.speed ?? 1;
-  const saturation = opts.saturation ?? 80;
-  const lightness = opts.lightness ?? 60;
+  const speed = finiteNumber(opts.speed, 1);
+  const saturation = clamp(opts.saturation, 0, 100, 80);
+  const lightness = clamp(opts.lightness, 0, 100, 60);
+  const tick = motionTick(opts);
 
   let result = '';
-  for (let i = 0; i < chars.length; i++) {
-    const hue = (motionTick(opts) * speed * 10 + i * 15) % 360;
+  for (const glyph of glyphs) {
+    if (glyph.value === '\n') {
+      result += '\n';
+      continue;
+    }
+    const hue = wrap(tick * speed * 10 + glyph.column * 15, 360);
     const c = coronaColor.hsl(hue, saturation, lightness);
-    result += c.fg() + chars[i];
+    result += c.fg() + glyph.value;
   }
 
   result += RESET;

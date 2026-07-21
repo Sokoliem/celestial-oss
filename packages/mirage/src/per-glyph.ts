@@ -16,7 +16,8 @@ import type { VNode } from '@celestial/nebula';
 import { mapTextContent } from './compose.js';
 import { interpolateColor } from './interpolate.js';
 import { type MotionEffectOpts, motionTick } from './motion.js';
-import { graphemes, RESET, stripAnsi } from './utils.js';
+import { positionedGraphemes, RESET, stripAnsi } from './utils.js';
+import { easedProgress, finiteNumber, nonNegativeInteger, nonNegativeNumber, positiveNumber } from './validation.js';
 
 // ---------------------------------------------------------------------------
 // ease convenience re-export
@@ -112,10 +113,10 @@ export interface PerGlyphOpts extends MotionEffectOpts {
  *   const node = wave(textNode);
  */
 export function perGlyph(opts: PerGlyphOpts): (node: VNode) => VNode {
-  const property = opts.property ?? 'color';
+  const property: PerGlyphProperty = opts.property === 'intensity' || opts.property === 'offset' ? opts.property : 'color';
   const easeFn = opts.ease ?? ease.sine;
-  const stagger = opts.stagger ?? 30;
-  const duration = opts.duration ?? 800;
+  const stagger = nonNegativeNumber(opts.stagger, 30);
+  const duration = positiveNumber(opts.duration, 800);
   const nowMs = motionTick({ ...opts, tick: opts.nowMs }, Number.POSITIVE_INFINITY);
 
   // We use a shared index counter that increments as we encounter glyphs.
@@ -125,35 +126,40 @@ export function perGlyph(opts: PerGlyphOpts): (node: VNode) => VNode {
 
   function transformContent(content: string): string {
     const visible = stripAnsi(content);
-    const chars = graphemes(visible);
-    if (chars.length === 0) return content;
+    const glyphs = positionedGraphemes(visible);
+    if (glyphs.length === 0) return content;
 
     let result = '';
 
-    for (let i = 0; i < chars.length; i++) {
-      const cellIndex = glyphIndex++;
+    for (const glyph of glyphs) {
+      if (glyph.value === '\n') {
+        result += '\n';
+        continue;
+      }
+      const cellIndex = glyphIndex;
+      glyphIndex += Math.max(1, glyph.width);
       const cellStartMs = cellIndex * stagger;
       const rawProgress = Math.max(0, Math.min(1, (nowMs - cellStartMs) / Math.max(1, duration)));
-      const easedProgress = easeFn(rawProgress);
+      const progress = easedProgress(easeFn, rawProgress);
 
-      const ch = chars[i]!;
+      const ch = glyph.value;
 
       switch (property) {
         case 'color': {
-          const c = interpolateColor(opts.from, opts.to, easedProgress);
+          const c = interpolateColor(opts.from, opts.to, progress);
           result += c.fg() + ch;
           break;
         }
         case 'intensity': {
           // Interpolate from dim base (from) toward bright target (to) by easedProgress.
-          const c = interpolateColor(opts.from, opts.to, easedProgress);
+          const c = interpolateColor(opts.from, opts.to, progress);
           result += c.fg() + ch;
           break;
         }
         case 'offset': {
           // Sub-cell horizontal offset is not supported by all renderers.
           // We fall back to the same color interpolation as 'color'.
-          const c = interpolateColor(opts.from, opts.to, easedProgress);
+          const c = interpolateColor(opts.from, opts.to, progress);
           result += c.fg() + ch;
           break;
         }
@@ -184,7 +190,11 @@ export function perGlyph(opts: PerGlyphOpts): (node: VNode) => VNode {
  * @returns            Eased progress in [0, 1].
  */
 export function cellProgress(cellIndex: number, nowMs: number, stagger: number, duration: number, easeFn: EasingFn = ease.sine): number {
-  const cellStartMs = cellIndex * stagger;
-  const rawProgress = Math.max(0, Math.min(1, (nowMs - cellStartMs) / Math.max(1, duration)));
-  return easeFn(rawProgress);
+  const safeIndex = nonNegativeInteger(cellIndex, 0);
+  const safeNow = finiteNumber(nowMs, 0);
+  const safeStagger = nonNegativeNumber(stagger, 0);
+  const safeDuration = positiveNumber(duration, 1);
+  const cellStartMs = safeIndex * safeStagger;
+  const rawProgress = Math.max(0, Math.min(1, (safeNow - cellStartMs) / safeDuration));
+  return easedProgress(easeFn, rawProgress);
 }

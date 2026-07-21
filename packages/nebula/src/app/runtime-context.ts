@@ -15,6 +15,7 @@ import { createRenderWatchdog, type RenderWatchdog } from '../render-watchdog.js
 import { createScheduler, type Priority, type Scheduler } from '../scheduler.js';
 import { createTerminal, type KeyEvent, type TerminalBackend } from '../terminal.js';
 import { type Cmd, type ElementMouseEvent, type FrameInfo, type MouseEventData, type StreamSource, Sub } from '../types.js';
+import { createVNodeStateScope, setVNodeStateScheduleRender, type VNodeStateScope } from '../vdom/state.js';
 import type { CellGrid, LayoutPlan } from '../vdom.js';
 import type { AppConfig, AppOptions, ReplaceConfigOptions } from './contracts.js';
 
@@ -39,7 +40,10 @@ export interface RuntimeContext<Model, M> {
   lastLayoutPlan: LayoutPlan | null;
   compositor: Compositor | null;
   compositorAnimating: boolean;
+  vnodeStateScope: VNodeStateScope;
   timers: NodeJS.Timeout[];
+  latestTimerSubs: Array<{ ms: number; fire: () => void }>;
+  timerInstallIndex: number;
   prevTimerKey: string;
   inputHandler: ((data: Buffer) => void) | null;
   resizeHandler: (() => void) | null;
@@ -81,6 +85,7 @@ export interface RuntimeContext<Model, M> {
   renderTracer: RenderTracer | null;
   connectionManager: ConnectionManager<M>;
   activeAgentIds: Set<string>;
+  agentFingerprints: Map<string, string>;
   runningTasks: Map<string, Set<RunningTaskEntry>>;
   scheduler: Scheduler | null;
   classifyMsg: (msg: unknown) => Priority;
@@ -89,21 +94,22 @@ export interface RuntimeContext<Model, M> {
   lastDispatchedMsgType: string;
   lastDispatchedPriority: Priority;
   currentRenderPriority: Priority;
-  dispatchFn: (msg: M) => void;
-  combinatorDebounceTimers: Map<number, NodeJS.Timeout>;
-  combinatorThrottleTimestamps: Map<number, number>;
-  combinatorDistinctLast: Map<number, { value: unknown }>;
-  debouncedCmdTimers: Map<string, { timer: NodeJS.Timeout; onDone?: () => void }>;
+  combinatorDebounceTimers: Map<string, NodeJS.Timeout>;
+  combinatorThrottleTimestamps: Map<string, number>;
+  combinatorDistinctLast: Map<string, { value: unknown }>;
+  debouncedCmdTimers: Map<string, { timer: NodeJS.Timeout; cancel: () => void }>;
   idleTimers: Map<number, NodeJS.Timeout>;
-  idleSubs: Array<{ ms: number; msg: M }>;
-  combinatorIdCounter: number;
+  idleSubs: Array<{ ms: number; fire: () => void }>;
   activePhaseIds: Set<string>;
   phaseUnsubscribers: Map<string, () => void>;
   phaseRegistries: Map<string, MachineRegistry>;
   activePhaseEntries: Map<string, MachineRegistryEntry>;
   phaseMachineRefs: Map<string, unknown>;
+  phaseHandlers: Map<string, (state: unknown, prev: unknown | null) => boolean>;
   activeStreamIds: Set<string>;
   activeStreamSources: Map<string, StreamSource>;
+  streamHandlers: Map<string, (data: unknown) => void>;
+  streamRestartKeys: Map<string, string | number | undefined>;
   dispatch: (msg: M) => void;
   executeCmd: (cmd: Cmd<M>) => void;
   render: () => void;
@@ -118,7 +124,7 @@ export interface RuntimeContext<Model, M> {
   armIdleTimers: () => void;
   resetIdleTimers: () => void;
   combinatorInnerSub: (kind: ReturnType<typeof import('../types.js').subKind<M>>) => Sub<M>;
-  walkCombinator: (kind: ReturnType<typeof import('../types.js').subKind<M>>, recurse: (inner: Sub<M>) => void) => void;
+  wrapSubDispatch: (kind: ReturnType<typeof import('../types.js').subKind<M>>, key: string, dispatch: (message: M) => void) => (message: M) => void;
   hasPasteSub: (sub: Sub<M>) => boolean;
   hasMouseSub: (sub: Sub<M>) => boolean;
   hasResizeSub: (sub: Sub<M>) => boolean;
@@ -156,16 +162,25 @@ function notInstalled(name: string): never {
 }
 
 export function createRuntimeContext<Model, M>(initialConfig: AppConfig<Model, M>, options?: AppOptions): RuntimeContext<Model, M> {
-  const terminal = options?.terminal ?? createTerminal();
-  const rawTerminalWrite = terminal.write.bind(terminal);
+  const terminalBackend = options?.terminal ?? createTerminal();
+  const rawTerminalWrite = terminalBackend.write.bind(terminalBackend);
   const debugTerminalWritePattern = /\x1b\[\?(?:1000|1002|1003|1004|1006|1049|2026)[hl]|\x1bc|\x1b\[!p/;
-  terminal.write = (data: string): void => {
-    if (process.env.CELESTIAL_DEBUG_INPUT && debugTerminalWritePattern.test(data)) {
-      process.stderr.write(
-        `[term-write] len=${data.length} hex=${Buffer.from(data).toString('hex').slice(0, 120)} str=${JSON.stringify(data.replace(/\x1b/g, '\\x1b').slice(0, 80))}\n`,
-      );
-    }
-    rawTerminalWrite(data);
+  const terminal: TerminalBackend = {
+    enterRawMode: terminalBackend.enterRawMode.bind(terminalBackend),
+    exitRawMode: terminalBackend.exitRawMode.bind(terminalBackend),
+    onInput: terminalBackend.onInput.bind(terminalBackend),
+    offInput: terminalBackend.offInput.bind(terminalBackend),
+    onResize: terminalBackend.onResize.bind(terminalBackend),
+    offResize: terminalBackend.offResize.bind(terminalBackend),
+    getSize: terminalBackend.getSize.bind(terminalBackend),
+    write(data: string): void {
+      if (process.env.CELESTIAL_DEBUG_INPUT && debugTerminalWritePattern.test(data)) {
+        process.stderr.write(
+          `[term-write] len=${data.length} hex=${Buffer.from(data).toString('hex').slice(0, 120)} str=${JSON.stringify(data.replace(/\x1b/g, '\\x1b').slice(0, 80))}\n`,
+        );
+      }
+      rawTerminalWrite(data);
+    },
   };
 
   const inlineOpt = options?.inline;
@@ -173,6 +188,7 @@ export function createRuntimeContext<Model, M>(initialConfig: AppConfig<Model, M
     ? createScheduler(typeof options.scheduler === 'object' ? { frameDeadlineMs: options.scheduler.frameDeadlineMs } : undefined)
     : null;
   const updateLoopWindowMs = options?.updateLoopGuard?.windowMs ?? 100;
+  const vnodeStateScope = createVNodeStateScope();
   const ctx: RuntimeContext<Model, M> = {
     config: initialConfig,
     options,
@@ -190,7 +206,10 @@ export function createRuntimeContext<Model, M>(initialConfig: AppConfig<Model, M
     lastLayoutPlan: null,
     compositor: options?.compositor ? createCompositor(options.compositor) : null,
     compositorAnimating: false,
+    vnodeStateScope,
     timers: [],
+    latestTimerSubs: [],
+    timerInstallIndex: 0,
     prevTimerKey: '',
     inputHandler: null,
     resizeHandler: null,
@@ -232,6 +251,7 @@ export function createRuntimeContext<Model, M>(initialConfig: AppConfig<Model, M
     renderTracer: options?.renderTracer ?? null,
     connectionManager: createConnectionManager<M>(),
     activeAgentIds: new Set(),
+    agentFingerprints: new Map(),
     runningTasks: new Map(),
     scheduler,
     classifyMsg: options?.classifyMessage ?? classifyMessagePriority,
@@ -240,21 +260,22 @@ export function createRuntimeContext<Model, M>(initialConfig: AppConfig<Model, M
     lastDispatchedMsgType: 'init',
     lastDispatchedPriority: 'normal',
     currentRenderPriority: 'normal',
-    dispatchFn: (msg: M) => ctx.dispatch(msg),
     combinatorDebounceTimers: new Map(),
     combinatorThrottleTimestamps: new Map(),
     combinatorDistinctLast: new Map(),
     debouncedCmdTimers: new Map(),
     idleTimers: new Map(),
     idleSubs: [],
-    combinatorIdCounter: 0,
     activePhaseIds: new Set(),
     phaseUnsubscribers: new Map(),
     phaseRegistries: new Map(),
     activePhaseEntries: new Map(),
     phaseMachineRefs: new Map(),
+    phaseHandlers: new Map(),
     activeStreamIds: new Set(),
     activeStreamSources: new Map(),
+    streamHandlers: new Map(),
+    streamRestartKeys: new Map(),
     dispatch: () => notInstalled('dispatch'),
     executeCmd: () => notInstalled('executeCmd'),
     render: () => notInstalled('render'),
@@ -269,7 +290,7 @@ export function createRuntimeContext<Model, M>(initialConfig: AppConfig<Model, M
     armIdleTimers: () => notInstalled('armIdleTimers'),
     resetIdleTimers: () => notInstalled('resetIdleTimers'),
     combinatorInnerSub: () => notInstalled('combinatorInnerSub'),
-    walkCombinator: () => notInstalled('walkCombinator'),
+    wrapSubDispatch: () => notInstalled('wrapSubDispatch'),
     hasPasteSub: () => notInstalled('hasPasteSub'),
     hasMouseSub: () => notInstalled('hasMouseSub'),
     hasResizeSub: () => notInstalled('hasResizeSub'),
@@ -301,6 +322,10 @@ export function createRuntimeContext<Model, M>(initialConfig: AppConfig<Model, M
     detachActivePhase: () => notInstalled('detachActivePhase'),
     parseWindowFocusEvent: () => notInstalled('parseWindowFocusEvent'),
   };
+
+  setVNodeStateScheduleRender(vnodeStateScope, () => {
+    if (ctx.running && !ctx.suspended) ctx.scheduleRender();
+  });
 
   return ctx;
 }

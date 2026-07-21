@@ -216,4 +216,15 @@ describe('styleEffect', () => {
     // Style effects are perpetual — they never complete
     expect(effect.done()).toBe(false);
   });
+
+  it('validates style configuration and ignores stale clocks', () => {
+    expect(() => styleEffect('shimmer', { speed: Number.NaN })).toThrow(TypeError);
+    expect(() => styleEffect('glow', { intensity: -1 })).toThrow(RangeError);
+    const effect = styleEffect('shimmer');
+    effect.tick(10);
+    effect.tick(20);
+    effect.tick(15);
+    expect(effect.progress()).toBe(10);
+    expect(() => effect.tick(Number.NaN)).toThrow(TypeError);
+  });
 });

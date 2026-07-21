@@ -17,12 +17,19 @@
  * consumer needs to make markdown content interactive.
  */
 
+import type { ComponentRenderContext } from '@celestial/nebula';
+import { measureTextWidth, padCellText, truncateCellText } from '@celestial/rosetta';
 import { highlight } from './highlight.js';
 import { renderImage } from './image-render.js';
+import { createRenderContext } from './internal/context.js';
+import { markdownGlyph } from './markdown-glyphs.js';
 import { mathToUnicode } from './math-unicode.js';
 import { parseMarkdown } from './parser/index.js';
+import { extractAnsiCodes, injectAnsiCodes } from './renderer/ansi.js';
+import { visualWidth } from './renderer/width.js';
+import { wrapText } from './renderer/wrap.js';
 import { defaultTheme } from './theme.js';
-import type { CodeBlockMeta, InlineToken, RenderOptions, Token } from './types.js';
+import type { CodeBlockMeta, FenceRenderer, InlineToken, RenderOptions, Token } from './types.js';
 
 interface StyleAttrs {
   dim?: boolean;
@@ -67,7 +74,12 @@ interface ColumnNode {
   children: VNode[];
 }
 
-export type VNode = TextNode | BoxNode | RowNode | ColumnNode;
+interface ComponentNode {
+  kind: 'component';
+  render: (context?: ComponentRenderContext) => VNode;
+}
+
+export type VNode = TextNode | BoxNode | RowNode | ColumnNode | ComponentNode;
 
 function text(content: string, options?: { style?: StyleAttrs; wrap?: boolean; href?: string; data?: PulsarNodeData }): TextNode {
   return {
@@ -92,6 +104,98 @@ function box(child: VNode, options?: { style?: StyleAttrs }): BoxNode {
   return { kind: 'box', children: [child], ...(options?.style && { style: options.style }) };
 }
 
+function component(render: (context?: ComponentRenderContext) => VNode): ComponentNode {
+  return { kind: 'component', render };
+}
+
+const DEFAULT_VNODE_WIDTH = 80;
+const MAX_VNODE_WIDTH = 1_000_000;
+
+function normalizeVNodeWidth(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.min(MAX_VNODE_WIDTH, Math.max(1, Math.floor(value)));
+}
+
+function resolveLiveWidth(context: ComponentRenderContext | undefined, options?: RenderOptions): number {
+  const configured = normalizeVNodeWidth(options?.width, DEFAULT_VNODE_WIDTH);
+  const live = normalizeVNodeWidth(context?.container.cols, configured);
+  return Math.min(configured, live);
+}
+
+/** Remove layout whitespace without discarding ANSI/OSC state at the boundary. */
+function trimLeadingLayoutWhitespace(styled: string): string {
+  const { plain, spans } = extractAnsiCodes(styled);
+  const trimmed = plain.replace(/^[\t ]+/u, '');
+  const removed = plain.length - trimmed.length;
+  if (removed === 0) return styled;
+  return injectAnsiCodes(
+    trimmed,
+    spans.map((span) => ({ ...span, index: Math.max(0, span.index - removed) })),
+  );
+}
+
+/**
+ * Reflow separately tagged inline nodes into rows at the live container
+ * width. This retains link/footnote metadata on every wrapped fragment,
+ * unlike a single wrapping text node, and avoids fixed-row clipping.
+ */
+function layoutInlineFlow(nodes: readonly VNode[], width: number): VNode {
+  const lines: VNode[][] = [[]];
+  let used = 0;
+  let pendingBoundarySpace = false;
+
+  const nextLine = (): void => {
+    if (lines[lines.length - 1]!.length === 0) lines[lines.length - 1]!.push(text(''));
+    lines.push([]);
+    used = 0;
+  };
+
+  for (const node of nodes) {
+    if (node.kind !== 'text') {
+      if (used > 0) nextLine();
+      lines[lines.length - 1]!.push(node);
+      nextLine();
+      continue;
+    }
+
+    const sourcePlain = extractAnsiCodes(node.content).plain;
+    const startsWithSpace = /^[\t ]/u.test(sourcePlain);
+    const parts = wrapText(node.content, width, '').split('\n');
+    for (let index = 0; index < parts.length; index++) {
+      let part = parts[index] ?? '';
+      if (index > 0) nextLine();
+
+      if (index === 0 && used > 0 && (pendingBoundarySpace || startsWithSpace)) {
+        const partPlain = extractAnsiCodes(part).plain;
+        const current = lines[lines.length - 1]!;
+        const previous = current[current.length - 1];
+        const previousEndsWithSpace = previous?.kind === 'text' && /[\t ]$/u.test(extractAnsiCodes(previous.content).plain);
+        if (!previousEndsWithSpace && !/^[\t ]/u.test(partPlain)) part = ' ' + part;
+      }
+
+      let partWidth = visualWidth(part);
+      if (used > 0 && used + partWidth > width) {
+        nextLine();
+        part = trimLeadingLayoutWhitespace(part);
+        partWidth = visualWidth(part);
+      }
+
+      if (part.length > 0 || node.data || node.href) {
+        lines[lines.length - 1]!.push({ ...node, content: part, wrap: false });
+        used += partWidth;
+      }
+    }
+    pendingBoundarySpace = /[\t ]$/u.test(sourcePlain);
+  }
+
+  if (lines.length > 1 && lines[lines.length - 1]!.length === 0) lines.pop();
+  return column(...lines.map((lineNodes) => (lineNodes.length > 0 ? row(...lineNodes) : text(''))));
+}
+
+function responsiveInlineFlow(nodes: readonly VNode[], options?: RenderOptions): ComponentNode {
+  return component((context) => layoutInlineFlow(nodes, resolveLiveWidth(context, options)));
+}
+
 // ── Main VNode Component ────────────────────────────────────────────────
 
 /**
@@ -100,8 +204,10 @@ function box(child: VNode, options?: { style?: StyleAttrs }): BoxNode {
 export function markdown(input: string, options?: RenderOptions): VNode {
   if (!input.trim()) return text('');
 
+  const theme = options?.theme ?? defaultTheme();
+  const normalizedOptions = createRenderContext(theme, { ...options, theme }).options;
   const tokens = parseMarkdown(input);
-  const children = tokens.map((token, blockIndex) => tokenToVNodeWithSearch(token, options, blockIndex));
+  const children = tokens.map((token, blockIndex) => tokenToVNodeWithSearch(token, normalizedOptions, blockIndex));
 
   return column(...children);
 }
@@ -116,11 +222,26 @@ function tokenToVNodeWithSearch(token: Token, options: RenderOptions | undefined
 
   const currentMatch = highlights[options?.currentMatchIndex ?? 0];
   const isCurrent = currentMatch?.blockIndex === blockIndex;
+  const theme = options?.theme ?? defaultTheme();
+  const marked = mapVNodeText(vnode, theme.mark ?? theme.bold);
 
   if (isCurrent) {
-    return row(text('▎ '), vnode);
+    return row(text(`${theme.searchCurrentMarker ?? markdownGlyph('active-rail')} `), marked);
   }
-  return vnode;
+  return marked;
+}
+
+function mapVNodeText(vnode: VNode, transform: (content: string) => string): VNode {
+  switch (vnode.kind) {
+    case 'text':
+      return { ...vnode, content: transform(vnode.content) };
+    case 'row':
+    case 'column':
+    case 'box':
+      return { ...vnode, children: vnode.children.map((child) => mapVNodeText(child, transform)) };
+    case 'component':
+      return component((context) => mapVNodeText(vnode.render(context), transform));
+  }
 }
 
 // ── Token to VNode Conversion ───────────────────────────────────────────
@@ -145,7 +266,7 @@ function tokenToVNode(token: Token, options?: RenderOptions): VNode {
       return renderListVNode(token, theme, options);
 
     case 'hr':
-      return text(theme.hr(options?.width ?? 80), { style: { dim: true } });
+      return component((context) => text(theme.hr(resolveLiveWidth(context, options)), { style: { dim: true } }));
 
     case 'table':
       return renderTableVNode(token, theme, options);
@@ -157,7 +278,10 @@ function tokenToVNode(token: Token, options?: RenderOptions): VNode {
       return renderFootnoteDefVNode(token, theme, options);
 
     case 'image':
-      return text(renderImage(token, { theme, options: options ?? {}, width: options?.width ?? 80 }));
+      return component((context) => {
+        const width = resolveLiveWidth(context, options);
+        return text(renderImage(token, { theme, options: { ...options, width }, width }));
+      });
 
     case 'definition-list': {
       const lines: string[] = [];
@@ -169,7 +293,7 @@ function tokenToVNode(token: Token, options?: RenderOptions): VNode {
           lines.push('    ' + (theme.definitionDescription ? theme.definitionDescription(descText) : descText));
         }
       }
-      return column(...lines.map((l) => text(l)));
+      return column(...lines.map((l) => text(l, { wrap: true })));
     }
 
     case 'math-block': {
@@ -178,14 +302,17 @@ function tokenToVNode(token: Token, options?: RenderOptions): VNode {
         const unicode = mathToUnicode(content);
         if (unicode !== null) content = unicode;
       }
-      return text(theme.mathBlock ? theme.mathBlock(content, options?.width) : `[math] ${content}`);
+      return component((context) => {
+        const width = resolveLiveWidth(context, options);
+        return text(theme.mathBlock ? theme.mathBlock(content, width) : `[math] ${content}`, { wrap: true });
+      });
     }
 
     case 'details': {
       const summary = inlineToString(token.summary, theme, options);
       const summaryLine = theme.detailsSummary ? theme.detailsSummary(summary, true) : `▾ ${theme.bold(summary)}`;
       const body = token.content.map((child) => tokenToVNode(child, options));
-      return column(text(summaryLine), ...body);
+      return column(text(summaryLine, { wrap: true }), ...body);
     }
 
     case 'frontmatter':
@@ -194,6 +321,7 @@ function tokenToVNode(token: Token, options?: RenderOptions): VNode {
     case 'wiki-link-block': {
       const display = token.alias ?? token.target;
       return text(theme.link(display, token.target), {
+        wrap: true,
         data: { kind: 'link', url: token.target, text: display },
       });
     }
@@ -212,10 +340,10 @@ function renderHeadingVNode(token: Extract<Token, { type: 'heading' }>, theme: R
   const headingFn = getHeadingFn(theme, token.level);
   if (containsInteractive(token.content)) {
     const segments = inlineToVNodes(token.content, theme, options, { headingStyle: headingFn });
-    return row(...segments);
+    return responsiveInlineFlow(segments, options);
   }
   const inlineText = inlineToString(token.content, theme);
-  return text(headingFn(inlineText));
+  return text(headingFn(inlineText), { wrap: true });
 }
 
 // ── Paragraph VNode ─────────────────────────────────────────────────────
@@ -223,7 +351,7 @@ function renderHeadingVNode(token: Extract<Token, { type: 'heading' }>, theme: R
 function renderParagraphVNode(token: Extract<Token, { type: 'paragraph' }>, theme: ReturnType<typeof defaultTheme>, options?: RenderOptions): VNode {
   if (containsInteractive(token.content)) {
     const segments = inlineToVNodes(token.content, theme, options);
-    return row(...segments);
+    return responsiveInlineFlow(segments, options);
   }
   const content = inlineToString(token.content, theme, options);
   return text(content, { wrap: true });
@@ -232,14 +360,42 @@ function renderParagraphVNode(token: Extract<Token, { type: 'paragraph' }>, them
 // ── Code Block VNode ────────────────────────────────────────────────────
 
 function renderCodeBlockVNode(token: Extract<Token, { type: 'code-block' }>, theme: ReturnType<typeof defaultTheme>, options?: RenderOptions): VNode {
+  return component((context) => renderCodeBlockVNodeAtWidth(token, theme, options, resolveLiveWidth(context, options)));
+}
+
+function renderCodeBlockVNodeAtWidth(
+  token: Extract<Token, { type: 'code-block' }>,
+  theme: ReturnType<typeof defaultTheme>,
+  options: RenderOptions | undefined,
+  width: number,
+): VNode {
+  const language = token.language.trim().toLowerCase();
+  let fenceRenderer: FenceRenderer | undefined;
+  try {
+    fenceRenderer = options?.fenceRenderers?.[language] ?? options?.fenceRenderers?.[token.language];
+  } catch {
+    fenceRenderer = undefined;
+  }
+  if (typeof fenceRenderer === 'function') {
+    try {
+      const customOptions = { ...options, theme, width };
+      const custom = fenceRenderer(token, { theme, options: customOptions, width, indent: options?.indent ?? 0 });
+      if (typeof custom === 'string') return text(custom);
+    } catch {
+      // Optional host renderers fail open to the built-in renderer.
+    }
+  }
+
   const meta: CodeBlockMeta | undefined = token.meta;
   const highlighted = token.language ? highlight(token.content, token.language, options?.highlightTheme as Parameters<typeof highlight>[2]) : token.content;
 
   const showNumbers = meta?.showLineNumbers === true;
-  const startLine = meta?.startLine ?? 1;
-  const highlightSet = new Set(meta?.highlightLines ?? []);
-  const diffMode = meta?.diff === true || token.language === 'diff';
+  const requestedStartLine = meta?.startLine;
+  const startLine = Number.isSafeInteger(requestedStartLine) ? Math.max(1, Math.min(1_000_000_000, requestedStartLine!)) : 1;
+  const highlightSet = new Set((meta?.highlightLines ?? []).filter((line) => Number.isSafeInteger(line) && line > 0).slice(0, 100_000));
+  const diffMode = meta?.diff === true || language === 'diff';
   const wantsCopy = meta?.copy === true;
+  const shouldWrap = meta?.wrap === true || meta?.wrap === 'soft' || meta?.wraps === 'soft' || meta?.wraps === 'wrap';
 
   const rawLines = token.content.split('\n');
   const styledLines = highlighted.split('\n');
@@ -249,18 +405,18 @@ function renderCodeBlockVNode(token: Extract<Token, { type: 'code-block' }>, the
 
   // Plain code blocks (no meta) keep the existing single-text-node shape so
   // back-compat with overlay-based renderers and existing snapshots holds.
-  const isPlain = !meta || (!showNumbers && highlightSet.size === 0 && !diffMode && !wantsCopy && meta.fold === undefined);
+  const isPlain = !showNumbers && highlightSet.size === 0 && !diffMode && !wantsCopy && meta?.fold === undefined && !shouldWrap;
   if (isPlain) {
     const body = styledLines.map((line) => '  ' + line).join('\n');
     const styled = theme.codeBlock(body);
-    const framed = theme.codeBlockFrame(styled, token.language, options?.width);
+    const framed = theme.codeBlockFrame(styled, token.language, width);
     return text(framed);
   }
 
   // Determine fold threshold
   let foldThreshold = 25;
   if (meta?.fold === false) foldThreshold = Infinity;
-  else if (typeof meta?.fold === 'number') foldThreshold = meta.fold;
+  else if (typeof meta?.fold === 'number' && Number.isFinite(meta.fold)) foldThreshold = Math.max(2, Math.min(1_000_000, Math.floor(meta.fold)));
 
   let folded = false;
   let visibleCount = lineCount;
@@ -279,13 +435,25 @@ function renderCodeBlockVNode(token: Extract<Token, { type: 'code-block' }>, the
     let body = styled;
     if (diffMode) {
       const trimmed = raw.trimStart();
-      if (trimmed.startsWith('+')) body = '\x1b[32m' + body + '\x1b[0m';
-      else if (trimmed.startsWith('-')) body = '\x1b[31m' + body + '\x1b[0m';
+      if (trimmed.startsWith('+')) body = theme.diffAdded?.(body) ?? theme.code(body);
+      else if (trimmed.startsWith('-')) body = theme.diffRemoved?.(body) ?? theme.code(body);
     }
 
-    const marker = isHighlighted ? '▎ ' : showNumbers ? '' : '  ';
+    const marker = isHighlighted ? `${theme.codeHighlightMarker ?? markdownGlyph('active-rail')} ` : showNumbers ? '' : '  ';
     const gutter = showNumbers ? String(lineNo).padStart(gutterWidth, ' ') + ' │ ' : '';
-    lineNodes.push(text(marker + gutter + body));
+    const requestedLeading = marker + gutter;
+    // On extremely narrow surfaces the gutter can consume the entire row.
+    // Preserve code content first; semantic line metadata remains available on
+    // the token and returns automatically when the container grows again.
+    const leading = visualWidth(requestedLeading) < width ? requestedLeading : '';
+    if (shouldWrap && visualWidth(leading + body) > width) {
+      const wrapped = wrapText(body, Math.max(1, width - visualWidth(leading)), '').split('\n');
+      lineNodes.push(text(theme.codeBlock(leading + (wrapped[0] ?? ''))));
+      const continuation = ' '.repeat(visualWidth(leading));
+      for (const line of wrapped.slice(1)) lineNodes.push(text(theme.codeBlock(continuation + line)));
+    } else {
+      lineNodes.push(text(theme.codeBlock(leading + body)));
+    }
   }
 
   if (folded) {
@@ -293,6 +461,7 @@ function renderCodeBlockVNode(token: Extract<Token, { type: 'code-block' }>, the
     const marker = showNumbers ? '' : '  ';
     lineNodes.push(
       text(marker + `+${hidden} lines (click to expand)`, {
+        wrap: true,
         data: { kind: 'fold-toggle', code: token.content, language: token.language },
       }),
     );
@@ -301,6 +470,7 @@ function renderCodeBlockVNode(token: Extract<Token, { type: 'code-block' }>, the
   if (wantsCopy) {
     lineNodes.push(
       text(theme.code('  [copy]'), {
+        wrap: true,
         data: { kind: 'copy', code: token.content, language: token.language },
       }),
     );
@@ -308,8 +478,9 @@ function renderCodeBlockVNode(token: Extract<Token, { type: 'code-block' }>, the
 
   // Wrap content in a column so the frame is preserved as a header/footer
   // pair around the line nodes.
-  const frameTop = text(theme.codeBlockFrame('', token.language, options?.width).split('\n')[0] ?? '');
-  const frameBottom = text(theme.codeBlockFrame('', token.language, options?.width).split('\n').pop() ?? '');
+  const frame = theme.codeBlockFrame('', token.language, width).split('\n');
+  const frameTop = text(frame[0] ?? '');
+  const frameBottom = text(frame.at(-1) ?? '');
   return column(frameTop, ...lineNodes, frameBottom);
 }
 
@@ -335,11 +506,13 @@ function renderListVNode(token: Extract<Token, { type: 'list' }>, theme: ReturnT
 
       const labelText = inlineToString(item.content, theme, options);
       const interactiveLabel = containsInteractive(item.content);
-      const labelNode = interactiveLabel ? row(...inlineToVNodes(item.content, theme, options)) : text(' ' + labelText);
+      const labelNode = interactiveLabel ? row(...inlineToVNodes(item.content, theme, options)) : text(' ' + labelText, { wrap: true });
 
       // Plain task with no inline interactivity → a single row(checkbox, ' label').
       // Task with embedded link/footnote → row(checkbox, text(' '), …segments).
-      const lineNode = interactiveLabel ? row(checkboxNode, text(' '), labelNode) : row(checkboxNode, labelNode);
+      const lineNode = interactiveLabel
+        ? responsiveInlineFlow([checkboxNode, text(' '), ...inlineToVNodes(item.content, theme, options)], options)
+        : row(checkboxNode, labelNode);
 
       if (item.children && item.children.length > 0) {
         const childVNodes = item.children.map((child) => tokenToVNode(child, options));
@@ -352,7 +525,7 @@ function renderListVNode(token: Extract<Token, { type: 'list' }>, theme: ReturnT
 
     if (containsInteractive(item.content)) {
       const segments = inlineToVNodes(item.content, theme, options);
-      const lineNode = row(text(bullet + ' '), ...segments);
+      const lineNode = responsiveInlineFlow([text(bullet + ' '), ...segments], options);
       if (item.children && item.children.length > 0) {
         const childVNodes = item.children.map((child) => tokenToVNode(child, options));
         return column(lineNode, ...childVNodes);
@@ -361,7 +534,7 @@ function renderListVNode(token: Extract<Token, { type: 'list' }>, theme: ReturnT
     }
 
     const itemText = inlineToString(item.content, theme, options);
-    const itemLine = text(bullet + ' ' + itemText);
+    const itemLine = text(bullet + ' ' + itemText, { wrap: true });
 
     if (item.children && item.children.length > 0) {
       const childVNodes = item.children.map((child) => tokenToVNode(child, options));
@@ -377,29 +550,70 @@ function renderListVNode(token: Extract<Token, { type: 'list' }>, theme: ReturnT
 // ── Table VNode ─────────────────────────────────────────────────────────
 
 function renderTableVNode(token: Extract<Token, { type: 'table' }>, theme: ReturnType<typeof defaultTheme>, options?: RenderOptions): VNode {
-  // Render header row
-  const headerCells = token.headers.map((h) => {
-    const cellText = inlineToString(h, theme, options);
-    return text(theme.tableHeader(cellText));
-  });
-  const headerRow = row(...headerCells);
+  return component((context) => renderTableVNodeAtWidth(token, theme, options, resolveLiveWidth(context, options)));
+}
 
-  // Render body rows
-  const bodyRows = token.rows.map((r) => {
-    const cells = r.map((cell) => {
-      const cellText = inlineToString(cell, theme, options);
-      return text(theme.tableCell(cellText));
-    });
-    return row(...cells);
-  });
+function fitTableWidths(natural: readonly number[], budget: number): number[] {
+  const total = natural.reduce((sum, width) => sum + width, 0);
+  if (total <= budget) return [...natural];
+  const widths = natural.map((width) => Math.max(1, Math.floor((width / Math.max(1, total)) * budget)));
+  let used = widths.reduce((sum, width) => sum + width, 0);
 
-  return column(headerRow, ...bodyRows);
+  while (used > budget) {
+    const index = widths.reduce((best, width, candidate) => (width > (widths[best] ?? 0) ? candidate : best), 0);
+    if ((widths[index] ?? 1) <= 1) break;
+    widths[index] = (widths[index] ?? 1) - 1;
+    used--;
+  }
+  for (let index = 0; used < budget && index < widths.length * Math.max(1, budget); index++) {
+    const column = index % widths.length;
+    widths[column] = (widths[column] ?? 0) + 1;
+    used++;
+  }
+  return widths;
+}
+
+function renderTableVNodeAtWidth(
+  token: Extract<Token, { type: 'table' }>,
+  theme: ReturnType<typeof defaultTheme>,
+  options: RenderOptions | undefined,
+  width: number,
+): VNode {
+  const headers = token.headers.map((cell) => extractAnsiCodes(inlineToString(cell, theme, options)).plain);
+  const rows = token.rows.map((row) => row.map((cell) => extractAnsiCodes(inlineToString(cell, theme, options)).plain));
+  let columnCount = headers.length;
+  for (const cells of rows) columnCount = Math.max(columnCount, cells.length);
+  if (columnCount <= 0) return text('');
+
+  const separatorWidth = Math.max(0, columnCount - 1) * 3;
+  if (columnCount + separatorWidth > width) {
+    const lines = rows.flatMap((cells) =>
+      Array.from({ length: columnCount }, (_, index) => {
+        const label = headers[index] || `Column ${index + 1}`;
+        return text(theme.tableCell(`${label}: ${cells[index] ?? ''}`), { wrap: true });
+      }),
+    );
+    return column(...lines);
+  }
+
+  const natural = Array<number>(columnCount).fill(1);
+  for (let index = 0; index < columnCount; index++) natural[index] = Math.max(1, measureTextWidth(headers[index] ?? ''));
+  for (const cells of rows) {
+    for (let index = 0; index < columnCount; index++) natural[index] = Math.max(natural[index] ?? 1, measureTextWidth(cells[index] ?? ''));
+  }
+  const widths = fitTableWidths(natural, width - separatorWidth);
+  const format = (cells: readonly string[], header: boolean): TextNode => {
+    const rendered = Array.from({ length: columnCount }, (_, index) => padCellText(truncateCellText(cells[index] ?? '', widths[index] ?? 1), widths[index] ?? 1));
+    const line = rendered.join(` ${theme.tableBorder} `);
+    return text(header ? theme.tableHeader(line) : theme.tableCell(line));
+  };
+  return column(format(headers, true), ...rows.map((cells) => format(cells, false)));
 }
 
 // ── Admonition VNode ────────────────────────────────────────────────────
 
 function renderAdmonitionVNode(token: Extract<Token, { type: 'admonition' }>, theme: ReturnType<typeof defaultTheme>, options?: RenderOptions): VNode {
-  const title = text(theme.admonitionTitle(token.kind, token.title));
+  const title = text(theme.admonitionTitle(token.kind, token.title), { wrap: true });
   const children = token.content.map((t) => tokenToVNode(t, options));
 
   return column(title, ...children);

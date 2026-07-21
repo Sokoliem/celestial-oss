@@ -1,6 +1,24 @@
-import { type AppConfig, Cmd, column, row, Sub, text, type VNode, withClass, withMetadata } from '@celestial/core/nebula';
+import {
+  animated,
+  type AppConfig,
+  Cmd,
+  column,
+  component,
+  lazy,
+  localState,
+  memo,
+  portal,
+  row,
+  Sub,
+  suspense,
+  tabGroup,
+  text,
+  type VNode,
+  withClass,
+  withMetadata,
+} from '@celestial/core/nebula';
 import { afterEach, describe, expect, it } from 'vitest';
-import { a11y, testId } from '../queries.js';
+import { a11y, createQueryEngine, testId } from '../queries.js';
 import { createScreen } from '../screen.js';
 import { createTestApp, type TestAppHandle } from '../test-app.js';
 
@@ -136,6 +154,21 @@ describe('queries', () => {
       const result = screen.queryByText('Missing');
       expect(result).toBeNull();
     });
+
+    it('does not hide view or layout failures as a missing result', () => {
+      let broken = false;
+      handle = createTestApp(
+        simpleApp(() => {
+          if (broken) throw new Error('view failed');
+          return text('Present');
+        }),
+        { cols: 40, rows: 10 },
+      );
+      const screen = createScreen(handle);
+      broken = true;
+
+      expect(() => screen.queryByText('Present')).toThrow('view failed');
+    });
   });
 
   // ── getByTestId ────────────────────────────────────────────────────
@@ -208,6 +241,18 @@ describe('queries', () => {
       expect(screen.getBySelector('[test-id="modal"]').testId).toBe('modal');
       expect(screen.getBySelector('[role="dialog"]').role).toBe('dialog');
     });
+
+    it('surfaces invalid selector syntax from query variants', () => {
+      handle = createTestApp(simpleApp(() => text('Content')), { cols: 40, rows: 10 });
+      const screen = createScreen(handle);
+
+      expect(() => screen.queryBySelector('button')).toThrow(/Unsupported selector/);
+    });
+  });
+
+  it('rejects viewport dimensions that normalize below one cell', () => {
+    const queries = createQueryEngine(() => text('Content'), () => ({ cols: 0.5, rows: 10 }));
+    expect(() => queries.queryByText('Content')).toThrow(/at least 1 cell/i);
   });
 
   describe('getAllByTestId', () => {
@@ -490,6 +535,60 @@ describe('queries', () => {
       const screen = createScreen(handle);
       expect(screen.getByText('A').text).toBe('A');
       expect(screen.getByText('D').text).toBe('D');
+    });
+
+    it('uses live terminal dimensions after a resize', () => {
+      handle = createTestApp(
+        simpleApp(() => component((context) => text((context?.container.cols ?? 80) >= 20 ? 'wide surface' : 'compact'))),
+        { cols: 40, rows: 10 },
+      );
+      const screen = createScreen(handle);
+
+      expect(screen.getByText('wide surface').text).toBe('wide surface');
+      screen.fireResize(10, 10);
+      expect(screen.queryByText('wide surface')).toBeNull();
+      expect(screen.getByText('compact').text).toBe('compact');
+    });
+
+    it('reports grapheme text and terminal-cell width without phantom continuation spaces', () => {
+      handle = createTestApp(simpleApp(() => text('界🙂Z')), { cols: 20, rows: 5 });
+      const result = createScreen(handle).getByText('界🙂Z');
+
+      expect(result.text).toBe('界🙂Z');
+      expect(result.width).toBe(5);
+    });
+
+    it('queries metadata through resolved modern VNode wrappers and portals', () => {
+      const never = new Promise<() => VNode>(() => {});
+      handle = createTestApp(
+        simpleApp(() =>
+          column(
+            memo(() => testId('memo-child', text('memo child')), []),
+            suspense(testId('resolved-child', text('resolved child')), text('fallback'), true),
+            localState('query-state', () => 'local child', (_state: string, next: string) => next, (state) => testId('local-child', text(state))),
+            lazy('query-lazy', () => never, testId('lazy-placeholder', text('lazy placeholder'))),
+            tabGroup('query-tabs', [testId('tab-child', text('tab child'))]),
+            animated('portal-target', text('portal target')),
+            portal('portal-target', testId('portal-child', text('portal child'))),
+          ),
+        ),
+        { cols: 40, rows: 12 },
+      );
+      const screen = createScreen(handle);
+
+      for (const id of ['memo-child', 'resolved-child', 'local-child', 'lazy-placeholder', 'tab-child', 'portal-child']) {
+        expect(screen.getByTestId(id).testId).toBe(id);
+      }
+    });
+
+    it('treats global regular expressions as reusable matchers', () => {
+      handle = createTestApp(simpleApp(() => column(text('match one'), text('match two'))), { cols: 20, rows: 5 });
+      const matcher = /match/gu;
+      const screen = createScreen(handle);
+
+      expect(screen.getAllByText(matcher)).toHaveLength(2);
+      expect(screen.getAllByText(matcher)).toHaveLength(2);
+      expect(matcher.lastIndex).toBe(0);
     });
   });
 });

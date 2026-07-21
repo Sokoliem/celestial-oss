@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as ui from '../index.js';
 import {
   alert,
   autocomplete,
@@ -6,6 +7,7 @@ import {
   breadcrumb,
   button,
   card,
+  cardGrid,
   checkbox,
   checkboxGroup,
   colorPicker,
@@ -18,12 +20,17 @@ import {
   divider,
   drawer,
   emptyState,
+  formField,
+  hovercard,
+  indeterminateProgress,
   list,
   modal,
   multiSelect,
   numberInput,
   optionListView,
   pagination,
+  popover,
+  popoverGroup,
   progressBar,
   radioGroup,
   rangeSlider,
@@ -40,12 +47,7 @@ import {
   toggleGroup,
   tooltip,
   tree,
-  formField,
-  hovercard,
-  popover,
-  popoverGroup,
 } from '../index.js';
-import * as ui from '../index.js';
 
 const componentBuilders = [
   button,
@@ -77,8 +79,10 @@ const componentBuilders = [
   tree,
   list,
   progressBar,
+  indeterminateProgress,
   spinner,
   card,
+  cardGrid,
   divider,
   emptyState,
   badge,
@@ -97,8 +101,8 @@ const componentBuilders = [
 const excludedBuilders = ['fileExplorer', 'markdownViewer', 'terminal', 'kanbanBoard', 'imageViewer', 'notificationCenter'] as const;
 
 describe('@celestial/ui preview surface', () => {
-  it('exports the curated 44 component builders', () => {
-    expect(componentBuilders).toHaveLength(44);
+  it('exports the curated 46 component builders', () => {
+    expect(componentBuilders).toHaveLength(46);
     for (const builder of componentBuilders) expect(builder).toBeTypeOf('function');
   });
 

@@ -13,60 +13,76 @@ const aborted: ValidationResult = { valid: true };
  * it into `composeAsync` without an explicit `.catch`.
  */
 export function debouncedAsync<T>(rule: AsyncValidationRule<T>, ms: number): AsyncValidationRule<T> {
+  if (!Number.isFinite(ms)) throw new RangeError('orbit/debouncedAsync: delay must be a finite number');
   if (ms <= 0) return rule;
+  const delay = Math.floor(ms);
 
-  let pendingTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingResolve: ((result: ValidationResult) => void) | null = null;
+  interface Invocation {
+    timer: ReturnType<typeof setTimeout> | null;
+    resolve: (result: ValidationResult) => void;
+    controller: AbortController;
+    externalSignal: AbortSignal;
+    onExternalAbort: () => void;
+    settled: boolean;
+  }
+
+  let active: Invocation | null = null;
+
+  function settle(invocation: Invocation, result: ValidationResult): void {
+    if (invocation.settled) return;
+    invocation.settled = true;
+    if (invocation.timer !== null) clearTimeout(invocation.timer);
+    invocation.timer = null;
+    invocation.externalSignal.removeEventListener('abort', invocation.onExternalAbort);
+    if (active === invocation) active = null;
+    invocation.resolve(result);
+  }
 
   return (value: T, signal: AbortSignal): Promise<ValidationResult> => {
-    // Resolve any previously-suspended call with an aborted result before
-    // arming a fresh timer.
-    if (pendingTimer !== null) {
-      clearTimeout(pendingTimer);
-      pendingResolve?.(aborted);
-      pendingTimer = null;
-      pendingResolve = null;
+    if (active) {
+      const superseded = active;
+      superseded.controller.abort();
+      settle(superseded, aborted);
     }
 
     return new Promise<ValidationResult>((resolve) => {
-      const onSignalAbort = () => {
-        if (pendingTimer !== null) {
-          clearTimeout(pendingTimer);
-          pendingTimer = null;
-          pendingResolve = null;
-        }
-        resolve(aborted);
+      const controller = new AbortController();
+      const invocation: Invocation = {
+        timer: null,
+        resolve,
+        controller,
+        externalSignal: signal,
+        onExternalAbort: () => {
+          controller.abort();
+          settle(invocation, aborted);
+        },
+        settled: false,
       };
 
       if (signal.aborted) {
-        resolve(aborted);
+        settle(invocation, aborted);
         return;
       }
 
-      signal.addEventListener('abort', onSignalAbort, { once: true });
+      active = invocation;
+      signal.addEventListener('abort', invocation.onExternalAbort, { once: true });
 
-      pendingResolve = resolve;
-      pendingTimer = setTimeout(async () => {
-        pendingTimer = null;
-        pendingResolve = null;
-        if (signal.aborted) {
-          resolve(aborted);
+      invocation.timer = setTimeout(async () => {
+        invocation.timer = null;
+        if (invocation.settled || controller.signal.aborted) {
+          settle(invocation, aborted);
           return;
         }
         try {
-          const result = await rule(value, signal);
-          if (signal.aborted) {
-            resolve(aborted);
-            return;
-          }
-          resolve(result);
+          const result = await rule(value, controller.signal);
+          settle(invocation, controller.signal.aborted ? aborted : result);
         } catch (error) {
-          // Surface unexpected errors as validation failures rather than
-          // swallowing them — silent failure here is worse than a noisy
-          // message because it makes the form appear valid.
-          resolve({ valid: false, message: error instanceof Error ? error.message : 'Async validation failed' });
+          settle(
+            invocation,
+            controller.signal.aborted ? aborted : { valid: false, message: error instanceof Error ? error.message : 'Async validation failed' },
+          );
         }
-      }, ms);
+      }, delay);
     });
   };
 }
@@ -91,7 +107,7 @@ export function uniqueValue<T = string>(
       return { valid: false, message: error instanceof Error ? error.message : 'Failed to check uniqueness' };
     }
     if (signal.aborted) return aborted;
-    return isUnique ? valid : { valid: false, message };
+    return isUnique === true ? valid : { valid: false, message };
   };
 }
 
@@ -113,14 +129,17 @@ export function serverValidate<T = unknown>(
     readonly fieldName?: string;
   } = {},
 ): AsyncValidationRule<T> {
+  const method = options.method ?? 'POST';
+  const fieldName = options.fieldName;
+  const headers = { 'content-type': 'application/json', ...(options.headers ?? {}) };
   return async (value: T, signal: AbortSignal): Promise<ValidationResult> => {
     if (signal.aborted) return aborted;
     let response: Response;
     try {
       response = await fetch(endpoint, {
-        method: options.method ?? 'POST',
-        headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
-        body: JSON.stringify(options.fieldName ? { field: options.fieldName, value } : { value }),
+        method,
+        headers,
+        body: JSON.stringify(fieldName ? { field: fieldName, value } : { value }),
         signal,
       });
     } catch (error) {
@@ -140,7 +159,10 @@ export function serverValidate<T = unknown>(
       return { valid: false, message: 'Server validation failed' };
     }
     const body = payload as { valid?: unknown; message?: unknown };
-    if (body.valid === true) return valid;
-    return { valid: false, message: typeof body.message === 'string' ? body.message : 'Server rejected value' };
+    if (response.ok && body.valid === true) return valid;
+    return {
+      valid: false,
+      message: typeof body.message === 'string' && body.message.length > 0 ? body.message : response.ok ? 'Server rejected value' : 'Server validation failed',
+    };
   };
 }

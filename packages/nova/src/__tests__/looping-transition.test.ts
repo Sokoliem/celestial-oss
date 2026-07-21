@@ -73,4 +73,15 @@ describe('createLoopingTransition', () => {
     expect(frame).not.toBe('hello');
     expect(frame).not.toBe('world');
   });
+
+  it('handles zero duration and rejects corrupt timing inputs', () => {
+    const instant = createLoopingTransition({ duration: 0, mode: 'forward' });
+    instant.start(0);
+    expect(instant.progress(0)).toBe(1);
+    expect(instant.render('old', 'new', 0)).toBe('new');
+
+    expect(() => createLoopingTransition({ duration: Number.NaN })).toThrow(TypeError);
+    expect(() => createLoopingTransition({ pauseTicks: -1 })).toThrow(RangeError);
+    expect(() => instant.progress(Number.NaN)).toThrow(TypeError);
+  });
 });

@@ -101,35 +101,13 @@ describe('wipe', () => {
     });
   });
 
-  describe('horizontal (left) character correctness regression', () => {
-    it('left wipe should use oldCh/newCh consistently with boundary calc', () => {
-      // Regression: wipeHorizontal for direction='left' indexes characters
-      // via `newPadded[col]` (the raw loop counter) but computes the wipe
-      // boundary using `effectiveCol` (width-1-col). This mismatch means
-      // the boundary at one position controls the visibility of a character
-      // from a different position.
-      //
-      // The fix: use `newCh`/`oldCh` (already indexed via effectiveCol)
-      // in all branches, so boundary and character are consistent.
-      //
-      // With identical chars (AAAA->BBBB), this bug is invisible. We use
-      // distinct chars to expose the mismatch.
+  describe('horizontal (left) positional-order regression', () => {
+    it('sweeps from the right without reversing source characters', () => {
       const old = 'abcd';
       const new_ = 'WXYZ';
-
-      // At progress=0.99 with width=4: wipeCol=3.96
-      // col=3: effectiveCol=0, dist=3.96, >FEATHER_WIDTH(3) -> fully revealed
-      // Buggy code: fadeChar(newPadded[col]=Z, 1)
-      // Fixed code: fadeChar(newCh=W, 1)
-      //
-      // After the fix, output[3] should show newPadded[effectiveCol=0]='W'
-      // because the wipe is sweeping effectiveCol 0->3 and at col=3 the
-      // wipe is at effectiveCol=0 (first to be fully revealed).
       const result = wipe(old, new_, 0.99, 'left');
       const plain = strip(result);
-      // With the fix, the fully revealed position (col=3) should show 'W'
-      // (the character at effectiveCol=0 in the new content)
-      expect(plain[3]).toBe('W');
+      expect(plain).toBe('aXYZ');
     });
   });
 

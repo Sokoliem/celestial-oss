@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getEmoji, parseInline, parseMarkdown, registerEmoji } from '../parser.js';
+import { assignHeadingAnchors, inlineToPlainText } from '../parser/anchors.js';
 import type { InlineToken, Token } from '../types.js';
 
 describe('parseMarkdown', () => {
@@ -685,6 +686,12 @@ describe('emoji shortcodes (parseInline)', () => {
       registerEmoji('celestial', '🌌');
     }
   });
+
+  it('validates custom emoji names and neutralizes control characters', () => {
+    expect(() => registerEmoji('__proto__!', 'x')).toThrow(/shortcode names/);
+    registerEmoji('safe_control', '\x1b[31m');
+    expect(getEmoji('safe_control')).toBe('�[31m');
+  });
 });
 
 // ── Footnote References (inline) ────────────────────────────────────────
@@ -955,5 +962,53 @@ describe('collapsed admonitions (parseMarkdown)', () => {
     expect(tokens).toHaveLength(1);
     const admonition = tokens[0] as Extract<Token, { type: 'admonition' }>;
     expect(admonition.kind).toBe('ai-thinking');
+  });
+});
+
+describe('parser resource limits', () => {
+  it('bounds recursive inline formatting and preserves the unparsed tail as text', () => {
+    const source = `${'<sup>'.repeat(200)}tail${'</sup>'.repeat(200)}`;
+    let branch = parseInline(source);
+    let depth = 0;
+
+    while (branch[0]?.type === 'sup') {
+      depth++;
+      branch = branch[0].content;
+    }
+
+    expect(depth).toBeLessThanOrEqual(64);
+    expect(branch[0]).toMatchObject({ type: 'text' });
+    expect((branch[0] as Extract<InlineToken, { type: 'text' }>).content).toContain('tail');
+  });
+
+  it('bounds nested block parsing without dropping the remaining content', () => {
+    const tokens = parseMarkdown(`${'> '.repeat(200)}terminal content`);
+    let branch = tokens;
+    let depth = 0;
+
+    while (branch[0]?.type === 'blockquote') {
+      depth++;
+      branch = branch[0].content;
+    }
+
+    expect(depth).toBeLessThanOrEqual(64);
+    expect(branch[0]?.type).toBe('paragraph');
+    const paragraph = branch[0] as Extract<Token, { type: 'paragraph' }>;
+    expect(inlineToPlainText(paragraph.content)).toContain('terminal content');
+  });
+
+  it('coalesces long literal special-character runs', () => {
+    const source = '$'.repeat(4096);
+    expect(parseInline(source)).toEqual([{ type: 'text', content: source }]);
+  });
+
+  it('contains cycles in externally supplied token trees', () => {
+    const inline = { type: 'bold', content: [] } as Extract<InlineToken, { type: 'bold' }>;
+    inline.content.push(inline);
+    expect(() => inlineToPlainText([inline])).not.toThrow();
+
+    const block = { type: 'blockquote', content: [] } as Extract<Token, { type: 'blockquote' }>;
+    block.content.push(block);
+    expect(() => assignHeadingAnchors([block])).not.toThrow();
   });
 });

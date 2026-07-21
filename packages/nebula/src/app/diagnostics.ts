@@ -1,3 +1,4 @@
+import { cellWidth, sanitizeTerminalText, truncateCells } from '@celestial/corona';
 import type { Sub } from '../types.js';
 import type { RuntimeContext } from './runtime-context.js';
 
@@ -23,11 +24,31 @@ export function installDiagnostics<Model, M>(ctx: RuntimeContext<Model, M>): voi
     const msg = err instanceof Error ? err.message : String(err);
     if (msg !== ctx.lastRenderErrorMsg) {
       ctx.lastRenderErrorMsg = msg;
-      ctx.options?.onRenderError?.(err);
+      try {
+        ctx.options?.onRenderError?.(err);
+      } catch (callbackError: unknown) {
+        if (typeof process !== 'undefined' && process.stderr) {
+          process.stderr.write(`[nebula] onRenderError callback failed: ${String(callbackError)}\n`);
+        }
+      }
       try {
         const { cols, rows } = ctx.terminal.getSize();
-        const label = ` \u26a0 ${msg.slice(0, cols - 4)} `;
-        ctx.terminal.write(`\x1b[${rows};1H\x1b[41;97m${label.padEnd(cols)}\x1b[0m`);
+        const safeCols = Number.isFinite(cols) ? Math.max(1, Math.floor(cols)) : 1;
+        const safeRows = Number.isFinite(rows) ? Math.max(1, Math.floor(rows)) : 1;
+        const prefix = ' Error: ';
+        const safeMessage = sanitizeTerminalText(msg, {
+          allowHyperlinks: false,
+          allowSgr: false,
+          controlPolicy: 'strip',
+        });
+        const label = truncateCells(`${prefix}${safeMessage}`, safeCols, '', {
+          allowHyperlinks: false,
+          allowSgr: false,
+          controlPolicy: 'strip',
+          trusted: true,
+        });
+        const padding = ' '.repeat(Math.max(0, safeCols - cellWidth(label)));
+        ctx.terminal.write(`\x1b[${safeRows};1H\x1b[41;97m${label}${padding}\x1b[0m`);
       } catch {
         // terminal write failed — silently ignore
       }

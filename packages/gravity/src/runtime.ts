@@ -5,15 +5,28 @@ import { useSafeAreaInsets } from './safe-area.js';
 import type { MeasurementContext } from './types.js';
 import { useWorkAreaInsets } from './work-area.js';
 
+function normalizeDimension(value: number, fallback: number): number {
+  const resolved = Number.isFinite(value) ? value : fallback;
+  return Math.max(0, Math.floor(resolved));
+}
+
+function normalizeSpace(space: { cols: number; rows: number }, fallback: { cols: number; rows: number }): { cols: number; rows: number } {
+  return {
+    cols: normalizeDimension(space.cols, fallback.cols),
+    rows: normalizeDimension(space.rows, fallback.rows),
+  };
+}
+
 export function resolveRuntimeMeasurementContext(renderContext?: Partial<ComponentRenderContext>): MeasurementContext {
-  const terminal = renderContext?.terminal ?? getTerminalSize();
-  const available = renderContext?.available ?? terminal;
-  const container = renderContext?.container ?? available;
+  const fallbackTerminal = getTerminalSize();
+  const terminal = normalizeSpace(renderContext?.terminal ?? fallbackTerminal, fallbackTerminal);
+  const available = normalizeSpace(renderContext?.available ?? terminal, terminal);
+  const container = normalizeSpace(renderContext?.container ?? available, available);
 
   return {
-    terminal: { cols: terminal.cols, rows: terminal.rows },
-    available: { cols: available.cols, rows: available.rows },
-    container: { cols: container.cols, rows: container.rows },
+    terminal,
+    available,
+    container,
   };
 }
 

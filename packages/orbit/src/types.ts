@@ -512,6 +512,8 @@ export interface SelectPromptConfig {
   description?: string;
   options: readonly string[] | readonly { label: string; value: string }[];
   defaultValue?: string;
+  /** Maximum options rendered at once. Defaults to 8 and follows the highlight. */
+  maxVisible?: number;
   locale?: LocaleLike;
   theme?: ThemeInput;
   themeCtx?: ThemeContext;
@@ -526,6 +528,8 @@ export interface MultiSelectPromptConfig {
   defaultValues?: string[];
   minSelect?: number;
   maxSelect?: number;
+  /** Maximum options rendered at once. Defaults to 8 and follows the highlight. */
+  maxVisible?: number;
   locale?: LocaleLike;
   theme?: ThemeInput;
   themeCtx?: ThemeContext;

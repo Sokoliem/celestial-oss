@@ -48,12 +48,26 @@ export type ComponentFocus = 'none' | 'text' | 'textarea' | 'checkbox' | 'radio'
 export type SurfaceId = 'modal' | 'confirm' | 'drawer' | 'tooltip' | 'palette' | 'toast';
 export type SmokeId = 'core' | 'component' | 'workflow' | 'visual' | 'mouse-click' | 'mouse-drag' | 'context-menu' | 'layer' | 'adaptive' | 'window' | 'help';
 
+export interface SmokeEvidence {
+  coreVisits: number;
+  componentChanges: number;
+  workflowAdvances: number;
+  visualVisits: number;
+  mouseClicks: number;
+  payloadDrops: number;
+  contextMenus: number;
+  layersOpened: number;
+  breakpointCrossings: number;
+  windowChanges: number;
+  helpOpens: number;
+}
+
 export type ShowcaseContextAction =
   | { type: 'run-action'; action: string }
   | { type: 'switch-lab'; lab: LabId }
   | { type: 'open-help'; lab: LabId }
   | { type: 'next-receipt' }
-  | { type: 'window-action'; id: string; action: 'focus' | 'close' | 'minimize' | 'maximize' | 'restore' }
+  | { type: 'window-action'; id: string; action: 'focus' | 'close' | 'minimize' | 'maximize' | 'fullscreen' | 'restore' }
   | { type: 'reset' }
   | { type: 'close' };
 
@@ -95,6 +109,7 @@ export interface CelestialShowcaseModel {
   tick: number;
   activeLab: LabId;
   previousTier: ViewportTier;
+  evidence: SmokeEvidence;
   completed: Set<SmokeId>;
   lastAction: string;
   componentPage: number;
@@ -102,7 +117,10 @@ export interface CelestialShowcaseModel {
   helpOpen: boolean;
   contextMenu: ContextMenuState<ShowcaseContextAction>;
   contextMenuSource: string | null;
+  galleryContextMenu: ContextMenuState<string>;
+  galleryModels: Record<string, unknown>;
   hoveredRegion: string | null;
+  shelfHoveredWindowId: string | null;
   pointer: PointerTelemetry;
   dragDemo: DragState<MouseDragPayload>;
   droppedReceipts: number;
@@ -144,6 +162,7 @@ export type CelestialShowcaseMsg =
   | { type: 'open-context-menu-keyboard' }
   | { type: 'run-action'; action: string }
   | { type: 'component-page'; page: number }
+  | { type: 'gallery-context-menu'; open: boolean }
   | { type: 'component-focus'; focus: ComponentFocus }
   | { type: 'text-input'; msg: TextInputMsg }
   | { type: 'textarea'; msg: TextareaMsg }

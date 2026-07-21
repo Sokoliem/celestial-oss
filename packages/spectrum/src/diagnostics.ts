@@ -8,11 +8,9 @@
  * decoupled from any particular protocol.
  *
  * v1 rendering rules:
- *   - Diagnostics emit a curly-underline ANSI sequence (CSI 4:3 m)
- *     across `[col, col+len)`. Severity selects the underline color.
- *   - Inlay chips render inline as dim italic ghost-text immediately
- *     after the column they anchor to. No layout shift — the chip
- *     just visually follows the host token.
+ *   - Diagnostics append a compact, curly-underlined companion span for
+ *     `[col, col+len)`, followed by severity and message text.
+ *   - Inlay chips append as dim italic ghost text in source-column order.
  *
  * Both renderers fall through to plain text on terminals that don't
  * support styled underlines or italic.
@@ -71,16 +69,25 @@ const SEVERITY_PRIORITY: Record<DiagnosticSeverity, number> = {
   warn: 1,
   info: 2,
 };
+const MAX_OVERLAYS_PER_LINE = 10_000;
+
+function isSeverity(value: unknown): value is DiagnosticSeverity {
+  return value === 'error' || value === 'warn' || value === 'info';
+}
+
+function isSafeLine(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
 
 /**
  * Of the diagnostics on a line, pick the highest-severity one. Used
  * by gutter renderers that show a single sigil per line.
  */
 export function pickHighestSeverity(markers: readonly DiagnosticMarker[]): DiagnosticMarker | undefined {
-  if (markers.length === 0) return undefined;
-  let best = markers[0]!;
-  for (let i = 1; i < markers.length; i++) {
-    if (SEVERITY_PRIORITY[markers[i]!.severity] < SEVERITY_PRIORITY[best.severity]) best = markers[i]!;
+  let best: DiagnosticMarker | undefined;
+  for (const marker of markers.slice(0, MAX_OVERLAYS_PER_LINE)) {
+    if (!isSeverity(marker.severity)) continue;
+    if (!best || SEVERITY_PRIORITY[marker.severity] < SEVERITY_PRIORITY[best.severity]) best = marker;
   }
   return best;
 }
@@ -89,7 +96,8 @@ export function pickHighestSeverity(markers: readonly DiagnosticMarker[]): Diagn
 
 export function groupDiagnosticsByLine(markers: readonly DiagnosticMarker[]): ReadonlyMap<number, DiagnosticMarker[]> {
   const map = new Map<number, DiagnosticMarker[]>();
-  for (const m of markers) {
+  for (const m of markers.slice(0, MAX_OVERLAYS_PER_LINE)) {
+    if (!isSafeLine(m.line) || !isSeverity(m.severity)) continue;
     const list = map.get(m.line);
     if (list) list.push(m);
     else map.set(m.line, [m]);
@@ -99,7 +107,8 @@ export function groupDiagnosticsByLine(markers: readonly DiagnosticMarker[]): Re
 
 export function groupInlaysByLine(chips: readonly InlayChip[]): ReadonlyMap<number, InlayChip[]> {
   const map = new Map<number, InlayChip[]>();
-  for (const c of chips) {
+  for (const c of chips.slice(0, MAX_OVERLAYS_PER_LINE)) {
+    if (!isSafeLine(c.line)) continue;
     const list = map.get(c.line);
     if (list) list.push(c);
     else map.set(c.line, [c]);
@@ -190,9 +199,12 @@ export function applyOverlaysToLine(
   // line. This preserves the original line and surfaces the marker text
   // without column splicing.
   const diagSegments: string[] = [];
-  for (const d of diagnostics) {
-    const start = Math.max(0, Math.min(lineText.length, d.col));
-    const end = Math.max(start, Math.min(lineText.length, d.col + d.len));
+  for (const d of diagnostics.slice(0, MAX_OVERLAYS_PER_LINE)) {
+    if (!isSeverity(d.severity) || !Number.isFinite(d.col) || !Number.isFinite(d.len)) continue;
+    const col = Math.floor(d.col);
+    const len = Math.max(1, Math.floor(d.len));
+    const start = Math.max(0, Math.min(lineText.length, col));
+    const end = Math.max(start, Math.min(lineText.length, col + len));
     const span = lineText.slice(start, end);
     const colorise = sevColors[d.severity] ?? DEFAULT_SEVERITY_COLORS[d.severity];
     const underlined = useCurly ? `${CURLY_UNDERLINE_ON}${colorise(span)}${UNDERLINE_OFF}` : colorise(span);
@@ -204,7 +216,10 @@ export function applyOverlaysToLine(
   }
 
   // Inlays: append at end of line (sorted by column for stable order).
-  const sortedInlays = [...inlays].sort((a, b) => a.col - b.col);
+  const sortedInlays = inlays
+    .slice(0, MAX_OVERLAYS_PER_LINE)
+    .filter((chip) => Number.isFinite(chip.col) && typeof chip.text === 'string')
+    .sort((a, b) => a.col - b.col);
   for (const chip of sortedInlays) {
     out += '  ' + inlayStyle(`${openBrk}${chip.text}${closeBrk}`);
   }

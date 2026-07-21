@@ -97,6 +97,23 @@ describe('heatmap', () => {
   });
 });
 
+describe('heatmap boundary hardening', () => {
+  it('renders extreme finite ranges without NaN output', () => {
+    const output = heatmap({ data: [[-Number.MAX_VALUE, 0, Number.MAX_VALUE]] }).toString();
+    expect(output).not.toMatch(/NaN|Infinity/);
+  });
+
+  it('falls back from zero-width and unsafe cell glyphs', () => {
+    const output = heatmap({ data: [[1]], cellChar: '\u0301\x1b[2J' }).toString();
+    expect(output).toContain('\u2588');
+    expect(output).not.toContain('\x1b[2J');
+  });
+
+  it('returns a column VNode for multi-row output', () => {
+    expect(heatmap({ data: [[1], [2]] }).toVNode().kind).toBe('column');
+  });
+});
+
 // Tests for the corona gradient API (which now backs heatmap color interpolation)
 describe('gradient (corona) used by heatmap', () => {
   it('returns first stop color at t=0', () => {

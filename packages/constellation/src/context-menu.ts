@@ -28,6 +28,9 @@ export interface ContextMenuState<M = unknown> {
   submenuStack: SubmenuStackEntry<M>[];
 }
 
+export const MAX_CONTEXT_MENU_ITEMS = 10_000;
+const MAX_CONTEXT_MENU_DEPTH = 32;
+
 export type ContextMenuMsg<M = unknown> =
   | { type: 'ctx-open'; x: number; y: number; items: MenuItem<M>[] }
   | { type: 'ctx-close' }
@@ -52,9 +55,9 @@ export function createContextMenuState<M = unknown>(): ContextMenuState<M> {
  * Find the next non-separator index in a given direction.
  * Wraps around the list. Returns the starting index if all items are separators.
  */
-function findNextNonSeparator(items: MenuItem[], currentIndex: number, direction: 1 | -1): number {
-  if (items.length === 0) return 0;
-  let index = currentIndex;
+function findNextNonSeparator(items: readonly MenuItem[], currentIndex: number, direction: 1 | -1): number {
+  if (items.length === 0) return -1;
+  let index = Number.isInteger(currentIndex) ? currentIndex : direction === 1 ? -1 : 0;
   const len = items.length;
   for (let i = 0; i < len; i++) {
     index = (((index + direction) % len) + len) % len;
@@ -67,25 +70,43 @@ function findNextNonSeparator(items: MenuItem[], currentIndex: number, direction
 /**
  * Find the first non-separator index starting from a given position.
  */
-function findFirstNonSeparator(items: MenuItem[], startIndex: number): number {
-  if (items.length === 0) return 0;
+function findFirstNonSeparator(items: readonly MenuItem[], startIndex: number): number {
+  if (items.length === 0) return -1;
   for (let i = 0; i < items.length; i++) {
     const idx = (startIndex + i) % items.length;
     const item = items[idx];
     if (item && !item.separator && !item.disabled) return idx;
   }
-  return startIndex;
+  return -1;
+}
+
+function snapshotMenuItems<M>(items: readonly MenuItem<M>[], depth = 0, ancestors = new Set<readonly MenuItem<M>[]>()): MenuItem<M>[] {
+  if (depth > MAX_CONTEXT_MENU_DEPTH) throw new RangeError(`Context menus support at most ${MAX_CONTEXT_MENU_DEPTH} submenu levels.`);
+  if (items.length > MAX_CONTEXT_MENU_ITEMS) throw new RangeError(`Context menus support at most ${MAX_CONTEXT_MENU_ITEMS} items per level.`);
+  if (ancestors.has(items)) throw new TypeError('Context menu submenus must not contain cycles.');
+
+  const nextAncestors = new Set(ancestors);
+  nextAncestors.add(items);
+  return items.map((item) => ({
+    ...item,
+    submenu: item.submenu ? snapshotMenuItems(item.submenu, depth + 1, nextAncestors) : undefined,
+  }));
+}
+
+function menuCoordinate(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(100_000, Math.trunc(value))) : 0;
 }
 
 export function contextMenuUpdate<M>(msg: ContextMenuMsg<M>, state: ContextMenuState<M>): ContextMenuState<M> {
   switch (msg.type) {
     case 'ctx-open': {
-      const selectedIndex = findFirstNonSeparator(msg.items, 0);
+      const items = snapshotMenuItems(msg.items);
+      const selectedIndex = findFirstNonSeparator(items, 0);
       return {
         open: true,
-        x: msg.x,
-        y: msg.y,
-        items: msg.items,
+        x: menuCoordinate(msg.x),
+        y: menuCoordinate(msg.y),
+        items,
         selectedIndex,
         submenuStack: [],
       };
@@ -157,5 +178,6 @@ export function getSelectedItem<M>(state: ContextMenuState<M>): MenuItem<M> | nu
   if (state.selectedIndex < 0 || state.selectedIndex >= activeItems.length) {
     return null;
   }
-  return activeItems[state.selectedIndex] ?? null;
+  const selected = activeItems[state.selectedIndex];
+  return selected && !selected.separator && !selected.disabled ? selected : null;
 }

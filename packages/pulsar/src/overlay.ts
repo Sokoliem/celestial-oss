@@ -32,6 +32,16 @@ export interface OverlayRenderer {
 }
 
 const OVERLAY_PREFETCH = 20;
+const MAX_OVERLAY_DIMENSION = 100_000;
+
+function normalizeDimension(value: number, fallback: number, minimum: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(MAX_OVERLAY_DIMENSION, Math.max(minimum, Math.floor(value)));
+}
+
+function normalizeLine(value: number | undefined): number {
+  return value !== undefined && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
 
 function createOverlayTheme(base: MarkdownTheme): MarkdownTheme {
   const subdued = style({ dim: true });
@@ -120,11 +130,13 @@ async function collectAsyncContent(content: AsyncIterable<string>, onChunk: (chu
 }
 
 export function overlayRenderer(config: OverlayRendererConfig): OverlayRenderer {
-  const styleConfig = config.style ?? { density: 'compact' };
+  const styleConfig = config.style?.density === 'comfortable' ? config.style : { ...config.style, density: 'compact' as const };
   const theme = createOverlayTheme(styleConfig.theme ?? defaultTheme());
-  const prefetch = config.prefetch ?? OVERLAY_PREFETCH;
+  const maxWidth = normalizeDimension(config.maxWidth, 80, 1);
+  const maxHeight = normalizeDimension(config.maxHeight, 24, 1);
+  const prefetch = normalizeDimension(config.prefetch ?? OVERLAY_PREFETCH, OVERLAY_PREFETCH, 0);
   const renderOptions: RenderOptions = {
-    width: config.maxWidth,
+    width: maxWidth,
     theme,
   };
   const stream = createMarkdownStream(renderOptions);
@@ -138,7 +150,7 @@ export function overlayRenderer(config: OverlayRendererConfig): OverlayRenderer 
     const normalized = normalizeRenderedLines(snapshot.rendered.split('\n'), styleConfig.density);
     setRendered(normalized.join('\n'));
 
-    const maxTop = Math.max(0, normalized.length - config.maxHeight);
+    const maxTop = Math.max(0, normalized.length - maxHeight);
     if (topLine() > maxTop) {
       setTopLine(maxTop);
     }
@@ -149,7 +161,7 @@ export function overlayRenderer(config: OverlayRendererConfig): OverlayRenderer 
     const snapshot = stream.append(chunk);
     const normalized = normalizeRenderedLines(snapshot.rendered.split('\n'), styleConfig.density);
     setRendered(normalized.join('\n'));
-    const maxTop = Math.max(0, normalized.length - config.maxHeight);
+    const maxTop = Math.max(0, normalized.length - maxHeight);
     if (topLine() > maxTop) {
       setTopLine(maxTop);
     }
@@ -182,21 +194,28 @@ export function overlayRenderer(config: OverlayRendererConfig): OverlayRenderer 
     return current ? current.split('\n') : [];
   });
 
-  const vnode = computed(() => buildViewport(lines(), topLine(), config.maxHeight, prefetch, (line) => config.style?.lineHighlight?.(line) ?? false));
+  const highlight = (line: number): boolean => {
+    try {
+      return styleConfig.lineHighlight?.(line) === true;
+    } catch {
+      return false;
+    }
+  };
+  const vnode = computed(() => buildViewport(lines(), topLine(), maxHeight, prefetch, highlight));
 
   return {
     vnode,
     lineCount: computed(() => lines().length),
     scrollTo(line: number): void {
-      const maxTop = Math.max(0, lines().length - config.maxHeight);
-      setTopLine(Math.max(0, Math.min(line, maxTop)));
+      const maxTop = Math.max(0, lines().length - maxHeight);
+      setTopLine(Math.min(normalizeLine(line), maxTop));
     },
     captureAnchor(): ScrollAnchor {
       return { topLine: topLine() };
     },
     restoreAnchor(anchor: ScrollAnchor): void {
-      const maxTop = Math.max(0, lines().length - config.maxHeight);
-      setTopLine(Math.max(0, Math.min(anchor.topLine, maxTop)));
+      const maxTop = Math.max(0, lines().length - maxHeight);
+      setTopLine(Math.min(normalizeLine(anchor?.topLine), maxTop));
     },
     dispose(): void {
       disposed = true;

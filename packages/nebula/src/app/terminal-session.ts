@@ -44,7 +44,6 @@ export function installTerminalSession<Model, M>(ctx: RuntimeContext<Model, M>):
       const subs = ctx.safeGetSubs();
 
       if (ctx.hasResizeSub(subs)) {
-        ctx.combinatorIdCounter = 0;
         ctx.dispatchResizeEvent(subs, cols, rows);
       } else {
         ctx.cancelScheduledRender();
@@ -55,77 +54,135 @@ export function installTerminalSession<Model, M>(ctx: RuntimeContext<Model, M>):
   };
 
   ctx.detachRuntimeHandlers = (): void => {
+    let firstError: unknown;
+    let failed = false;
     if (ctx.inputHandler) {
-      ctx.terminal.offInput(ctx.inputHandler);
-      ctx.inputHandler = null;
+      try {
+        ctx.terminal.offInput(ctx.inputHandler);
+      } catch (error: unknown) {
+        failed = true;
+        firstError = error;
+      } finally {
+        ctx.inputHandler = null;
+      }
     }
     if (ctx.resizeHandler) {
-      ctx.terminal.offResize(ctx.resizeHandler);
-      ctx.resizeHandler = null;
+      try {
+        ctx.terminal.offResize(ctx.resizeHandler);
+      } catch (error: unknown) {
+        if (!failed) firstError = error;
+        failed = true;
+      } finally {
+        ctx.resizeHandler = null;
+      }
     }
+    if (failed) throw firstError;
   };
 
   ctx.enterTerminalSession = (initial: boolean): void => {
     if (ctx.terminalSessionActive) return;
     ctx.terminal.enterRawMode();
-
-    if (ctx.inlineMode) {
-      if (initial) {
-        ctx.terminal.write('\n'.repeat(ctx.inlineHeight));
-        ctx.terminal.write(`\x1b[${ctx.inlineHeight}A`);
-      } else {
-        ctx.terminal.write(`\x1b[${ctx.inlineHeight}A`);
-      }
-      ctx.terminal.write('\x1b7');
-      ctx.terminal.write(ansi.cursorHide);
-    } else {
-      ctx.terminal.write(ansi.altScreenEnter);
-      ctx.terminal.write(ansi.cursorHide);
-    }
-
     ctx.terminalSessionActive = true;
+    try {
+      if (ctx.inlineMode) {
+        if (initial) {
+          ctx.terminal.write('\n'.repeat(ctx.inlineHeight));
+          ctx.terminal.write(`\x1b[${ctx.inlineHeight}A`);
+        } else {
+          ctx.terminal.write(`\x1b[${ctx.inlineHeight}A`);
+        }
+        ctx.terminal.write('\x1b7');
+        ctx.terminal.write(ansi.cursorHide);
+      } else {
+        ctx.terminal.write(ansi.altScreenEnter);
+        ctx.terminal.write(ansi.cursorHide);
+      }
+    } catch (error: unknown) {
+      try {
+        for (const sequence of ctx.inlineMode ? [ansi.cursorShow] : [ansi.cursorShow, ansi.altScreenExit]) {
+          try {
+            ctx.terminal.write(sequence);
+          } catch {
+            // Preserve the original setup failure while attempting every rollback write.
+          }
+        }
+        ctx.terminal.exitRawMode();
+      } finally {
+        ctx.terminalSessionActive = false;
+      }
+      throw error;
+    }
   };
 
   function detachTerminalModes(): void {
-    ctx.clearIdleTimers();
+    let firstError: unknown;
+    let failed = false;
+    const attempt = (action: () => void): void => {
+      try {
+        action();
+      } catch (error: unknown) {
+        if (!failed) firstError = error;
+        failed = true;
+      }
+    };
+
+    attempt(ctx.clearIdleTimers);
 
     if (ctx.mouseActive) {
       if (process.env.CELESTIAL_DEBUG_INPUT) {
         process.stderr.write('[mouse-mode] disable source=suspend\n');
       }
-      ctx.terminal.write(MOUSE_DISABLE);
+      attempt(() => ctx.terminal.write(MOUSE_DISABLE));
       ctx.mouseActive = false;
     }
 
     if (ctx.pasteActive) {
-      ctx.terminal.write(BRACKETED_PASTE_DISABLE);
+      attempt(() => ctx.terminal.write(BRACKETED_PASTE_DISABLE));
       ctx.pasteActive = false;
     }
 
     if (ctx.windowFocusActive) {
-      ctx.terminal.write(WINDOW_FOCUS_DISABLE);
+      attempt(() => ctx.terminal.write(WINDOW_FOCUS_DISABLE));
       ctx.windowFocusActive = false;
     }
+
+    if (failed) throw firstError;
   }
 
   ctx.exitTerminalSession = (final: boolean): void => {
     if (!ctx.terminalSessionActive) return;
-
-    detachTerminalModes();
-
-    if (ctx.inlineMode) {
-      ctx.terminal.write(`\x1b[${ctx.inlineHeight}B`);
-      ctx.terminal.write(ansi.cursorShow);
-      if (final) {
-        ctx.terminal.write('\n');
+    let firstError: unknown;
+    let failed = false;
+    const attempt = (action: () => void): void => {
+      try {
+        action();
+      } catch (error: unknown) {
+        if (!failed) firstError = error;
+        failed = true;
       }
-    } else {
-      ctx.terminal.write(ansi.cursorShow);
-      ctx.terminal.write(ansi.altScreenExit);
-    }
+    };
 
-    ctx.terminal.exitRawMode();
-    ctx.terminalSessionActive = false;
+    try {
+      attempt(detachTerminalModes);
+
+      if (ctx.inlineMode) {
+        attempt(() => ctx.terminal.write(`\x1b[${ctx.inlineHeight}B`));
+        attempt(() => ctx.terminal.write(ansi.cursorShow));
+        if (final) {
+          attempt(() => ctx.terminal.write('\n'));
+        }
+      } else {
+        attempt(() => ctx.terminal.write(ansi.cursorShow));
+        attempt(() => ctx.terminal.write(ansi.altScreenExit));
+      }
+    } finally {
+      try {
+        attempt(() => ctx.terminal.exitRawMode());
+      } finally {
+        ctx.terminalSessionActive = false;
+      }
+    }
+    if (failed) throw firstError;
   };
 
   ctx.installSuspendResumeHandlers = (): void => {

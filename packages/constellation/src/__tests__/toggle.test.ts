@@ -1,3 +1,4 @@
+import { extractNodeText } from '@celestial/core/nebula';
 import { describe, expect, it } from 'vitest';
 import { toggle, toggleGroup } from '../toggle.js';
 
@@ -56,6 +57,17 @@ describe('toggle', () => {
     const [model] = comp.init();
     const view = comp.view(model);
     expect(view).toBeDefined();
+  });
+
+  it('falls back safely from invalid runtime style values and snapshots its label', () => {
+    const config = { label: 'Stable', checked: true, size: 'invalid', variant: 'invalid' } as unknown as Parameters<typeof toggle>[0];
+    const comp = toggle(config);
+    config.label = 'Changed';
+    const [model] = comp.init();
+    const rendered = extractNodeText(comp.view(model));
+    expect(rendered).toContain('[ ● ]');
+    expect(rendered).toContain('Stable');
+    expect(rendered).not.toContain('undefined');
   });
 });
 
@@ -123,5 +135,29 @@ describe('toggleGroup', () => {
     const [down] = comp.update({ type: 'down' }, up);
     const [down2] = comp.update({ type: 'down' }, down);
     expect(down2.highlighted).toBe(1);
+  });
+
+  it('supports direct pointer selection while unfocused', () => {
+    const comp = toggleGroup({
+      options: [
+        { label: 'Option A', value: 'a' },
+        { label: 'Option B', value: 'b' },
+      ],
+    });
+    const [model] = comp.init();
+    expect(comp.subscriptions!(model)._kind.kind).toBe('elementMouse');
+    const [updated] = comp.update({ type: 'toggle-at', index: 1 }, model);
+    expect(updated.checked.has('b')).toBe(true);
+    expect(updated.highlighted).toBe(1);
+    expect(updated.focused).toBe(true);
+  });
+
+  it('snapshots options and ignores invalid pointer indices', () => {
+    const mutable = [{ label: 'Original', value: 'original' }];
+    const comp = toggleGroup({ options: mutable });
+    mutable[0]!.label = 'Changed';
+    const [model] = comp.init();
+    expect(extractNodeText(comp.view(model))).toContain('Original');
+    expect(comp.update({ type: 'toggle-at', index: Number.NaN }, model)[0]).toBe(model);
   });
 });

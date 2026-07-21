@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 // Mocks
 // ---------------------------------------------------------------------------
 
-vi.mock('@celestial/corona', () => {
+vi.mock('@celestial/corona', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@celestial/corona')>();
   function rgb(r: number, g: number, b: number) {
     return {
       fg: () => `\x1b[38;2;${r};${g};${b}m`,
@@ -25,6 +26,7 @@ vi.mock('@celestial/corona', () => {
   }
 
   return {
+    ...actual,
     charWidth: () => 1,
     reduceMotion: () => false,
     color: {
@@ -99,6 +101,68 @@ describe('createEffectContext', () => {
     // Clean up
     disposer();
   });
+
+  it('disposes duplicate callback subscriptions independently and cancels the final timer', () => {
+    vi.useFakeTimers();
+    try {
+      let now = 10;
+      const ctx = createEffectContext({ now: () => now, frameMs: 5 });
+      const callback = vi.fn();
+      const disposeFirst = ctx.subscribe(callback);
+      const disposeSecond = ctx.subscribe(callback);
+
+      vi.advanceTimersByTime(5);
+      expect(callback).toHaveBeenCalledTimes(2);
+
+      disposeFirst();
+      now = 20;
+      vi.advanceTimersByTime(5);
+      expect(callback).toHaveBeenCalledTimes(3);
+
+      disposeSecond();
+      disposeSecond();
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(20);
+      expect(callback).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('isolates subscriber and error-hook failures while keeping sibling effects alive', () => {
+    vi.useFakeTimers();
+    try {
+      const reported: unknown[] = [];
+      const ctx = createEffectContext({
+        now: () => 12,
+        frameMs: 1,
+        onSubscriberError: (error) => {
+          reported.push(error);
+          throw new Error('reporter failed');
+        },
+      });
+      const disposeBroken = ctx.subscribe(() => {
+        throw new Error('effect failed');
+      });
+      const healthy = vi.fn();
+      const disposeHealthy = ctx.subscribe(healthy);
+
+      vi.advanceTimersByTime(2);
+      expect(healthy).toHaveBeenCalledTimes(2);
+      expect(reported).toHaveLength(2);
+
+      disposeBroken();
+      disposeHealthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clamps stale and non-finite host clocks to a monotonic timestamp', () => {
+    const readings = [5, 3, Number.NaN, 8];
+    const ctx = createEffectContext({ now: () => readings.shift()! });
+    expect([ctx.getTime(), ctx.getTime(), ctx.getTime(), ctx.getTime()]).toEqual([5, 5, 5, 8]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -133,6 +197,43 @@ describe('mapTextContent', () => {
     const empty: VNode = { kind: 'empty' };
     const result = mapTextContent(empty, () => 'nope');
     expect(result).toBe(empty);
+  });
+
+  it('recurses through event and hover interaction wrappers', () => {
+    const eventNode: VNode = { kind: 'event', id: 'action', handlers: {}, child: makeText('click') };
+    const hoverNode: VNode = { kind: 'hover', id: 'hover', hovered: false, child: eventNode };
+    const result = mapTextContent(hoverNode, (content) => content.toUpperCase());
+
+    expect(result.kind).toBe('hover');
+    if (result.kind === 'hover' && result.child.kind === 'event') {
+      expect(getTextContent(result.child.child)).toBe('CLICK');
+    }
+  });
+
+  it('transforms deferred memo, local-state, and lazy content without eagerly evaluating it', async () => {
+    const memoRender = vi.fn(() => makeText('memo'));
+    const localView = vi.fn(() => makeText('state'));
+    const lazyRender = vi.fn(() => makeText('lazy'));
+    const lazyLoader = vi.fn(async () => lazyRender);
+    const root = makeColumn(
+      { kind: 'memo', render: memoRender, deps: [] },
+      { kind: 'localState', key: 'counter', init: () => 0, reducer: (state: unknown) => state, view: localView },
+      { kind: 'lazy', key: 'deferred', loader: lazyLoader, placeholder: makeText('loading') },
+    );
+
+    const result = mapTextContent(root, (content) => `[${content}]`);
+    expect(memoRender).not.toHaveBeenCalled();
+    expect(localView).not.toHaveBeenCalled();
+    expect(lazyLoader).not.toHaveBeenCalled();
+    if (result.kind !== 'column') throw new Error('expected column');
+
+    const [memoNode, stateNode, lazyNode] = result.children;
+    if (memoNode?.kind !== 'memo' || stateNode?.kind !== 'localState' || lazyNode?.kind !== 'lazy') throw new Error('expected deferred nodes');
+    expect(getTextContent(memoNode.render())).toBe('[memo]');
+    expect(getTextContent(stateNode.view(0, () => {}))).toBe('[state]');
+    expect(getTextContent(lazyNode.placeholder)).toBe('[loading]');
+    const render = await lazyNode.loader();
+    expect(getTextContent(render())).toBe('[lazy]');
   });
 });
 

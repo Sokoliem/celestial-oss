@@ -1,4 +1,4 @@
-import { Cmd, type VNode, text } from '@celestial/nebula';
+import { Cmd, text, type VNode } from '@celestial/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { form } from '../engine.js';
 import { buildFieldContextMenu, runFieldAction } from '../field-actions.js';
@@ -50,11 +50,7 @@ describe('wizard previousStep no-ops when the predicate returns an unreachable s
 
   it('refuses back-nav when the predicate returns a never-visited ref', () => {
     const sut = wizard({
-      steps: [
-        makeStep('intro'),
-        makeStep('b', /* not strictly needed */),
-        { ...makeStep('end'), previousStep: () => 'unreachable' },
-      ],
+      steps: [makeStep('intro'), makeStep('b' /* not strictly needed */), { ...makeStep('end'), previousStep: () => 'unreachable' }],
     });
     // Use goto so we can land on 'end' without traversing
     let [model] = sut.init();
@@ -68,10 +64,7 @@ describe('wizard previousStep no-ops when the predicate returns an unreachable s
 
   it('still routes back when the ref WAS visited', () => {
     const sut = wizard({
-      steps: [
-        makeStep('a'),
-        { ...makeStep('b'), previousStep: () => 'a' },
-      ],
+      steps: [makeStep('a'), { ...makeStep('b'), previousStep: () => 'a' }],
     });
     let [model] = sut.init();
     [model] = sut.update({ type: 'wizard:next' }, model);
@@ -205,7 +198,7 @@ describe('form:submit invalidates in-flight async validation tokens', () => {
 // ─── Bonus: clipboard error path on runFieldAction ────────────────────────
 
 describe('runFieldAction swallows clipboard read errors gracefully', () => {
-  it("returns null when the reader rejects (no thrown error)", async () => {
+  it('returns null when the reader rejects (no thrown error)', async () => {
     const sut = form({ fields: { name: { label: 'Name', defaultValue: 'Alice' } } });
     const [model] = sut.init();
     const reader = vi.fn(async () => {

@@ -7,6 +7,7 @@ import {
   assertPositiveInteger,
   normalizeProgress,
   normalizeSpeed,
+  resolveTimestamp,
 } from './validation.js';
 
 export type StaggerDelayResolver = (index: number, total: number) => number;
@@ -104,7 +105,7 @@ export function sequence<T extends Animatable = number>(...animations: Animation
   function tick(now?: number): void {
     if (isStopped || isPaused || animations.length === 0) return;
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now);
     if (!started) {
       started = true;
       animations[0]?.start();
@@ -271,7 +272,7 @@ export function parallel<T extends Animatable = number>(...animations: Animation
   function tick(now?: number): void {
     if (isStopped || isPaused || animations.length === 0) return;
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now);
     if (!started) {
       started = true;
       for (const animation of animations) {
@@ -439,7 +440,7 @@ export function stagger<T extends Animatable = number>(animations: Animation<T>[
   function tick(now?: number): void {
     if (isStopped || isPaused || animations.length === 0) return;
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now);
     if (startTime === null) {
       startTime = time;
     }
@@ -628,7 +629,7 @@ export function loop<T extends Animatable = number>(animation: Animation<T>, cou
   function tick(now?: number): void {
     if (isStopped || isPaused || maxIterations === 0) return;
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now);
     animation.tick(time);
 
     if (animation.done() && iteration < maxIterations - 1) {
@@ -758,7 +759,7 @@ export function yoyo<T extends Animatable = number>(animation: Animation<T>, cou
   function tick(now?: number): void {
     if (isStopped || isPaused || maxIterations === 0) return;
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now);
     animation.tick(time);
 
     if (animation.done() && iteration < maxIterations - 1) {
@@ -897,7 +898,7 @@ export function delay<T extends Animatable = number>(animation: Animation<T>, ms
   function tick(now?: number): void {
     if (isStopped || isPaused) return;
 
-    const time = now ?? Date.now();
+    const time = resolveTimestamp(now);
     if (startTime === null) {
       startTime = time;
     }

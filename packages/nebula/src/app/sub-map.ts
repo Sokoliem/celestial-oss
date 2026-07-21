@@ -41,7 +41,7 @@ export function applySubMap<M>(sub: Sub<unknown>, fn: (a: unknown) => M): Sub<M>
     case 'phase':
       return Sub.phase({ id: kind.id, registry: kind.registry, machineRef: kind.machineRef, toMsg: (s, p) => fn(kind.toMsg(s, p)), filter: kind.filter });
     case 'stream':
-      return Sub.stream({ id: kind.id, setup: kind.setup, toMsg: (data) => fn(kind.toMsg(data)) });
+      return Sub.stream({ id: kind.id, setup: kind.setup, toMsg: (data) => fn(kind.toMsg(data)), restartKey: kind.restartKey });
     case 'batch':
       return Sub.batch(...kind.subs.map((s) => applySubMap(s, fn)));
     case 'map':
@@ -75,16 +75,13 @@ export function serializeTimerSubs<M>(sub: Sub<M>): string {
       return `idle:${kind.ms}`;
     case 'animationFrame':
       return 'animationFrame';
-    case 'phase':
-      return `phase:${kind.id}`;
     case 'batch':
       return kind.subs
         .map((s) => serializeTimerSubs(s))
         .filter(Boolean)
-        .sort()
         .join('|');
     case 'map':
-      return serializeTimerSubs(applySubMap(kind.sub, kind.fn));
+      return serializeTimerSubs(kind.sub);
     case 'debounce':
     case 'throttle':
     case 'filter':

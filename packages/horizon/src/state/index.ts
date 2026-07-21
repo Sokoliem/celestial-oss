@@ -29,6 +29,22 @@ export {
 // Geometry types are exported from primitives/index.ts — do not re-export here.
 
 export {
+  clampFloatingWindowFrame,
+  type FloatingViewportBounds,
+  type FloatingViewportRect,
+  type FloatingWindowDefaults,
+  type FloatingWindowDragState,
+  type FloatingWindowFrame,
+  type FloatingWindowResizeEdge,
+  type FloatingWindowResizeState,
+  getFloatingFullscreenArea,
+  getFloatingViewportRect,
+  getFloatingWorkArea,
+  resizeFloatingWindowFrame,
+  translateFloatingWindowFrame,
+  translateFloatingWindowFromDragState,
+} from '../floating-window-drag.js';
+export {
   buildNavMap,
   createFocusModel,
   type Direction,
@@ -51,18 +67,6 @@ export {
   type PaneRect,
 } from '../focus.js';
 export {
-  createKeymap,
-  findKeymapConflicts,
-  type KeyBinding,
-  type KeyCommand,
-  type KeymapConflict,
-  type KeymapModel,
-  type KeymapPlatform,
-  type KeymapScope,
-  normalizeAccelerator,
-  resolvePlatformKeyAction,
-} from '../keymap.js';
-export {
   createKeybindingModel,
   getActivePane,
   type KeyBindingAction,
@@ -74,6 +78,18 @@ export {
   keybindingUpdateResult,
   resolveKeyAction,
 } from '../keybindings.js';
+export {
+  createKeymap,
+  findKeymapConflicts,
+  type KeyBinding,
+  type KeyCommand,
+  type KeymapConflict,
+  type KeymapModel,
+  type KeymapPlatform,
+  type KeymapScope,
+  normalizeAccelerator,
+  resolvePlatformKeyAction,
+} from '../keymap.js';
 export type {
   HorizonLayoutState,
   HorizonPersistenceConfig,
@@ -129,7 +145,6 @@ export {
   scrollRegionUpdate,
   scrollRegionUpdateResult,
 } from '../scroll.js';
-
 export {
   createSessionStore,
   listSessions,
@@ -141,21 +156,24 @@ export {
   type WorkspaceSession,
 } from '../session.js';
 export {
-  createWindowManager,
-  getFrontmostWindow,
-  type ManagedWindow,
-  type WindowManager,
-  type WindowManagerMsg,
-  windowManagerHoverAt,
-  windowManagerMsgFromChromeEvent,
-  windowManagerUpdate,
-  windowManagerUpdateResult,
-} from '../windows.js';
+  getWindowChromeControlWidth,
+  hitTestWindowChromeTitleBar,
+  type RenderWindowChromeOptions,
+  renderWindowChrome,
+  type WindowChromeHitTarget,
+  type WindowChromeTokens,
+  windowChromeContract,
+} from '../window-chrome.js';
 export {
+  applyWindowCommand,
+  closeWindow,
   createDesktopWindow,
+  type DesktopWindowState,
   fullscreenWindow,
   hideWindow,
-  type DesktopWindowState,
+  normalizeManagedWindow,
+  restoreWindow,
+  showWindow,
   type WindowChromeConfig,
   type WindowChromeControl,
   type WindowChromeHoverTarget,
@@ -164,41 +182,44 @@ export {
   type WindowLifecycleOptions,
   type WindowLifecycleResult,
   type WindowMode,
+  type WindowRestoreMode,
   type WindowRole,
-  applyWindowCommand,
-  normalizeManagedWindow,
-  restoreWindow,
-  showWindow,
   windowLifecycleUpdate,
-  closeWindow,
 } from '../window-lifecycle.js';
 export {
-  getWindowChromeControlWidth,
-  hitTestWindowChromeTitleBar,
-  renderWindowChrome,
-  type RenderWindowChromeOptions,
-  type WindowChromeHitTarget,
-  windowChromeContract,
-  type WindowChromeTokens,
-} from '../window-chrome.js';
+  type WindowShelfAction,
+  type WindowShelfConfig,
+  type WindowShelfTokens,
+  windowShelf,
+  windowShelfActionFromEvent,
+  windowShelfContract,
+} from '../window-shelf.js';
 export {
-  clampFloatingWindowFrame,
-  resizeFloatingWindowFrame,
-  translateFloatingWindowFrame,
-  translateFloatingWindowFromDragState,
-  type FloatingViewportBounds,
-  type FloatingWindowDefaults,
-  type FloatingWindowDragState,
-  type FloatingWindowFrame,
-  type FloatingWindowResizeEdge,
-  type FloatingWindowResizeState,
-} from '../floating-window-drag.js';
+  createWindowManager,
+  encodeWindowEventId,
+  getFrontmostWindow,
+  getMinimizedWindows,
+  getVisibleWindows,
+  type ManagedWindow,
+  type WindowManager,
+  type WindowManagerBounds,
+  type WindowManagerDiagnostic,
+  type WindowManagerDiagnosticCode,
+  type WindowManagerMsg,
+  type WindowManagerOptions,
+  type WindowManagerUpdateOutcome,
+  windowManagerHoverAt,
+  windowManagerMsgFromChromeEvent,
+  windowManagerMsgFromWindowEvent,
+  windowManagerUpdate,
+  windowManagerUpdateResult,
+} from '../windows.js';
 export {
   createWorkspaceDescriptor,
-  desktopWorkspaceUpdate,
+  createWorkspaceModel,
   type DesktopWorkspaceModel,
   type DesktopWorkspaceMsg,
-  createWorkspaceModel,
+  desktopWorkspaceUpdate,
   getActiveWorkspace,
   movePaneToWorkspace,
   moveTabToWorkspace,

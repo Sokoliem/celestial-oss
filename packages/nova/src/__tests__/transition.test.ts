@@ -206,6 +206,35 @@ describe('transition with id (multi-slot concurrent transitions)', () => {
     const result = transition('new', { key: 'b', tick: 7 });
     expect(result).toBe('new');
   });
+
+  it('never lets legacy key scanning steal an explicit-id transition', () => {
+    transition('explicit-old', { id: 'explicit', key: 'a', tick: 0 });
+    transition('explicit-new', { id: 'explicit', key: 'b', tick: 10 });
+
+    transition('legacy-old', { key: 'x', tick: 0 });
+    transition('legacy-new', { key: 'y', tick: 1 });
+
+    expect(transition('explicit-new', { id: 'explicit', key: 'b', tick: 13 })).not.toBe('explicit-new');
+    expect(transition('explicit-new', { id: 'explicit', key: 'b', tick: 16 })).toBe('explicit-new');
+  });
+
+  it('rejects invalid timing and easing inputs', () => {
+    expect(() => transition('value', { id: 'slot', key: 1, tick: Number.NaN })).toThrow(TypeError);
+    expect(() => transition('value', { id: 'slot', key: 1, tick: 0, duration: -1 })).toThrow(RangeError);
+
+    transition('old', { id: 'slot', key: 1, tick: 0 });
+    expect(() => transition('new', { id: 'slot', key: 2, tick: 1, easing: () => Number.NaN })).toThrow(TypeError);
+  });
+
+  it('treats zero-duration transitions as immediate and ignores stale ticks', () => {
+    transition('old', { id: 'instant', key: 1, tick: 0, duration: 0 });
+    expect(transition('new', { id: 'instant', key: 2, tick: 1, duration: 0 })).toBe('new');
+
+    transition('old', { id: 'clock', key: 1, tick: 0 });
+    transition('new', { id: 'clock', key: 2, tick: 10 });
+    const advanced = transition('new', { id: 'clock', key: 2, tick: 13 });
+    expect(transition('new', { id: 'clock', key: 2, tick: 11 })).toBe(advanced);
+  });
 });
 
 describe('mid-transition key change', () => {

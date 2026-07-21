@@ -233,6 +233,26 @@ describe('flex', () => {
     expect(totalChildWidth).toBe(90);
   });
 
+  it('consumes fractional grow remainders and reflows from the render context', () => {
+    const result = flex({
+      direction: 'row',
+      gap: 1,
+      children: [
+        flexItem({ kind: 'text', content: 'a' }, { basis: 0, grow: 1 }),
+        flexItem({ kind: 'text', content: 'b' }, { basis: 0, grow: 1 }),
+        flexItem({ kind: 'text', content: 'c' }, { basis: 0, grow: 1 }),
+      ],
+    });
+
+    const renderAt = (cols: number): number[] => {
+      const context = { terminal: { cols, rows: 4 }, available: { cols, rows: 4 }, container: { cols, rows: 4 } };
+      return (result.render(context) as RowNode).children.map((child) => (child as BoxNode).width as number);
+    };
+
+    expect(renderAt(10)).toEqual([3, 3, 2]);
+    expect(renderAt(7)).toEqual([2, 2, 1]);
+  });
+
   it('wraps row flex items into multiple lines when basis exceeds container width', () => {
     setTerminalSize({ cols: 12, rows: 24 });
 
@@ -253,6 +273,22 @@ describe('flex', () => {
     expect(rendered.children).toHaveLength(2);
     expect((rendered.children[0] as RowNode).children).toHaveLength(2);
     expect((rendered.children[1] as RowNode).children).toHaveLength(1);
+  });
+
+  it('sizes wrapped cross axes from the actual container instead of global terminal state', () => {
+    setTerminalSize({ cols: 100, rows: 40 });
+    const result = flex({
+      direction: 'row',
+      wrap: 'wrap',
+      gap: 1,
+      alignItems: 'stretch',
+      children: [flexItem({ kind: 'text', content: 'one' }, { basis: 5 }), flexItem({ kind: 'text', content: 'two' }, { basis: 5 })],
+    });
+    const context = { terminal: { cols: 100, rows: 40 }, available: { cols: 10, rows: 6 }, container: { cols: 10, rows: 6 } };
+
+    const rendered = result.render(context) as ColumnNode;
+    expect(rendered.children).toHaveLength(2);
+    expect(((rendered.children[0] as RowNode).children[0] as BoxNode).height).toBe(6);
   });
 
   it('wrap-reverse reverses produced flex lines', () => {
@@ -377,6 +413,22 @@ describe('flex', () => {
     setTerminalSize({ cols: 100, rows: 24 });
     const rendered2 = result.render();
     expect(rendered2.kind).toBe('row');
+  });
+
+  it('resolves conditional direction and visibility from the render context', () => {
+    setTerminalSize({ cols: 200, rows: 24 });
+    const result = flex({
+      direction: when({ min: 80 }, 'row', 'column'),
+      children: [
+        flexItem({ kind: 'text', content: 'always' }, { basis: 5 }),
+        flexItem({ kind: 'text', content: 'wide-hidden' }, { basis: 5, hide: when({ min: 80 }) }),
+      ],
+    });
+    const context = { terminal: { cols: 40, rows: 10 }, available: { cols: 40, rows: 10 }, container: { cols: 40, rows: 10 } };
+
+    const rendered = result.render(context) as ColumnNode;
+    expect(rendered.kind).toBe('column');
+    expect(rendered.children).toHaveLength(2);
   });
 
   it('flex with auto basis measures natural size', () => {

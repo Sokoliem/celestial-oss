@@ -147,3 +147,19 @@ describe('BrailleCanvas', () => {
     });
   });
 });
+
+describe('canvas input hardening', () => {
+  it('rejects unsafe or unbounded dimensions even when the other dimension is zero', () => {
+    expect(() => canvas(0, Number.MAX_SAFE_INTEGER)).toThrow();
+    expect(() => canvas(16_777_217, 0)).toThrow(/dimension limit/);
+    expect(() => canvas(1.5, 1)).toThrow(/safe integer/);
+  });
+
+  it('ignores fractional and non-finite pixel coordinates', () => {
+    const c = canvas(2, 2);
+    c.set(0.5, 0);
+    c.toggle(Number.NaN, 0);
+    c.clear(0, Number.POSITIVE_INFINITY);
+    expect(c.render()).toBe('\u2800\u2800\n\u2800\u2800');
+  });
+});

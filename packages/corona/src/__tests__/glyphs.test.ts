@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_GLYPH_TOKENS, type GlyphToken, resolveGlyph, resolveGlyphs } from '../glyphs.js';
+import { surfaceGlyphTokens } from '../surface-tokens.js';
 import { createTheme } from '../theme.js';
+import { stencilGlyph } from '../tokens/mirage.js';
+import { popoverGlyphs } from '../tokens/popover.js';
+import { defaultProgressBarTokens } from '../tokens/progress-bar.js';
+import { statusGlyphTokens } from '../tokens/status-glyphs.js';
 
 describe('resolveGlyph', () => {
   const token: GlyphToken = {
@@ -24,6 +29,16 @@ describe('resolveGlyph', () => {
 
   it('returns none for none level', () => {
     expect(resolveGlyph(token, 'none')).toBe('N');
+  });
+
+  it('uses an explicit Unicode 16 glyph and otherwise falls back to wide Unicode', () => {
+    expect(resolveGlyph({ ...token, unicode16: 'U' }, 'unicode16')).toBe('U');
+    expect(resolveGlyph(token, 'unicode16')).toBe('W');
+  });
+
+  it('falls back through empty high-capability variants', () => {
+    expect(resolveGlyph({ full: '', wide: 'W', basic: 'B', none: 'N' }, 'full')).toBe('W');
+    expect(resolveGlyph(defaultProgressBarTokens.filled, 'full')).toBe('█');
   });
 });
 
@@ -95,6 +110,21 @@ describe('DEFAULT_GLYPH_TOKENS', () => {
       expect(token).toHaveProperty('none');
     }
   });
+
+  it('keeps all 46 shared core glyph-token none fallbacks printable ASCII', () => {
+    const tokens = [
+      ...Object.values(DEFAULT_GLYPH_TOKENS),
+      ...Object.values(surfaceGlyphTokens),
+      ...Object.values(statusGlyphTokens),
+      defaultProgressBarTokens.filled,
+      defaultProgressBarTokens.empty,
+      popoverGlyphs.centerCaret,
+      stencilGlyph,
+    ];
+
+    expect(tokens).toHaveLength(46);
+    for (const glyph of tokens) expect(glyph.none).toMatch(/^[\x20-\x7e]+$/);
+  });
 });
 
 describe('createTheme with unicodeLevel', () => {
@@ -108,6 +138,12 @@ describe('createTheme with unicodeLevel', () => {
     const theme = createTheme({ unicodeLevel: 'wide' });
     expect(theme.glyphs.pointer).toBe('▸');
     expect(theme.glyphs.ellipsis).toBe('…');
+  });
+
+  it('accepts Atlas unicode16 capability and records the effective level', () => {
+    const theme = createTheme({ unicodeLevel: 'unicode16' });
+    expect(theme.unicodeLevel).toBe('unicode16');
+    expect(theme.glyphs.pointer).toBe('▸');
   });
 
   it('manual glyph overrides take precedence over unicodeLevel', () => {
@@ -124,5 +160,6 @@ describe('createTheme with unicodeLevel', () => {
     const defaultTheme = createTheme({});
     const noLevelTheme = createTheme({});
     expect(defaultTheme.glyphs).toEqual(noLevelTheme.glyphs);
+    expect(defaultTheme.unicodeLevel).toBe('wide');
   });
 });

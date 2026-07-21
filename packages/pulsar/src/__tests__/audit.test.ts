@@ -1,3 +1,4 @@
+import { color, createTheme as createSemanticTheme } from '@celestial/corona';
 import { describe, expect, it } from 'vitest';
 import { auditMarkdown } from '../audit.js';
 import { parseMarkdown } from '../parser.js';
@@ -46,6 +47,15 @@ describe('auditMarkdown', () => {
     const report = auditMarkdown('Text [^1]');
     const orphan = report.findings.filter((f) => f.message.includes('without definition'));
     expect(orphan.length).toBe(1);
+  });
+
+  it('reports semantic-theme contrast violations when a theme is supplied', () => {
+    const unsafe = createSemanticTheme({
+      contrast: { enforce: false },
+      colors: { text: color.hex('#777777'), bg: color.hex('#777777'), surface: color.hex('#777777') },
+    });
+    const report = auditMarkdown('content', unsafe);
+    expect(report.findings.some((finding) => finding.message.startsWith('Theme contrast'))).toBe(true);
   });
 });
 

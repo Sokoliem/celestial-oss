@@ -8,6 +8,7 @@
  */
 
 import { extractFrontmatter } from '../frontmatter.js';
+import { sanitizeTerminalText } from '../internal/sanitize.js';
 import type { AdmonitionKind, InlineToken, ListItem, Token } from '../types.js';
 import { assignHeadingAnchors, Slugger } from './anchors.js';
 import { parseCodeBlockInfoString } from './codeblock-meta.js';
@@ -17,6 +18,7 @@ import { extractLinkRefs, type LinkRef } from './refs.js';
 // ── Admonition Kind Detection ───────────────────────────────────────────
 
 const ADMONITION_KINDS = new Set<string>(['note', 'tip', 'important', 'warning', 'caution', 'ai-thinking', 'tool-call', 'citation']);
+const MAX_BLOCK_NESTING = 64;
 
 function isAdmonitionKind(s: string): s is AdmonitionKind {
   const lower = s.toLowerCase();
@@ -42,7 +44,7 @@ export function parseMarkdown(input: string): Token[] {
   // carriage return can otherwise make a recognizer reject a line while the
   // paragraph collector also treats it as a block start, leaving the cursor
   // on the same line forever.
-  const normalizedInput = input.replace(/\r\n?/g, '\n');
+  const normalizedInput = sanitizeTerminalText(input).replace(/\r\n?/g, '\n');
   const { data: frontmatterData, body } = extractFrontmatter(normalizedInput);
   const { source, refs } = extractLinkRefs(body);
   const tokens = parseMarkdownWithRefs(source, refs);
@@ -68,8 +70,11 @@ export function parseMarkdown(input: string): Token[] {
 
 // ── Block Dispatcher ────────────────────────────────────────────────────
 
-function parseMarkdownWithRefs(input: string, refs: Map<string, LinkRef>): Token[] {
+function parseMarkdownWithRefs(input: string, refs: Map<string, LinkRef>, depth = 0): Token[] {
   if (!input.trim()) return [];
+  if (depth >= MAX_BLOCK_NESTING) {
+    return [{ type: 'paragraph', content: joinInlineLines(input.split('\n'), refs) }];
+  }
 
   const lines = input.split('\n');
   const tokens: Token[] = [];
@@ -170,7 +175,7 @@ function parseMarkdownWithRefs(input: string, refs: Map<string, LinkRef>): Token
       tokens.push({
         type: 'footnote-def',
         label,
-        content: parseMarkdownWithRefs(contentLines.join('\n'), refs),
+        content: parseMarkdownWithRefs(contentLines.join('\n'), refs, depth + 1),
       });
       continue;
     }
@@ -256,13 +261,13 @@ function parseMarkdownWithRefs(input: string, refs: Map<string, LinkRef>): Token
           type: 'admonition',
           kind,
           title,
-          content: parseMarkdownWithRefs(contentLines.slice(startIdx).join('\n'), refs),
+          content: parseMarkdownWithRefs(contentLines.slice(startIdx).join('\n'), refs, depth + 1),
           ...(collapsible ? { collapsed, collapsible } : {}),
         });
       } else {
         tokens.push({
           type: 'blockquote',
-          content: parseMarkdownWithRefs(blockLines.join('\n'), refs),
+          content: parseMarkdownWithRefs(blockLines.join('\n'), refs, depth + 1),
         });
       }
       continue;
@@ -270,7 +275,7 @@ function parseMarkdownWithRefs(input: string, refs: Map<string, LinkRef>): Token
 
     // List (ordered or unordered) with nested sub-list support
     if (/^(\s*)([-*]|\d+\.)\s+/.test(line)) {
-      const result = parseList(lines, i, refs);
+      const result = parseList(lines, i, refs, depth);
       tokens.push(result.token);
       i = result.nextIndex;
       continue;
@@ -280,7 +285,7 @@ function parseMarkdownWithRefs(input: string, refs: Map<string, LinkRef>): Token
     // Tags must each occupy their own line (or be on the same line as the
     // opening tag for `<summary>`); we don't try to parse mid-line HTML.
     if (/^\s*<details\b/i.test(line)) {
-      const result = parseDetails(lines, i, refs);
+      const result = parseDetails(lines, i, refs, depth);
       if (result) {
         tokens.push(result.token);
         i = result.nextIndex;
@@ -365,7 +370,7 @@ interface ListParseResult {
  * Parse a list starting at `startIdx`, handling nested sub-lists via indentation.
  * Returns the list token and the next line index to continue parsing.
  */
-function parseList(lines: string[], startIdx: number, refs?: Map<string, LinkRef>): ListParseResult {
+function parseList(lines: string[], startIdx: number, refs: Map<string, LinkRef>, depth: number): ListParseResult {
   const firstLine = lines[startIdx]!;
   const baseIndent = firstLine.match(/^(\s*)/)?.[1]?.length ?? 0;
 
@@ -437,7 +442,7 @@ function parseList(lines: string[], startIdx: number, refs?: Map<string, LinkRef
         }
       }
 
-      const children = childLines.length > 0 ? parseMarkdownWithRefs(childLines.join('\n'), refs ?? new Map()) : undefined;
+      const children = childLines.length > 0 ? parseMarkdownWithRefs(childLines.join('\n'), refs, depth + 1) : undefined;
 
       const item: ListItem = {
         content: parseInline(itemText, refs),
@@ -562,7 +567,7 @@ interface DetailsParseResult {
  * body runs from after the summary close to the matching `</details>`. We
  * recurse into the body so nested markdown (lists, code, etc.) renders.
  */
-function parseDetails(lines: string[], startIdx: number, refs: Map<string, LinkRef>): DetailsParseResult | null {
+function parseDetails(lines: string[], startIdx: number, refs: Map<string, LinkRef>, depth: number): DetailsParseResult | null {
   const startLine = lines[startIdx];
   if (!startLine) return null;
   // Collect the source lines until </details>. Bail out (return null) if the
@@ -613,7 +618,7 @@ function parseDetails(lines: string[], startIdx: number, refs: Map<string, LinkR
     token: {
       type: 'details',
       summary: parseInline(summaryText, refs),
-      content: bodyText.trim().length > 0 ? parseMarkdownWithRefs(bodyText, refs) : [],
+      content: bodyText.trim().length > 0 ? parseMarkdownWithRefs(bodyText, refs, depth + 1) : [],
     },
     nextIndex: i,
   };

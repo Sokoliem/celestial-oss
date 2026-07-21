@@ -67,10 +67,10 @@ const brailleCodec: CellCodec = {
   subRows: 4,
   pixelAspect: 1.0,
   dotBit(dy: number, dx: number): number {
-    return BRAILLE_BITS[dy]![dx]!;
+    return BRAILLE_BITS[dy]?.[dx] ?? 0;
   },
   toChar(bitmask: number): string {
-    return String.fromCodePoint(BRAILLE_BASE + bitmask);
+    return String.fromCodePoint(BRAILLE_BASE + (bitmask & 0xff));
   },
 };
 
@@ -131,10 +131,10 @@ const sextantCodec: CellCodec = {
   subRows: 3,
   pixelAspect: 0.75,
   dotBit(dy: number, dx: number): number {
-    return SEXTANT_BITS[dy]![dx]!;
+    return SEXTANT_BITS[dy]?.[dx] ?? 0;
   },
   toChar(bitmask: number): string {
-    return SEXTANT_TABLE[bitmask]!;
+    return SEXTANT_TABLE[bitmask & 0x3f]!;
   },
 };
 
@@ -245,10 +245,10 @@ const octantCodec: CellCodec = {
   subRows: 4,
   pixelAspect: 1.0,
   dotBit(dy: number, dx: number): number {
-    return OCTANT_BITS[dy]![dx]!;
+    return OCTANT_BITS[dy]?.[dx] ?? 0;
   },
   toChar(bitmask: number): string {
-    return OCTANT_TABLE[bitmask]!;
+    return OCTANT_TABLE[bitmask & 0xff]!;
   },
 };
 
@@ -316,7 +316,7 @@ const quarterCodec: CellCodec = {
   subRows: 2,
   pixelAspect: 0.5,
   dotBit(dy: number, dx: number): number {
-    return QUARTER_BITS[dy]![dx]!;
+    return QUARTER_BITS[dy]?.[dx] ?? 0;
   },
   toChar(bitmask: number): string {
     return QUARTER_TABLE[bitmask & 0x0f]!;

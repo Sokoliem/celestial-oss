@@ -75,11 +75,14 @@ const SIZE_SUFFIX: Record<BadgeSize, string> = {
 const PULSE_CHARS = ['◐', '◓', '◑', '◒'];
 
 export function badge(config: BadgeConfig): ComponentDescriptor<BadgeModel, BadgeMsg> {
-  const variant = config.variant ?? 'default';
-  const size = config.size ?? 'md';
+  const variant = config.variant && config.variant in VARIANT_DECORATORS ? config.variant : 'default';
+  const size = config.size === 'sm' || config.size === 'lg' ? config.size : 'md';
   const decorators = VARIANT_DECORATORS[variant];
   const pulseIndex = 0;
-  const interactionId = config.id ?? generateFocusGroupId(`badge-${config.label}`);
+  const label = String(config.label);
+  const pulse = Boolean(config.pulse);
+  const onClick = config.onClick;
+  const interactionId = config.id ? String(config.id) : generateFocusGroupId(`badge-${label}`);
   const clickTag = `${interactionId}:click`;
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
@@ -92,7 +95,7 @@ export function badge(config: BadgeConfig): ComponentDescriptor<BadgeModel, Badg
     update(msg: BadgeMsg, model: BadgeModel): [BadgeModel, Cmd<BadgeMsg>] {
       switch (msg.type) {
         case 'click':
-          config.onClick?.();
+          onClick?.();
           return [model, Cmd.none()];
         case 'hover':
           return [{ ...model, hovered: true }, Cmd.none()];
@@ -109,9 +112,9 @@ export function badge(config: BadgeConfig): ComponentDescriptor<BadgeModel, Badg
       const theme = resolveTheme(config);
       const badgeColor = theme.colors.tones[VARIANT_TONE[variant]];
 
-      const labelStr = config.pulse
-        ? `${SIZE_PREFIX[size]}${PULSE_CHARS[pulseIndex % 4]} ${config.label}${SIZE_SUFFIX[size]}`
-        : `${SIZE_PREFIX[size]}${decorators.prefix}${config.label}${decorators.suffix}${SIZE_SUFFIX[size]}`;
+      const labelStr = pulse
+        ? `${SIZE_PREFIX[size]}${PULSE_CHARS[pulseIndex % 4]} ${label}${SIZE_SUFFIX[size]}`
+        : `${SIZE_PREFIX[size]}${decorators.prefix}${label}${decorators.suffix}${SIZE_SUFFIX[size]}`;
 
       const badgeNode = text(
         labelStr,
@@ -122,17 +125,17 @@ export function badge(config: BadgeConfig): ComponentDescriptor<BadgeModel, Badg
         }),
       );
 
-      if (!config.onClick) return badgeNode;
+      if (!onClick) return badgeNode;
       return event(
         interactionId,
         badgeNode,
         { onClick: clickTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
-        { label: config.label, intent: 'activate', affordances: ['hover', 'click'], cursor: 'pointer' },
+        { label, intent: 'activate', affordances: ['hover', 'click'], cursor: 'pointer' },
       );
     },
 
     subscriptions(): Sub<BadgeMsg> {
-      if (!config.onClick) return Sub.none();
+      if (!onClick) return Sub.none();
       return Sub.elementMouse<BadgeMsg>((mouseEvent) => {
         if (mouseEvent.elementId !== interactionId) return { type: 'noop' };
         if (mouseEvent.handlerTag === clickTag) return { type: 'click' };

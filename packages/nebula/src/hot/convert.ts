@@ -46,7 +46,7 @@ export function convertSub(raw: any): Sub<any> {
     case 'phase':
       return Sub.phase({ id: raw.id, registry: raw.registry, machineRef: raw.machineRef, toMsg: raw.toMsg, filter: raw.filter });
     case 'stream':
-      return Sub.stream({ id: raw.id, setup: raw.setup, toMsg: raw.toMsg });
+      return Sub.stream({ id: raw.id, setup: raw.setup, toMsg: raw.toMsg, restartKey: raw.restartKey });
     case 'batch':
       return Sub.batch(...(raw.subs ?? []).map(convertSub));
     case 'map':

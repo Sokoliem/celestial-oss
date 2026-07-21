@@ -57,6 +57,10 @@ describe('getTheme', () => {
     const t2 = getTheme('default');
     expect(t1).toBe(t2);
   });
+
+  it('fails safe to the default for an invalid runtime name', () => {
+    expect(getTheme('missing' as never).name).toBe('default');
+  });
 });
 
 describe('createTheme', () => {
@@ -74,6 +78,11 @@ describe('createTheme', () => {
     // Other functions should still work from default
     expect(stripAnsi(theme.string('hi'))).toBe('hi');
   });
+
+  it('ignores malformed runtime overrides instead of poisoning the theme', () => {
+    const theme = createTheme({ name: 'safe', keyword: 'broken' as never });
+    expect(stripAnsi(theme.keyword('const'))).toBe('const');
+  });
 });
 
 describe('resolveTheme', () => {
@@ -85,6 +94,11 @@ describe('resolveTheme', () => {
   it('resolves a theme name string', () => {
     const theme = resolveTheme('monokai');
     expect(theme.name).toBe('monokai');
+  });
+
+  it('normalizes theme names and fails safe for unknown strings', () => {
+    expect(resolveTheme(' MONOKAI ' as never).name).toBe('monokai');
+    expect(resolveTheme('missing' as never).name).toBe('default');
   });
 
   it('passes through a theme object', () => {

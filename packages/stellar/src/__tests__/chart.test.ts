@@ -89,6 +89,31 @@ describe('chart.sparkline', () => {
   });
 });
 
+describe('core chart numeric hardening', () => {
+  const extremes = [-Number.MAX_VALUE, 0, Number.MAX_VALUE];
+
+  it('renders extreme finite line, bar, and scatter ranges', () => {
+    expect(() => chart.line({ data: extremes, width: 10, height: 4 }).toString()).not.toThrow();
+    expect(() => chart.bar({ data: extremes, width: 10, height: 4 }).toString()).not.toThrow();
+    expect(() =>
+      chart
+        .scatter({
+          data: [
+            [-Number.MAX_VALUE, -Number.MAX_VALUE],
+            [Number.MAX_VALUE, Number.MAX_VALUE],
+          ],
+          width: 10,
+          height: 4,
+        })
+        .toString(),
+    ).not.toThrow();
+  });
+
+  it('bounds non-finite sparkline widths', () => {
+    expect(chart.sparkline([1, 2, 3], Number.POSITIVE_INFINITY)).toHaveLength(3);
+  });
+});
+
 describe('chart.stackedBar', () => {
   it('produces non-empty output', () => {
     const result = chart.stackedBar({

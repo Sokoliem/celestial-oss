@@ -83,6 +83,12 @@ describe('minLength', () => {
     expect(minLength(1)('👩‍🚀')).toEqual({ valid: true });
     expect(minLength(2)('👩‍🚀').valid).toBe(false);
   });
+
+  it('rejects malformed length constraints', () => {
+    expect(() => minLength(Number.NaN)).toThrow(RangeError);
+    expect(() => minLength(-1)).toThrow(RangeError);
+    expect(() => minLength(1.5)).toThrow(RangeError);
+  });
 });
 
 describe('maxLength', () => {
@@ -99,6 +105,10 @@ describe('maxLength', () => {
   it('does not reject a combined emoji as multiple characters', () => {
     expect(maxLength(1)('👩‍🚀')).toEqual({ valid: true });
   });
+
+  it('rejects malformed length constraints', () => {
+    expect(() => maxLength(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+  });
 });
 
 describe('pattern', () => {
@@ -109,6 +119,15 @@ describe('pattern', () => {
   it('fails when value does not match regex', () => {
     const result = pattern(/^\d+$/)('abc');
     expect(result.valid).toBe(false);
+  });
+
+  it('is deterministic for global and sticky expressions', () => {
+    const global = pattern(/a/g);
+    expect(global('a')).toEqual({ valid: true });
+    expect(global('a')).toEqual({ valid: true });
+    const sticky = pattern(/a/y);
+    expect(sticky('a')).toEqual({ valid: true });
+    expect(sticky('a')).toEqual({ valid: true });
   });
 });
 
@@ -133,6 +152,21 @@ describe('max', () => {
     const result = max(10)(11);
     expect(result.valid).toBe(false);
     if (!result.valid) expect(result.message).toContain('at most 10');
+  });
+});
+
+describe('numeric boundary hardening', () => {
+  it('rejects non-finite values across range rules', () => {
+    for (const rule of [min(0), max(10), positive(), negative(), between(-10, 10)]) {
+      expect(rule(Number.NaN).valid).toBe(false);
+      expect(rule(Number.POSITIVE_INFINITY).valid).toBe(false);
+    }
+  });
+
+  it('rejects non-finite and inverted rule constraints', () => {
+    expect(() => min(Number.NaN)).toThrow(RangeError);
+    expect(() => max(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+    expect(() => between(10, 1)).toThrow(RangeError);
   });
 });
 

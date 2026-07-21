@@ -66,6 +66,12 @@ export function normalizeSpeed(factor: number): number {
   return assertPositiveNumber(factor, 'speed factor');
 }
 
+/** Resolve a wall/external clock reading and ignore stale frames. */
+export function resolveTimestamp(now: number | undefined, previous?: number | null): number {
+  const timestamp = now === undefined ? Date.now() : assertFiniteNumber(now, 'now');
+  return previous === undefined || previous === null ? timestamp : Math.max(previous, timestamp);
+}
+
 export function assertPoint(value: Point, name: string): Point {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError(`${name} must be a point object`);

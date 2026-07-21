@@ -1,3 +1,4 @@
+import { measureTextWidth } from '@celestial/rosetta';
 import { describe, expect, it } from 'vitest';
 import { indeterminateProgress, progressBar, spinner } from '../progress.js';
 
@@ -87,6 +88,20 @@ describe('progressBar', () => {
       expect(vnode.content).toContain('50%');
     }
   });
+
+  it('normalizes NaN values and unsafe widths', () => {
+    const vnode = progressBar({ value: Number.NaN, width: Number.POSITIVE_INFINITY });
+    if (vnode.kind === 'text') {
+      expect(vnode.content).toContain('0%');
+      expect(measureTextWidth(vnode.content)).toBeLessThan(40);
+    }
+    expect(() => progressBar({ value: 0.5, width: -10 })).not.toThrow();
+  });
+
+  it('uses only one-cell custom track glyphs', () => {
+    const vnode = progressBar({ value: 0.5, width: 4, filled: '界', empty: '👨‍👩‍👧‍👦' });
+    if (vnode.kind === 'text') expect(measureTextWidth(vnode.content.slice(1, 5))).toBe(4);
+  });
 });
 
 describe('spinner', () => {
@@ -156,6 +171,18 @@ describe('spinner', () => {
     [model] = component.update({ type: 'tick' }, model);
     expect(model.frame).toBe(0);
   });
+
+  it('falls back from invalid runtime styles and frame state', () => {
+    const component = spinner({ style: 'missing' as never, speed: Number.NaN });
+    expect(() => component.view({ frame: Number.POSITIVE_INFINITY })).not.toThrow();
+  });
+
+  it('stops animation when reduced motion is requested', () => {
+    const component = spinner({ theme: { motion: { reduceMotion: true } } });
+    expect(component.subscriptions!({ frame: 3 })._kind.kind).toBe('none');
+    const vnode = component.view({ frame: 3 });
+    if (vnode.kind === 'text') expect(vnode.content).toBe('⠋');
+  });
 });
 
 describe('indeterminateProgress', () => {
@@ -206,5 +233,13 @@ describe('indeterminateProgress', () => {
     const comp = indeterminateProgress({});
     const sub = comp.subscriptions!({ position: 0 });
     expect(sub._kind.kind).toBe('timer');
+  });
+
+  it('handles zero and malformed dimensions without modulo or repeat errors', () => {
+    const zero = indeterminateProgress({ width: 0, speed: -1 });
+    const [updated] = zero.update({ type: 'tick' }, { position: Number.NaN });
+    expect(updated.position).toBe(0);
+    expect(zero.subscriptions!({ position: 0 })._kind.kind).toBe('none');
+    expect(() => zero.view({ position: Number.POSITIVE_INFINITY })).not.toThrow();
   });
 });

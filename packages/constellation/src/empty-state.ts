@@ -3,8 +3,9 @@ import { style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { column, row, text } from '@celestial/core/nebula';
 import { divider } from './divider.js';
+import { MAX_RENDER_CELLS } from './internal.js';
 import { keycap } from './keycap.js';
-import { applyTypography, type ConstellationThemedOptions, resolveTheme, useTokens } from './theme.js';
+import { applyTypography, type ConstellationThemedOptions, normalizeTone, resolveTheme, useTokens } from './theme.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ export interface EmptyStateConfig extends ConstellationThemedOptions {
 export function emptyState(config: EmptyStateConfig): VNode {
   const tokens = useTokens(emptyStateContract, config, 'EmptyState');
   const theme = resolveTheme(config);
-  const tone = config.tone ?? 'info';
+  const tone = normalizeTone(config.tone, 'info');
   const toneColor = tone === 'neutral' ? tokens.text : theme.colors.tones[tone];
   const header = config.icon ? `${config.icon} ${config.title}` : config.title;
   const nodes: VNode[] = [
@@ -53,7 +54,7 @@ export function emptyState(config: EmptyStateConfig): VNode {
   ];
 
   if (config.actions && config.actions.length > 0) {
-    const actionNodes = config.actions.map((action) => {
+    const actionNodes = config.actions.slice(0, MAX_RENDER_CELLS).map((action) => {
       const parts: VNode[] = [text(action.label, style({ color: tokens.text }))];
       if (action.shortcut) {
         parts.push(text('  ', style({ color: tokens.muted })));

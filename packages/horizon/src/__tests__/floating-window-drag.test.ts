@@ -57,6 +57,21 @@ describe('floating-window drag helpers', () => {
     expect(frame.y + frame.height).toBeLessThanOrEqual(6);
   });
 
+  it('honors all four application insets when clamping and resizing', () => {
+    const viewport = { cols: 40, rows: 20, leftInset: 3, rightInset: 4, topInset: 2, bottomInset: 3 };
+    const frame = clampFloatingWindowFrame(viewport, { width: 20, height: 10, minWidth: 5, minHeight: 3 }, { x: 99, y: 99, width: 20, height: 10 });
+    const resized = resizeFloatingWindowFrame(
+      { edge: 'bottom-right', startMouseX: 22, startMouseY: 11, startX: 3, startY: 2, startWidth: 20, startHeight: 10 },
+      99,
+      99,
+      viewport,
+      { minWidth: 5, minHeight: 3 },
+    );
+
+    expect(frame).toEqual({ x: 16, y: 7, width: 20, height: 10 });
+    expect(resized).toEqual({ x: 3, y: 2, width: 33, height: 15 });
+  });
+
   it('normalizes resize constraints that exceed the viewport', () => {
     const resized = resizeFloatingWindowFrame(
       {

@@ -186,6 +186,16 @@ describe('responsive', () => {
 
       expect(result.render()).toBe(lgLayout);
     });
+
+    it('uses the current render context when no breakpoint override is active', () => {
+      setTerminalSize({ cols: 200, rows: 24 });
+      const xsLayout: VNode = { kind: 'text', content: 'xs' };
+      const lgLayout: VNode = { kind: 'text', content: 'lg' };
+      const result = responsive({ xs: xsLayout, lg: lgLayout });
+
+      expect(result.render({ terminal: { cols: 30, rows: 10 }, available: { cols: 30, rows: 10 }, container: { cols: 30, rows: 10 } })).toBe(xsLayout);
+      expect(result.render({ terminal: { cols: 150, rows: 10 }, available: { cols: 150, rows: 10 }, container: { cols: 150, rows: 10 } })).toBe(lgLayout);
+    });
   });
 
   describe('traceResponsive()', () => {

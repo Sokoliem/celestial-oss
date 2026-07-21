@@ -65,6 +65,34 @@ export type TreeMsg =
   | Msg<'blur'>
   | Msg<'noop'>;
 
+const MAX_TREE_NODES = 100_000;
+const MAX_TREE_DEPTH = 64;
+
+function snapshotTree(nodes: readonly TreeNode[]): TreeNode[] {
+  const keys = new Set<string>();
+  const path = new Set<TreeNode>();
+  let count = 0;
+
+  const visit = (list: readonly TreeNode[], depth: number): TreeNode[] => {
+    if (depth > MAX_TREE_DEPTH) throw new Error(`Tree depth exceeds the supported limit of ${MAX_TREE_DEPTH}.`);
+    const result: TreeNode[] = [];
+    for (const node of list) {
+      if (count >= MAX_TREE_NODES) throw new Error(`Tree contains more than ${MAX_TREE_NODES} nodes.`);
+      if (path.has(node)) throw new Error('Tree nodes must not contain cycles.');
+      if (keys.has(node.key)) throw new Error(`Tree node keys must be unique; received duplicate key "${node.key}".`);
+      count++;
+      keys.add(node.key);
+      path.add(node);
+      const children = node.children ? visit(node.children, depth + 1) : undefined;
+      path.delete(node);
+      result.push({ label: node.label, key: node.key, ...(children && children.length > 0 ? { children } : {}) });
+    }
+    return result;
+  };
+
+  return visit(nodes, 0);
+}
+
 function flattenVisible(nodes: TreeNode[], expanded: Set<string>): { keys: string[]; nodeMap: Map<string, TreeNodeInfo> } {
   const keys: string[] = [];
   const nodeMap = new Map<string, TreeNodeInfo>();
@@ -82,18 +110,42 @@ function flattenVisible(nodes: TreeNode[], expanded: Set<string>): { keys: strin
 }
 
 export function tree(config: TreeConfig): ComponentDescriptor<TreeModel, TreeMsg> {
-  const nodes = config.nodes;
+  const nodes = snapshotTree(config.nodes);
+  const allTreeKeys = new Set<string>();
+  const collectKeys = (list: readonly TreeNode[]) => {
+    for (const node of list) {
+      allTreeKeys.add(node.key);
+      if (node.children) collectKeys(node.children);
+    }
+  };
+  collectKeys(nodes);
   const interactionId = generateFocusGroupId('tree');
   const selectTag = `${interactionId}:select`;
   const toggleTag = `${interactionId}:toggle`;
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
+
+  const normalizeState = (model: TreeModel): TreeModel => {
+    const expanded =
+      model.expanded instanceof Set
+        ? new Set([...model.expanded].filter((key): key is string => typeof key === 'string' && allTreeKeys.has(key)))
+        : new Set<string>();
+    const { keys, nodeMap } = flattenVisible(nodes, expanded);
+    const cursor = Number.isFinite(model.cursor) ? Math.max(0, Math.min(Math.max(0, keys.length - 1), Math.trunc(model.cursor))) : 0;
+    const selected = typeof model.selected === 'string' && allTreeKeys.has(model.selected) ? model.selected : null;
+    const hoveredIndex =
+      model.hoveredIndex !== null && model.hoveredIndex !== undefined && Number.isFinite(model.hoveredIndex)
+        ? Math.max(0, Math.min(Math.max(0, keys.length - 1), Math.trunc(model.hoveredIndex)))
+        : null;
+    return { ...model, expanded, selected, flatKeys: keys, cursor, nodeMap, hoveredIndex };
+  };
   return {
     init(): [TreeModel, Cmd<TreeMsg>] {
       const { keys, nodeMap } = flattenVisible(nodes, new Set());
       return [{ expanded: new Set(), selected: null, flatKeys: keys, cursor: 0, nodeMap, focused: config.focused ?? false }, Cmd.none()];
     },
     update(msg: TreeMsg, model: TreeModel): [TreeModel, Cmd<TreeMsg>] {
+      model = normalizeState(model);
       switch (msg.type) {
         case 'toggle': {
           const k = model.flatKeys[model.cursor];
@@ -106,6 +158,7 @@ export function tree(config: TreeConfig): ComponentDescriptor<TreeModel, TreeMsg
           return [{ ...model, expanded: exp, flatKeys: keys, nodeMap, cursor: keys.indexOf(k) }, Cmd.none()];
         }
         case 'toggle-at': {
+          if (!Number.isInteger(msg.index)) return [model, Cmd.none()];
           const k = model.flatKeys[msg.index];
           if (!k) return [model, Cmd.none()];
           const info = model.nodeMap.get(k);
@@ -128,13 +181,14 @@ export function tree(config: TreeConfig): ComponentDescriptor<TreeModel, TreeMsg
           return [model, Cmd.none()];
         }
         case 'activate': {
+          if (!Number.isInteger(msg.index)) return [model, Cmd.none()];
           const k = model.flatKeys[msg.index];
           if (!k) return [model, Cmd.none()];
           config.onSelect?.(k);
           return [{ ...model, cursor: msg.index, selected: k, focused: true }, Cmd.none()];
         }
         case 'hover-at':
-          return model.flatKeys[msg.index] ? [{ ...model, hoveredIndex: msg.index }, Cmd.none()] : [model, Cmd.none()];
+          return Number.isInteger(msg.index) && model.flatKeys[msg.index] ? [{ ...model, hoveredIndex: msg.index }, Cmd.none()] : [model, Cmd.none()];
         case 'leave':
           return [{ ...model, hoveredIndex: null }, Cmd.none()];
         case 'focus':
@@ -146,6 +200,7 @@ export function tree(config: TreeConfig): ComponentDescriptor<TreeModel, TreeMsg
       }
     },
     view(model: TreeModel): VNode {
+      model = normalizeState(model);
       const tokens = useTokens(treeContract, config, 'Tree');
       const hlStyle = style({ color: tokens.expanded, bold: true });
       const selStyle = style({ color: tokens.expanded });

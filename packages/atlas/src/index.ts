@@ -52,6 +52,7 @@ export type {
 export { createSurfacePolicy } from './surface-policy.js';
 // --- Terminal database ---
 export { DEFAULT_TERMINAL, lookupTerminal, TERMINAL_DB } from './terminal-db.js';
+export { acquireTerminalLease, type TerminalInputStream, type TerminalLease } from './terminal-lease.js';
 // --- Types ---
 export type {
   AtlasCapabilities,

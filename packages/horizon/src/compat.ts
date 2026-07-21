@@ -1,12 +1,13 @@
 import { box, event, text, type VNode } from '@celestial/core/nebula';
+import { finiteCell, MAX_SPLIT_PANES, nonNegativeInteger } from './internal.js';
 import { CURRENT_LAYOUT_VERSION, type HorizonLayoutState } from './persistence.js';
 import { createSessionStore, loadSession, type SessionStore, saveSession } from './session.js';
 import { splitPane } from './split.js';
 import { floating } from './stack.js';
 import type { TabConfig as BaseTabConfig, TabStyle } from './tabs.js';
 import { renderWindowChrome } from './window-chrome.js';
-import { createDesktopWindow, type WindowChromeConfig, type WindowMode, type WindowRole } from './window-lifecycle.js';
-import type { WindowManager } from './windows.js';
+import { createDesktopWindow, type WindowChromeConfig, type WindowMode, type WindowRestoreMode, type WindowRole } from './window-lifecycle.js';
+import { getVisibleWindows, type WindowManager } from './windows.js';
 
 export interface Pane {
   id: string;
@@ -24,37 +25,44 @@ export interface SplitLayout {
 
 function normalizeSizes(panes: Pane[]): number[] {
   const flexCount = panes.filter((pane) => pane.size === 'flex').length;
-  const fixedTotal = panes.reduce((sum, pane) => sum + (typeof pane.size === 'number' ? pane.size : 0), 0);
+  const fixedTotal = panes.reduce((sum, pane) => sum + (typeof pane.size === 'number' ? nonNegativeInteger(pane.size) : 0), 0);
   const flexWeight = flexCount > 0 ? Math.max(1, fixedTotal / flexCount) : 1;
-  return panes.map((pane) => (typeof pane.size === 'number' ? pane.size : flexWeight));
+  return panes.map((pane) => (typeof pane.size === 'number' ? nonNegativeInteger(pane.size) : flexWeight));
 }
 
 function buildSplit(direction: 'horizontal' | 'vertical', panes: Pane[], gap = 0): VNode {
-  if (panes.length === 0) {
+  const stablePanes = panes.slice(0, MAX_SPLIT_PANES).map((pane) => ({ ...pane }));
+  if (stablePanes.length === 0) {
     return { kind: 'empty' };
   }
-  if (panes.length === 1) {
-    return panes[0]!.content;
+  if (stablePanes.length === 1) {
+    return stablePanes[0]!.content;
   }
 
-  const [first, ...rest] = panes;
-  const sizes = normalizeSizes(panes);
-  const total = sizes.reduce((sum, size) => sum + size, 0);
-  const ratio = total === 0 ? 0.5 : sizes[0]! / total;
-  const separator = gap > 0 ? ' '.repeat(gap) : undefined;
-
-  return splitPane({
-    direction,
-    ratio,
-    first: first!.content,
-    second: buildSplit(direction, rest, gap),
-    separator,
-    minSize: first?.minSize ?? 1,
-  });
+  const sizes = normalizeSizes(stablePanes);
+  const separatorSize = nonNegativeInteger(gap, 0, 1_000);
+  const separator = separatorSize > 0 ? ' '.repeat(separatorSize) : undefined;
+  let node = stablePanes[stablePanes.length - 1]!.content;
+  let remainingSize = sizes[sizes.length - 1] ?? 0;
+  for (let index = stablePanes.length - 2; index >= 0; index--) {
+    const pane = stablePanes[index]!;
+    const paneSize = sizes[index] ?? 0;
+    const total = paneSize + remainingSize;
+    node = splitPane({
+      direction,
+      ratio: total <= 0 ? 0.5 : paneSize / total,
+      first: pane.content,
+      second: node,
+      separator,
+      minSize: nonNegativeInteger(pane.minSize, 1),
+    });
+    remainingSize = total;
+  }
+  return node;
 }
 
 export function createSplitLayout(layout: SplitLayout): VNode {
-  return buildSplit(layout.direction, layout.panes, layout.gap);
+  return buildSplit(layout.direction === 'vertical' ? 'vertical' : 'horizontal', layout.panes, layout.gap);
 }
 
 export function splitH(layout: Omit<SplitLayout, 'direction'>): VNode {
@@ -130,13 +138,20 @@ function buildTabNode(tab: TabConfig, index: number, context: TabNodeContext): V
 }
 
 export function createTabBar(config: CreateTabBarConfig): VNode {
+  const tabs = config.tabs.slice(0, MAX_SPLIT_PANES).map((tab) => ({ ...tab }));
+  const ids = new Set<string>();
+  for (const tab of tabs) {
+    const id = tab.id ?? tab.label;
+    if (ids.has(id)) throw new Error(`horizon/createTabBar: duplicate tab id "${id}"`);
+    ids.add(id);
+  }
   const activeIndex = Math.max(
     0,
-    config.tabs.findIndex((tab) => (tab.id ?? tab.label) === config.active),
+    tabs.findIndex((tab) => (tab.id ?? tab.label) === config.active),
   );
   const tabRow: VNode = {
     kind: 'row',
-    children: config.tabs.map((tab, index) =>
+    children: tabs.map((tab, index) =>
       buildTabNode(tab, index, {
         activeIndex,
         onClose: config.onClose,
@@ -145,7 +160,7 @@ export function createTabBar(config: CreateTabBarConfig): VNode {
     ),
   };
 
-  const content = config.tabs[activeIndex]?.content ?? { kind: 'empty' };
+  const content = tabs[activeIndex]?.content ?? { kind: 'empty' };
   const children = config.position === 'bottom' ? [content, tabRow] : [tabRow, content];
   return {
     kind: 'column',
@@ -188,11 +203,24 @@ export interface FloatingWindowConfig {
   focused?: boolean;
   restoreBounds?: { x: number; y: number; width: number; height: number };
   restoreFrame?: { x: number; y: number; width: number; height: number };
+  /** Visible mode resumed after minimize/hide. */
+  restoreMode?: WindowRestoreMode;
   layoutId?: string;
 }
 
 export function createFloatingWindow(config: FloatingWindowConfig): FloatingWindowConfig {
-  return config;
+  return {
+    ...config,
+    x: finiteCell(config.x),
+    y: finiteCell(config.y),
+    width: nonNegativeInteger(config.width),
+    height: nonNegativeInteger(config.height),
+    zIndex: finiteCell(config.zIndex, 1),
+    frame: config.frame ? { ...config.frame } : undefined,
+    restoreBounds: config.restoreBounds ? { ...config.restoreBounds } : undefined,
+    restoreFrame: config.restoreFrame ? { ...config.restoreFrame } : undefined,
+    chrome: config.chrome ? { ...config.chrome } : undefined,
+  };
 }
 
 function renderFloatingWindow(window: FloatingWindowConfig): VNode {
@@ -203,22 +231,23 @@ function renderFloatingWindow(window: FloatingWindowConfig): VNode {
 }
 
 export function withFloatingWindows(base: VNode, windows: FloatingWindowConfig[] | WindowManager): VNode {
-  const list = Array.isArray(windows) ? windows : windows.windows;
+  const list = Array.isArray(windows) ? windows : getVisibleWindows(windows);
   return [...list]
+    .slice(0, MAX_SPLIT_PANES)
     .filter(
       (window) => !window.minimized && !window.hidden && !window.closed && window.mode !== 'minimized' && window.mode !== 'hidden' && window.mode !== 'closed',
     )
-    .sort((a, b) => (a.zIndex ?? 10) - (b.zIndex ?? 10))
+    .sort((a, b) => finiteCell(a.zIndex, 10) - finiteCell(b.zIndex, 10))
     .reduce(
       (current, window) =>
         floating({
           base: current,
           overlay: renderFloatingWindow(window),
-          x: window.x,
-          y: window.y,
-          width: window.width,
-          height: window.height,
-          zIndex: window.zIndex,
+          x: finiteCell(window.x),
+          y: finiteCell(window.y),
+          width: nonNegativeInteger(window.width),
+          height: nonNegativeInteger(window.height),
+          zIndex: finiteCell(window.zIndex, 10),
           layoutId: window.layoutId ?? `floating-window:${window.id}`,
         }),
       base,
@@ -252,27 +281,29 @@ function toLayoutState(workspace: Workspace): HorizonLayoutState {
 export function createWorkspaceManager(): WorkspaceManager {
   return {
     store: createSessionStore(),
-    workspaces: {},
+    workspaces: Object.create(null) as Record<string, Workspace>,
   };
 }
 
 export function saveWorkspace(manager: WorkspaceManager, workspace: Workspace): WorkspaceManager {
-  const state = toLayoutState(workspace);
+  if (!workspace || typeof workspace.name !== 'string' || workspace.name.length === 0) return manager;
+  const stableWorkspace = { ...workspace };
+  const state = toLayoutState(stableWorkspace);
   return {
     store: saveSession(manager.store, {
-      name: workspace.name,
-      workspace: { layout: workspace.layout, activeIndex: 0 },
-      preview: { title: workspace.name, panes: Object.keys(state.paneContent ?? {}).length },
+      name: stableWorkspace.name,
+      workspace: { layout: stableWorkspace.layout, activeIndex: 0 },
+      preview: { title: stableWorkspace.name, panes: Object.keys(state.paneContent ?? {}).length },
     }),
     workspaces: {
       ...manager.workspaces,
-      [workspace.name]: workspace,
+      [stableWorkspace.name]: stableWorkspace,
     },
   };
 }
 
 export function loadWorkspace(manager: WorkspaceManager, name: string): Workspace | null {
-  const local = manager.workspaces[name];
+  const local = Object.hasOwn(manager.workspaces, name) ? manager.workspaces[name] : undefined;
   if (local) {
     return local;
   }
@@ -305,12 +336,12 @@ export interface PipConfig {
 }
 
 export function createPip(config: PipConfig): PipConfig {
-  return config;
+  return { ...config };
 }
 
 function resolvePipAxis(value: number | 'left' | 'right' | 'top' | 'bottom', max: number, size: number): number {
   if (typeof value === 'number') {
-    return value;
+    return finiteCell(value);
   }
   if (value === 'right' || value === 'bottom') {
     return Math.max(0, max - size);
@@ -320,11 +351,11 @@ function resolvePipAxis(value: number | 'left' | 'right' | 'top' | 'bottom', max
 
 export function withPip(base: VNode, pip: PipConfig, bounds: { cols: number; rows: number } = { cols: 80, rows: 24 }): VNode {
   const surfaceId = pip.surfaceId ?? 'pip';
-  const zIndex = pip.zIndex ?? 20;
-  const cols = Math.max(0, Math.floor(bounds.cols));
-  const rows = Math.max(0, Math.floor(bounds.rows));
-  const width = Math.min(Math.max(0, Math.floor(pip.width)), cols);
-  const height = Math.min(Math.max(0, Math.floor(pip.height)), rows);
+  const zIndex = finiteCell(pip.zIndex, 20);
+  const cols = nonNegativeInteger(bounds.cols);
+  const rows = nonNegativeInteger(bounds.rows);
+  const width = Math.min(nonNegativeInteger(pip.width), cols);
+  const height = Math.min(nonNegativeInteger(pip.height), rows);
   const x = Math.min(Math.max(0, resolvePipAxis(pip.x, cols, width)), Math.max(0, cols - width));
   const y = Math.min(Math.max(0, resolvePipAxis(pip.y, rows, height)), Math.max(0, rows - height));
   let layeredBase = base;

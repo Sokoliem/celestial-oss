@@ -233,6 +233,11 @@ describe('parseKeyInput', () => {
       const events = parseKeyInput(esc('\x1b[1;8A'));
       expect(events).toEqual([{ key: 'up', char: undefined, ctrl: true, alt: true, shift: true }]);
     });
+
+    it('parses modifiers on CSI function keys F1 through F4', () => {
+      const events = parseKeyInput(esc('\x1b[1;3P'));
+      expect(events).toEqual([{ key: 'f1', char: undefined, ctrl: false, alt: true, shift: false }]);
+    });
   });
 
   describe('batch input (multiple keys in one buffer)', () => {

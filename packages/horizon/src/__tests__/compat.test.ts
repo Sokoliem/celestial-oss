@@ -155,7 +155,7 @@ describe('horizon compatibility API', () => {
     const rendered = withFloatingWindows(textNode('base'), manager);
     const overlays = collectOverlays(rendered);
     expect(overlays).toHaveLength(1);
-    expect(overlays[0]?.zIndex).toBe(5);
+    expect(overlays[0]?.zIndex).toBe(1);
   });
 
   it('supports workspace manager helpers', () => {

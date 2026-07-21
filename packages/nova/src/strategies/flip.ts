@@ -1,10 +1,7 @@
-import { padPlain, slicePlain, visibleLength } from './text.js';
+import { clampUnit } from '../validation.js';
+import { padPlain, safeContent, slicePlain, visibleLength } from './text.js';
 
 export type FlipAxis = 'horizontal' | 'vertical';
-
-function clamp(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
 
 function splitLines(content: string): string[] {
   if (content === '') return [''];
@@ -89,14 +86,16 @@ function flipVertical(oldContent: string, newContent: string, progress: number):
 }
 
 export function flip(oldContent: string, newContent: string, progress: number, axis: FlipAxis = 'horizontal'): string {
-  const p = clamp(progress);
+  const safeOldContent = safeContent(oldContent);
+  const safeNewContent = safeContent(newContent);
+  const p = clampUnit(progress);
 
-  if (p <= 0) return oldContent;
-  if (p >= 1) return newContent;
+  if (p <= 0) return safeOldContent;
+  if (p >= 1) return safeNewContent;
 
   if (axis === 'vertical') {
-    return flipVertical(oldContent, newContent, p);
+    return flipVertical(safeOldContent, safeNewContent, p);
   }
 
-  return flipHorizontal(oldContent, newContent, p);
+  return flipHorizontal(safeOldContent, safeNewContent, p);
 }

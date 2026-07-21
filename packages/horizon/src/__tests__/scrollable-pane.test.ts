@@ -120,7 +120,7 @@ describe('formatIndicator', () => {
 
   it('clamps end at contentHeight', () => {
     // viewport extends past content end → end = contentHeight, not start + viewport.
-    expect(formatIndicator(110, 24, 120)).toContain('lines 111–120 of 120');
+    expect(formatIndicator(110, 24, 120)).toContain('lines 97–120 of 120');
   });
 
   it('clamps pct between 0 and 100 even with weird inputs', () => {

@@ -1,8 +1,6 @@
 /**
  * Tests that dispatch() works correctly when the VNode tree contains
- * focus() wrappers. This was a known bug where the sentinel subscription
- * was consumed by internal reconcileSubscriptions() calls before
- * matchKeySub could find it.
+ * focus() wrappers and never collides with application key subscriptions.
  */
 
 import { type AppConfig, box, Cmd, column, focus, Sub, text } from '@celestial/core/nebula';
@@ -11,7 +9,7 @@ import { createTestApp, type TestAppHandle } from '../test-app.js';
 
 // ── App with focus() in the view tree ────────────────────────────────────
 
-type Msg = { type: 'increment' } | { type: 'decrement' } | { type: 'setName'; name: string };
+type Msg = { type: 'increment' } | { type: 'decrement' } | { type: 'tilde' } | { type: 'setName'; name: string };
 
 interface Model {
   count: number;
@@ -27,6 +25,8 @@ const focusApp: AppConfig<Model, Msg> = {
         return [{ ...model, count: model.count + 1 }, Cmd.none()];
       case 'decrement':
         return [{ ...model, count: model.count - 1 }, Cmd.none()];
+      case 'tilde':
+        return [{ ...model, count: model.count + 10 }, Cmd.none()];
       case 'setName':
         return [{ ...model, name: msg.name }, Cmd.none()];
       default:
@@ -37,7 +37,7 @@ const focusApp: AppConfig<Model, Msg> = {
   // View tree with focus() wrappers — this is what caused dispatch to break
   view: (model) => column(focus('panel-a', box(text(`Count: ${model.count}`))), focus('panel-b', box(text(`Name: ${model.name}`)))),
 
-  subscriptions: () => Sub.batch(Sub.key('up', { type: 'increment' } as Msg), Sub.key('down', { type: 'decrement' } as Msg)),
+  subscriptions: () => Sub.batch(Sub.key('up', { type: 'increment' } as Msg), Sub.key('down', { type: 'decrement' } as Msg), Sub.key('~', { type: 'tilde' } as Msg)),
 };
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -58,6 +58,16 @@ describe('dispatch with focus() trees', () => {
 
     handle.dispatch({ type: 'increment' });
     expect(handle.model.count).toBe(1);
+  });
+
+  it('does not trigger an application binding for the tilde key', () => {
+    handle = createTestApp(focusApp, { cols: 40, rows: 10 });
+
+    handle.dispatch({ type: 'increment' });
+    expect(handle.model.count).toBe(1);
+
+    handle.pressKey('~');
+    expect(handle.model.count).toBe(11);
   });
 
   it('dispatch() works multiple times consecutively', () => {

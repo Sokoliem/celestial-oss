@@ -18,22 +18,27 @@ export function graphemes(value: string): string[] {
 }
 
 export function clampCursor(value: string, cursor: number): number {
-  return Math.max(0, Math.min(Math.trunc(cursor), graphemes(value).length));
+  const finiteCursor = Number.isFinite(cursor) ? Math.trunc(cursor) : 0;
+  return Math.max(0, Math.min(finiteCursor, graphemes(value).length));
 }
 
 export function selectionRange(state: EditableTextState): readonly [number, number] | null {
-  if (state.selectionAnchor === undefined || state.selectionAnchor === state.cursor) return null;
-  return state.selectionAnchor < state.cursor ? [state.selectionAnchor, state.cursor] : [state.cursor, state.selectionAnchor];
+  if (state.selectionAnchor === undefined) return null;
+  const cursor = clampCursor(state.value, state.cursor);
+  const anchor = clampCursor(state.value, state.selectionAnchor);
+  if (anchor === cursor) return null;
+  return anchor < cursor ? [anchor, cursor] : [cursor, anchor];
 }
 
 export function replaceSelection(state: EditableTextState, replacement: string): EditableTextState {
   const parts = graphemes(state.value);
-  const range = selectionRange(state) ?? [state.cursor, state.cursor];
+  const safeCursor = clampCursor(state.value, state.cursor);
+  const range = selectionRange(state) ?? [safeCursor, safeCursor];
   const before = parts.slice(0, range[0]).join('');
   const after = parts.slice(range[1]).join('');
   const value = `${before}${replacement}${after}`;
-  const cursor = graphemes(`${before}${replacement}`).length;
-  return { value, cursor };
+  const nextCursor = graphemes(`${before}${replacement}`).length;
+  return { value, cursor: nextCursor };
 }
 
 export function deleteBackward(state: EditableTextState): EditableTextState {
@@ -51,7 +56,7 @@ export function deleteForward(state: EditableTextState): EditableTextState {
 
 function wordBoundaryLeft(value: string, cursor: number): number {
   const parts = graphemes(value);
-  let next = Math.max(0, Math.min(cursor, parts.length));
+  let next = clampCursor(value, cursor);
   while (next > 0 && /^\s$/u.test(parts[next - 1]!)) next--;
   while (next > 0 && !/^\s$/u.test(parts[next - 1]!)) next--;
   return next;
@@ -59,7 +64,7 @@ function wordBoundaryLeft(value: string, cursor: number): number {
 
 function wordBoundaryRight(value: string, cursor: number): number {
   const parts = graphemes(value);
-  let next = Math.max(0, Math.min(cursor, parts.length));
+  let next = clampCursor(value, cursor);
   while (next < parts.length && /^\s$/u.test(parts[next]!)) next++;
   while (next < parts.length && !/^\s$/u.test(parts[next]!)) next++;
   return next;
@@ -113,7 +118,7 @@ export function insertSingleLinePaste(state: EditableTextState, value: string): 
 }
 
 export function graphemeIndexAtCell(value: string, cellOffset: number): number {
-  const target = Math.max(0, cellOffset);
+  const target = Math.max(0, Number.isFinite(cellOffset) ? cellOffset : 0);
   const parts = graphemes(value);
   let cells = 0;
   for (let index = 0; index < parts.length; index++) {

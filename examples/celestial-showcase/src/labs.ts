@@ -20,19 +20,19 @@ import {
   type VNode,
   validateThemeContrast,
 } from '@celestial/core';
-import { createTabBar, getActiveWorkspace, panel, splitPane } from '@celestial/horizon';
+import { createTabBar, getActiveWorkspace, getVisibleWindows, panel, splitPane } from '@celestial/horizon';
 import { gradient, shimmer } from '@celestial/mirage';
 import { fadeTransition } from '@celestial/nova';
 import { renderMarkdown } from '@celestial/pulsar';
 import { highlightCode } from '@celestial/spectrum';
 import { chart } from '@celestial/stellar';
 import { badge, button, progressBar } from '@celestial/ui';
-import type { ShowcaseComponents } from './components.js';
+import { type ShowcaseComponents, UI_BUILDER_COUNT } from './components.js';
 import type { CelestialShowcaseModel, LabId, SmokeId, SurfaceId, ViewportTier } from './types.js';
 
 export const LABS: Array<{ id: LabId; label: string; key: string; summary: string }> = [
   { id: 'core', label: 'Core', key: '1', summary: 'Six foundations, one facade' },
-  { id: 'components', label: 'Components', key: '2', summary: '44 curated builders' },
+  { id: 'components', label: 'Components', key: '2', summary: `${UI_BUILDER_COUNT} curated builders` },
   { id: 'workflows', label: 'Workflows', key: '3', summary: 'Schema forms and wizards' },
   { id: 'visuals', label: 'Visuals', key: '4', summary: 'Code, motion, charts, Markdown' },
   { id: 'mouse', label: 'Mouse', key: '5', summary: 'Pointer and hit regions' },
@@ -107,18 +107,13 @@ function coreCard(title: string, content: VNode, width = 34, height = 14): VNode
   });
 }
 
-function atlasGlyphLevel(level: AtlasCapabilities['unicodeLevel']): 'none' | 'basic' | 'wide' | 'full' {
-  if (level === 'unicode16') return 'full';
-  return level;
-}
-
 export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
   const contrast = validateThemeContrast(defaultTheme);
   const animation = tween({ from: 0, to: 1, duration: 1000, easing: easing.easeInOut });
   animation.seek((model.tick % 20) / 19);
   const animated = animation.value();
   const layoutTier = viewportTier(model.cols);
-  const glyph = styling.resolveGlyph(styling.DEFAULT_GLYPH_TOKENS.checked, atlasGlyphLevel(caps.unicodeLevel));
+  const glyph = styling.resolveGlyph(styling.DEFAULT_GLYPH_TOKENS.checked, caps.unicodeLevel);
   const hitmap = new interaction.HitMap<string>();
   hitmap.register({ x: 0, y: 0, width: 12, height: 1, onClick: 'nexus-ready' });
   const nexusProbe = hitmap.hitTest(2, 0)?.onClick ?? 'miss';
@@ -219,34 +214,72 @@ function ansiBlock(content: string): VNode {
 
 export function renderWorkflowsLab(components: ShowcaseComponents, model: CelestialShowcaseModel): VNode {
   const graph = components.wizardComponent.getGraph();
+  const density = model.schemaForm.values['density'] === 'compact' ? 'compact' : 'balanced';
+  const compact = density === 'compact';
+  const comfortableRows = !compact && model.rows >= 44;
+  const panelPadding: number | [number, number] = compact ? 0 : comfortableRows ? [1, 2] : [0, 2];
+  const splitThreshold = compact ? 84 : 100;
   const schemaPanel = panel({
-    title: 'Schema form',
-    content: column(components.schemaFormComponent.view(model.schemaForm), text(''), action(model, 'workflow-toggle-motion', 'Toggle reduced motion', 'info')),
+    title: `Schema form | ${compact ? 'compact' : 'balanced'}`,
+    content: compact
+      ? column(components.schemaFormComponent.view(model.schemaForm), action(model, 'workflow-toggle-motion', 'Toggle reduced motion', 'info'))
+      : column(
+          components.schemaFormComponent.view(model.schemaForm),
+          ...(comfortableRows ? [text('')] : []),
+          action(model, 'workflow-toggle-motion', 'Toggle reduced motion', 'info'),
+          ...(comfortableRows ? [text('')] : []),
+          text(
+            comfortableRows ? 'Balanced density adds breathing room around workflow controls.' : 'Balanced density keeps horizontal panel padding.',
+            mutedStyle,
+            {
+              wrap: true,
+            },
+          ),
+        ),
+    padding: panelPadding,
     fill: true,
   });
   const wizardPanel = panel({
-    title: 'Release wizard',
+    title: `Release wizard | ${compact ? 'compact' : 'balanced'}`,
     content: column(
       components.wizardComponent.view(model.wizard),
-      text(''),
+      ...(comfortableRows ? [text('')] : []),
       row(
         action(model, 'workflow-prev', 'Back', 'neutral'),
-        text('  '),
+        text(compact ? ' ' : '  '),
         action(model, 'workflow-next', model.wizard.finished ? 'Restart workflow' : 'Advance step', 'success'),
       ),
+      ...(comfortableRows ? [text('')] : []),
       text(`Graph ${graph.stepOrder.join(' -> ')} | visited ${model.wizard.visited.length}`, mutedStyle, { wrap: true }),
     ),
+    padding: panelPadding,
     fill: true,
   });
 
   return column(
-    row(text('ORBIT WORKFLOWS', headingStyle), text('  schema-driven and Elm-native', mutedStyle)),
-    text('Fields, validation, focus, branching, and submit state stay explicit in the application model.', mutedStyle, { wrap: true }),
-    text(''),
-    model.cols >= 100
+    row(
+      text('ORBIT WORKFLOWS', headingStyle),
+      text('  '),
+      badge({ label: compact ? 'Compact density' : 'Balanced density', variant: compact ? 'info' : 'success', size: 'sm' }).view({ visible: true }),
+      text('  schema-driven and Elm-native', mutedStyle),
+    ),
+    text(
+      compact
+        ? 'Compact density removes spacer rows and lowers the split breakpoint; fields and focus remain explicit in the application model.'
+        : 'Balanced density adds panel padding and workflow context while fields and focus remain explicit in the application model.',
+      compact ? warningStyle : successStyle,
+      { wrap: true },
+    ),
+    ...(comfortableRows ? [text('')] : []),
+    model.cols >= splitThreshold
       ? splitPane({ direction: 'horizontal', ratio: 0.56, first: schemaPanel, second: wizardPanel, minSize: 28 })
       : column(schemaPanel, wizardPanel),
-    text('Mouse controls are primary; Tab and wizard navigation remain available as keyboard backup.', mutedStyle, { wrap: true }),
+    ...(comfortableRows ? [text('')] : []),
+    text(
+      `Active density: ${compact ? 'compact' : 'balanced'} | Mouse controls are primary; Tab and wizard navigation remain available as keyboard backup.`,
+      mutedStyle,
+      { wrap: true },
+    ),
   );
 }
 
@@ -463,6 +496,7 @@ export function renderWindowContent(model: CelestialShowcaseModel, id: string): 
 
 export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
   const active = getActiveWorkspace(model.workspaces);
+  const front = getVisibleWindows(model.windows)[0];
   const workspaceBar = createTabBar({
     tabs: model.workspaces.workspaces.map((workspace, index) => ({ id: workspace.id, label: workspace.name, content: text(`Workspace ${index + 1}`) })),
     active: active?.id ?? 'flight',
@@ -473,11 +507,22 @@ export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
         row(
           text(`${window.title ?? window.id}`.padEnd(20), window.focused ? actionStyle : undefined),
           badge({ label: window.mode ?? 'normal', variant: window.mode === 'maximized' ? 'warning' : 'info', size: 'sm' }).view({ visible: true }),
-          text(`  ${window.x},${window.y} ${window.width}x${window.height}`, mutedStyle),
+          text(`  ${window.workspaceId ?? 'global'}  ${window.x},${window.y} ${window.width}x${window.height}`, mutedStyle),
         ),
       )
     : [text('All instruments are closed.', mutedStyle)];
-  const controls = row(action(model, 'reopen-telemetry', 'Open telemetry', 'success'), text('  '), action(model, 'reopen-events', 'Open events', 'success'));
+  const openLabel = (id: 'telemetry' | 'events', label: string): string => {
+    const window = model.windows.windows.find((entry) => entry.id === id);
+    if (!window) return `Open ${label} here`;
+    if (window.workspaceId !== model.windows.activeWorkspaceId) return `Bring ${label} here`;
+    if (window.minimized || window.mode === 'minimized' || window.hidden || window.mode === 'hidden') return `Restore ${label}`;
+    return `Focus ${label}`;
+  };
+  const controls = row(
+    action(model, 'reopen-telemetry', openLabel('telemetry', 'telemetry'), 'success'),
+    text('  '),
+    action(model, 'reopen-events', openLabel('events', 'events'), 'success'),
+  );
   const tier = viewportTier(model.cols);
 
   return column(
@@ -485,8 +530,20 @@ export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
     workspaceBar,
     text(active?.summary ?? '', mutedStyle, { wrap: true }),
     text(''),
-    panel({ title: 'Window manager state', content: column(...managerRows, text(''), controls), focused: true }),
+    panel({
+      title: 'Window manager state',
+      content: column(...managerRows, text(''), controls, text('Open/Bring places the instrument in this workspace.', mutedStyle)),
+      focused: true,
+    }),
     text(''),
+    ...(tier === 'compact'
+      ? [
+          front
+            ? panel({ title: `Live instrument - ${front.title ?? front.id}`, content: renderWindowContent(model, front.id), focused: front.focused })
+            : text('No visible instrument in this workspace. Restore one from the shelf or use an Open action.', mutedStyle, { wrap: true }),
+          text(''),
+        ]
+      : []),
     tier === 'wide'
       ? text(
           'Floating instruments are live above this workspace. Drag any open titlebar space; use chrome to minimize, maximize, restore, or close.',
@@ -494,8 +551,10 @@ export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
           { wrap: true },
         )
       : tier === 'medium'
-        ? text('Medium mode preserves manager state in an inline split. Resize to 120+ columns for draggable floating windows.', warningStyle, { wrap: true })
-        : text('Compact mode collapses the active instrument into one panel. Resize to 120+ columns for floating windows.', warningStyle, { wrap: true }),
+        ? text('Medium mode keeps the front instrument live in the Context split. Resize to 120+ columns for draggable floating windows.', warningStyle, {
+            wrap: true,
+          })
+        : text('Compact mode keeps the front instrument live inline. Resize to 120+ columns for floating windows.', warningStyle, { wrap: true }),
   );
 }
 

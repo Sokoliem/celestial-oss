@@ -15,6 +15,8 @@
 
 import type { InlineToken, Token } from '../types.js';
 
+const MAX_AST_NESTING = 64;
+
 export function slugify(input: string): string {
   const normalised = input
     .normalize('NFKD')
@@ -48,6 +50,12 @@ export class Slugger {
  * hard-breaks to a single space.
  */
 export function inlineToPlainText(tokens: InlineToken[]): string {
+  return inlineToPlainTextAtDepth(tokens, 0);
+}
+
+function inlineToPlainTextAtDepth(tokens: InlineToken[], depth: number): string {
+  if (depth >= MAX_AST_NESTING) return '';
+
   let out = '';
   for (const token of tokens) {
     switch (token.type) {
@@ -60,7 +68,7 @@ export function inlineToPlainText(tokens: InlineToken[]): string {
       case 'mark':
       case 'sup':
       case 'sub':
-        out += inlineToPlainText(token.content);
+        out += inlineToPlainTextAtDepth(token.content, depth + 1);
         break;
       case 'code':
         out += token.content;
@@ -91,6 +99,12 @@ export function inlineToPlainText(tokens: InlineToken[]): string {
  * headings inside those constructs also get anchors.
  */
 export function assignHeadingAnchors(tokens: Token[], slugger: Slugger = new Slugger()): void {
+  assignHeadingAnchorsAtDepth(tokens, slugger, 0);
+}
+
+function assignHeadingAnchorsAtDepth(tokens: Token[], slugger: Slugger, depth: number): void {
+  if (depth >= MAX_AST_NESTING) return;
+
   for (const token of tokens) {
     switch (token.type) {
       case 'heading': {
@@ -102,11 +116,11 @@ export function assignHeadingAnchors(tokens: Token[], slugger: Slugger = new Slu
       case 'admonition':
       case 'footnote-def':
       case 'details':
-        assignHeadingAnchors(token.content, slugger);
+        assignHeadingAnchorsAtDepth(token.content, slugger, depth + 1);
         break;
       case 'list':
         for (const item of token.items) {
-          if (item.children) assignHeadingAnchors(item.children, slugger);
+          if (item.children) assignHeadingAnchorsAtDepth(item.children, slugger, depth + 1);
         }
         break;
       default:

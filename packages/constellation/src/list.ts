@@ -2,8 +2,10 @@ import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken }
 import { style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { column, text } from '@celestial/core/nebula';
+import { measureTextWidth } from '@celestial/rosetta';
+import { MAX_RENDER_CELLS, nonNegativeInteger } from './internal.js';
 import type { ConstellationTone } from './theme.js';
-import { resolveTheme, useTokens } from './theme.js';
+import { normalizeTone, resolveTheme, useTokens } from './theme.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
 
@@ -67,12 +69,15 @@ export function list(config: ListConfig): VNode {
     return text(config.emptyLabel ?? 'No items', style({ color: tokens.muted, dim: true }));
   }
 
-  const cap = config.maxRenderedItems;
-  const truncated = typeof cap === 'number' && config.items.length > cap;
+  const cap =
+    config.maxRenderedItems === undefined
+      ? Math.min(config.items.length, MAX_RENDER_CELLS)
+      : nonNegativeInteger(config.maxRenderedItems, Math.min(config.items.length, MAX_RENDER_CELLS));
+  const truncated = config.items.length > cap;
   const renderedItems = truncated ? config.items.slice(0, cap) : config.items;
 
   const nodes: VNode[] = [];
-  const defaultTone = config.tone ?? 'neutral';
+  const defaultTone = normalizeTone(config.tone);
   const bullet = config.bullet ?? theme.glyphs.bullet;
 
   renderedItems.forEach((item, index) => {
@@ -80,7 +85,7 @@ export function list(config: ListConfig): VNode {
     const marker = config.ordered ? `${index + 1}.` : (normalized.prefix ?? bullet);
     const suffix = normalized.suffix ? ` ${normalized.suffix}` : '';
     const label = `${marker} ${normalized.label}${suffix}`;
-    const itemTone = normalized.tone ?? defaultTone;
+    const itemTone = normalizeTone(normalized.tone, defaultTone);
     const itemColor = itemTone === 'neutral' ? tokens.text : theme.colors.tones[itemTone];
     nodes.push(
       text(
@@ -93,12 +98,12 @@ export function list(config: ListConfig): VNode {
     );
 
     if (normalized.description) {
-      nodes.push(text(`${' '.repeat(marker.length + 1)}${normalized.description}`, style({ color: tokens.description })));
+      nodes.push(text(`${' '.repeat(measureTextWidth(marker) + 1)}${normalized.description}`, style({ color: tokens.description })));
     }
   });
 
   if (truncated) {
-    const remaining = config.items.length - (cap as number);
+    const remaining = config.items.length - cap;
     nodes.push(text(`… and ${remaining} more (use virtualList for windowing)`, style({ color: tokens.muted, italic: true })));
   }
 

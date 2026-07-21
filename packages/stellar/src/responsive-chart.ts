@@ -9,6 +9,9 @@
 import type { VNode } from '@celestial/nebula';
 import { Sub } from '@celestial/nebula';
 import { type BarChartOpts, chart, type LineChartOpts, type ScatterChartOpts } from './chart.js';
+import { boundedPositiveInteger, positiveNumber } from './validation.js';
+
+const MAX_RESPONSIVE_EXTENT = 100_000;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,14 +53,22 @@ export function initChartSizes(): ChartSizeState {
 
 /** Immutably update the size for a chart id. */
 export function updateChartSize(state: ChartSizeState, id: string, size: ChartSize): ChartSizeState {
+  if (!Number.isFinite(size.width) || !Number.isFinite(size.height) || size.width <= 0 || size.height <= 0) return state;
+  const normalized = {
+    width: Math.min(MAX_RESPONSIVE_EXTENT, Math.floor(size.width)),
+    height: Math.min(MAX_RESPONSIVE_EXTENT, Math.floor(size.height)),
+  };
+  const previous = state.sizes.get(id);
+  if (previous?.width === normalized.width && previous.height === normalized.height) return state;
   const next = new Map(state.sizes);
-  next.set(id, size);
+  next.set(id, normalized);
   return { sizes: next };
 }
 
 /** Retrieve the stored size for a chart id, or the provided default. */
 export function getChartSize(state: ChartSizeState, id: string, defaultSize?: ChartSize): ChartSize | undefined {
-  return state.sizes.get(id) ?? defaultSize;
+  const size = state.sizes.get(id) ?? defaultSize;
+  return size ? { ...size } : undefined;
 }
 
 // ── responsiveChart ──────────────────────────────────────────────────────────
@@ -72,20 +83,20 @@ export function getChartSize(state: ChartSizeState, id: string, defaultSize?: Ch
  */
 export function responsiveChart(config: ResponsiveChartConfig, currentSize: ChartSize): VNode {
   // 1. Apply minimum size constraints
-  let width = currentSize.width;
-  let height = currentSize.height;
+  let width = boundedPositiveInteger(currentSize.width, 1, MAX_RESPONSIVE_EXTENT);
+  let height = boundedPositiveInteger(currentSize.height, 1, MAX_RESPONSIVE_EXTENT);
 
   if (config.minSize?.width !== undefined) {
-    width = Math.max(width, config.minSize.width);
+    width = Math.max(width, boundedPositiveInteger(config.minSize.width, 1, MAX_RESPONSIVE_EXTENT));
   }
   if (config.minSize?.height !== undefined) {
-    height = Math.max(height, config.minSize.height);
+    height = Math.max(height, boundedPositiveInteger(config.minSize.height, 1, MAX_RESPONSIVE_EXTENT));
   }
 
   // 2. Apply aspect ratio correction (only increases height)
-  if (config.aspectRatio !== undefined && config.aspectRatio > 0) {
-    const requiredHeight = Math.round(width / config.aspectRatio);
-    height = Math.max(height, requiredHeight);
+  if (config.aspectRatio !== undefined && Number.isFinite(config.aspectRatio) && config.aspectRatio > 0) {
+    const requiredHeight = Math.ceil(width / positiveNumber(config.aspectRatio, 1));
+    height = Math.min(MAX_RESPONSIVE_EXTENT, Math.max(height, requiredHeight));
   }
 
   const constrainedSize: ChartSize = { width, height };
@@ -95,9 +106,9 @@ export function responsiveChart(config: ResponsiveChartConfig, currentSize: Char
 
   if (config.breakpoints) {
     const { compact, detail } = config.breakpoints;
-    if (compact && width <= compact.maxWidth) {
+    if (compact && Number.isFinite(compact.maxWidth) && width <= compact.maxWidth) {
       selectedFactory = compact.factory;
-    } else if (detail && width >= detail.minWidth) {
+    } else if (detail && Number.isFinite(detail.minWidth) && width >= detail.minWidth) {
       selectedFactory = detail.factory;
     }
   }
@@ -129,7 +140,7 @@ export function chartLayoutSub<M>(chartIds: string[], toMsg: (id: string, size: 
   // against null dispatch by calling toMsg with the actual rect data.
   // When no rect is found, we call toMsg with { width: 0, height: 0 }
   // which is a valid, non-crashing message the app can filter in update().
-  const subs = chartIds.map((id) =>
+  const subs = [...new Set(chartIds.filter((id) => id.trim() !== ''))].map((id) =>
     Sub.layout<M>([id], (rects) => {
       const rect = rects.rects.get(id);
       if (!rect) {

@@ -11,6 +11,21 @@
 
 export type ShapeTestFn = (x: number, y: number) => number;
 
+const MAX_SHAPE_COORDINATE = 1_000_000_000;
+const MAX_STAR_POINTS = 10_000;
+
+function validNumber(value: number): boolean {
+  return Number.isFinite(value) && Math.abs(value) <= MAX_SHAPE_COORDINATE;
+}
+
+function validPoint(x: number, y: number): boolean {
+  return validNumber(x) && validNumber(y);
+}
+
+function coverage(value: number): number {
+  return Number.isFinite(value) ? clamp(value, 0, 1) : 0;
+}
+
 // ── Utilities ────────────────────────────────────────────────────────────────
 
 /** Clamp a value between min and max */
@@ -24,6 +39,8 @@ function clamp(val: number, min: number, max: number): number {
  * and smooth interpolation in between.
  */
 function smoothstep(edge0: number, edge1: number, x: number): number {
+  if (![edge0, edge1, x].every(Number.isFinite)) return 0;
+  if (edge0 === edge1) return x < edge0 ? 0 : 1;
   const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
   return t * t * (3 - 2 * t);
 }
@@ -35,6 +52,7 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
  * Returns 1 inside, 0 outside, with smoothstep transition at the edge.
  */
 export function isInsideCircle(x: number, y: number, cx: number, cy: number, r: number): number {
+  if (!validPoint(x, y) || !validPoint(cx, cy) || !Number.isFinite(r) || r < 0 || r > MAX_SHAPE_COORDINATE) return 0;
   const dx = x - cx;
   const dy = y - cy;
   const dist = Math.sqrt(dx * dx + dy * dy);
@@ -47,6 +65,8 @@ export function isInsideCircle(x: number, y: number, cx: number, cy: number, r: 
  * with semi-axes rx and ry.
  */
 export function isInsideEllipse(x: number, y: number, cx: number, cy: number, rx: number, ry: number): number {
+  if (!validPoint(x, y) || !validPoint(cx, cy) || !Number.isFinite(rx) || !Number.isFinite(ry) || rx <= 0 || ry <= 0) return 0;
+  if (rx > MAX_SHAPE_COORDINATE || ry > MAX_SHAPE_COORDINATE) return 0;
   const dx = (x - cx) / rx;
   const dy = (y - cy) / ry;
   const dist = Math.sqrt(dx * dx + dy * dy);
@@ -89,6 +109,7 @@ function distToPolygonEdge(px: number, py: number, points: [number, number][]): 
  * Uses the ray-casting algorithm for inside/outside, smoothstep at edges.
  */
 export function isInsidePolygon(x: number, y: number, points: [number, number][]): number {
+  if (!validPoint(x, y) || !points.every(([px, py]) => validPoint(px, py))) return 0;
   const n = points.length;
   if (n < 3) return 0;
 
@@ -139,7 +160,11 @@ function starVertices(cx: number, cy: number, numPoints: number, outerR: number,
  * The star has `numPoints` tips alternating between outerR and innerR.
  */
 export function isInsideStar(x: number, y: number, cx: number, cy: number, numPoints: number, outerR: number, innerR: number): number {
-  const verts = starVertices(cx, cy, numPoints, outerR, innerR);
+  if (!validPoint(x, y) || !validPoint(cx, cy) || !Number.isFinite(outerR) || !Number.isFinite(innerR) || outerR < 0 || innerR < 0) return 0;
+  if (!Number.isFinite(numPoints) || numPoints < 2) return 0;
+  const points = Math.min(MAX_STAR_POINTS, Math.floor(numPoints));
+  if (outerR > MAX_SHAPE_COORDINATE || innerR > MAX_SHAPE_COORDINATE) return 0;
+  const verts = starVertices(cx, cy, points, outerR, innerR);
   return isInsidePolygon(x, y, verts);
 }
 
@@ -148,6 +173,7 @@ export function isInsideStar(x: number, y: number, cx: number, cy: number, numPo
  * Returns 1 between the radii, 0 inside the hole or outside, with smoothstep edges.
  */
 export function isInsideRing(x: number, y: number, cx: number, cy: number, outerR: number, innerR: number): number {
+  if (!Number.isFinite(outerR) || !Number.isFinite(innerR) || outerR < 0 || innerR < 0 || innerR > outerR) return 0;
   const outer = isInsideCircle(x, y, cx, cy, outerR);
   const inner = isInsideCircle(x, y, cx, cy, innerR);
   return Math.min(outer, 1 - inner);
@@ -181,7 +207,9 @@ function sdRoundedRect(px: number, py: number, rx: number, ry: number, w: number
  * The rect has top-left at (rx,ry), size (w,h), corner radius cornerR.
  */
 export function isInsideRoundedRect(x: number, y: number, rx: number, ry: number, w: number, h: number, cornerR: number): number {
-  const sd = sdRoundedRect(x, y, rx, ry, w, h, cornerR);
+  if (!validPoint(x, y) || !validPoint(rx, ry) || !validNumber(w) || !validNumber(h) || w <= 0 || h <= 0 || !Number.isFinite(cornerR)) return 0;
+  const radius = clamp(cornerR, 0, Math.min(w, h) / 2);
+  const sd = sdRoundedRect(x, y, rx, ry, w, h, radius);
   // sd < 0 inside, sd > 0 outside, transition at 0
   return 1 - smoothstep(-0.5, 0.5, sd);
 }
@@ -194,7 +222,8 @@ export function shapeUnion(...fns: ShapeTestFn[]): ShapeTestFn {
     let max = 0;
     for (const fn of fns) {
       const v = fn(x, y);
-      if (v > max) max = v;
+      const safe = coverage(v);
+      if (safe > max) max = safe;
     }
     return max;
   };
@@ -206,7 +235,8 @@ export function shapeIntersect(...fns: ShapeTestFn[]): ShapeTestFn {
     let min = 1;
     for (const fn of fns) {
       const v = fn(x, y);
-      if (v < min) min = v;
+      const safe = coverage(v);
+      if (safe < min) min = safe;
     }
     return min;
   };
@@ -214,7 +244,7 @@ export function shapeIntersect(...fns: ShapeTestFn[]): ShapeTestFn {
 
 /** Subtract a cutout from a base shape: min(base, 1 - cut). */
 export function shapeSubtract(base: ShapeTestFn, cut: ShapeTestFn): ShapeTestFn {
-  return (x: number, y: number) => Math.min(base(x, y), 1 - cut(x, y));
+  return (x: number, y: number) => Math.min(coverage(base(x, y)), 1 - coverage(cut(x, y)));
 }
 
 // ── Convenience Factory Functions ────────────────────────────────────────────
@@ -231,13 +261,24 @@ export function ellipse(opts: { cx: number; cy: number; rx: number; ry: number }
 
 /** Create a polygon hit-test function. */
 export function polygon(opts: { points: [number, number][] }): ShapeTestFn {
-  return (x, y) => isInsidePolygon(x, y, opts.points);
+  const points = opts.points.map(([x, y]): [number, number] => [x, y]);
+  return (x, y) => isInsidePolygon(x, y, points);
 }
 
 /** Create a star hit-test function. */
 export function star(opts: { cx: number; cy: number; points: number; outerR: number; innerR: number }): ShapeTestFn {
   // Pre-compute vertices
-  const verts = starVertices(opts.cx, opts.cy, opts.points, opts.outerR, opts.innerR);
+  const points = Math.min(MAX_STAR_POINTS, Math.max(0, Math.floor(Number.isFinite(opts.points) ? opts.points : 0)));
+  const valid =
+    validPoint(opts.cx, opts.cy) &&
+    points >= 2 &&
+    Number.isFinite(opts.outerR) &&
+    opts.outerR >= 0 &&
+    opts.outerR <= MAX_SHAPE_COORDINATE &&
+    Number.isFinite(opts.innerR) &&
+    opts.innerR >= 0 &&
+    opts.innerR <= MAX_SHAPE_COORDINATE;
+  const verts = valid ? starVertices(opts.cx, opts.cy, points, opts.outerR, opts.innerR) : [];
   return (x, y) => isInsidePolygon(x, y, verts);
 }
 

@@ -38,4 +38,10 @@ describe('createSwipeNavigator', () => {
     expect(navigator.matches(notASwipe)).toBe(false);
     expect(navigator.handleSwipe(notASwipe)).toBeUndefined();
   });
+
+  it('rejects invalid thresholds and gesture measurements', () => {
+    expect(() => createSwipeNavigator({ threshold: -1 })).toThrow(RangeError);
+    const navigator = createSwipeNavigator({});
+    expect(() => navigator.matches({ gesture: 'swipe', direction: 'left', distance: Number.NaN, velocity: 1 })).toThrow(TypeError);
+  });
 });

@@ -1,9 +1,9 @@
 import { text, type VNode } from '@celestial/nebula';
 import { describe, expect, it } from 'vitest';
-import { evaluateVisibility, predicateToVisibleWhen } from '../visibility.js';
+import { getFieldArrayValue, getValueAtPath, setFieldArrayValue, setValueAtPath } from '../field-array.js';
 import { schemaForm } from '../schema-form.js';
 import { createFieldTypeRegistry } from '../schema-registry.js';
-import { getFieldArrayValue, getValueAtPath, setFieldArrayValue, setValueAtPath } from '../field-array.js';
+import { evaluateVisibility, predicateToVisibleWhen } from '../visibility.js';
 
 describe('evaluateVisibility', () => {
   it('returns true for equals on the matching value', () => {
@@ -22,13 +22,23 @@ describe('evaluateVisibility', () => {
   it('composes via all/any/not', () => {
     expect(
       evaluateVisibility(
-        { all: [{ field: 'a', equals: 1 }, { field: 'b', equals: 2 }] },
+        {
+          all: [
+            { field: 'a', equals: 1 },
+            { field: 'b', equals: 2 },
+          ],
+        },
         { a: 1, b: 2 },
       ),
     ).toBe(true);
     expect(
       evaluateVisibility(
-        { any: [{ field: 'a', equals: 1 }, { field: 'b', equals: 2 }] },
+        {
+          any: [
+            { field: 'a', equals: 1 },
+            { field: 'b', equals: 2 },
+          ],
+        },
         { a: 0, b: 2 },
       ),
     ).toBe(true);

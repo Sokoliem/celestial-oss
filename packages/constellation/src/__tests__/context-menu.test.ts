@@ -45,7 +45,8 @@ describe('contextMenuUpdate', () => {
     expect(next.open).toBe(true);
     expect(next.x).toBe(10);
     expect(next.y).toBe(20);
-    expect(next.items).toBe(sampleItems);
+    expect(next.items).toEqual(sampleItems);
+    expect(next.items).not.toBe(sampleItems);
     expect(next.selectedIndex).toBe(0);
     expect(next.submenuStack).toEqual([]);
   });
@@ -306,10 +307,10 @@ describe('getSelectedItem', () => {
   it('returns correct item', () => {
     let state = createContextMenuState();
     state = contextMenuUpdate({ type: 'ctx-open', x: 0, y: 0, items: sampleItems }, state);
-    expect(getSelectedItem(state)).toBe(sampleItems[0]);
+    expect(getSelectedItem(state)).toEqual(sampleItems[0]);
 
     state = contextMenuUpdate({ type: 'ctx-down' }, state);
-    expect(getSelectedItem(state)).toBe(sampleItems[1]);
+    expect(getSelectedItem(state)).toEqual(sampleItems[1]);
   });
 
   it('returns null when closed', () => {
@@ -322,7 +323,8 @@ describe('getActiveItems', () => {
   it('returns top-level items when no submenu', () => {
     let state = createContextMenuState<string>();
     state = contextMenuUpdate({ type: 'ctx-open', x: 0, y: 0, items: sampleItems }, state);
-    expect(getActiveItems(state)).toBe(sampleItems);
+    expect(getActiveItems(state)).toEqual(sampleItems);
+    expect(getActiveItems(state)).not.toBe(sampleItems);
   });
 
   it('returns submenu items when in submenu', () => {
@@ -337,6 +339,46 @@ describe('getActiveItems', () => {
     expect(active.length).toBe(2);
     expect(active[0]!.label).toBe('Undo');
     expect(active[1]!.label).toBe('Redo');
+  });
+});
+
+describe('state ownership and invalid input hardening', () => {
+  it('snapshots nested menu items and normalizes coordinates on open', () => {
+    const submenu: MenuItem<string>[] = [{ label: 'Nested', msg: 'nested' }];
+    const items: MenuItem<string>[] = [{ label: 'Parent', submenu }];
+    const opened = contextMenuUpdate({ type: 'ctx-open', x: Number.POSITIVE_INFINITY, y: -20.7, items }, createContextMenuState<string>());
+    items[0]!.label = 'Mutated';
+    submenu[0]!.label = 'Also mutated';
+
+    expect(opened.x).toBe(0);
+    expect(opened.y).toBe(0);
+    expect(opened.items[0]?.label).toBe('Parent');
+    expect(opened.items[0]?.submenu?.[0]?.label).toBe('Nested');
+  });
+
+  it('has no selected item when every row is disabled or a separator', () => {
+    const opened = contextMenuUpdate(
+      {
+        type: 'ctx-open',
+        x: 0,
+        y: 0,
+        items: [
+          { label: 'Disabled', disabled: true },
+          { label: '---', separator: true },
+        ],
+      },
+      createContextMenuState(),
+    );
+
+    expect(opened.selectedIndex).toBe(-1);
+    expect(getSelectedItem(opened)).toBeNull();
+    expect(contextMenuUpdate({ type: 'ctx-down' }, opened).selectedIndex).toBe(-1);
+  });
+
+  it('rejects cyclic submenu graphs instead of recursing forever', () => {
+    const items: MenuItem<string>[] = [{ label: 'Cycle' }];
+    items[0]!.submenu = items;
+    expect(() => contextMenuUpdate({ type: 'ctx-open', x: 0, y: 0, items }, createContextMenuState<string>())).toThrow(/cycles/i);
   });
 });
 
