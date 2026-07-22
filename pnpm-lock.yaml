@@ -81,6 +81,9 @@ importers:
       '@celestial/pulsar':
         specifier: workspace:*
         version: link:../../packages/pulsar
+      '@celestial/rosetta':
+        specifier: workspace:*
+        version: link:../../packages/rosetta
       '@celestial/spectrum':
         specifier: workspace:*
         version: link:../../packages/spectrum

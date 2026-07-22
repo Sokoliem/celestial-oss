@@ -2,8 +2,9 @@ import { createScreen, createTestApp, fireMouse, type TestAppHandle } from '@cel
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
 import { GALLERY_PAGE_COUNT, UI_BUILDER_COUNT, UI_BUILDER_NAMES } from '../components.js';
+import { SHOWCASE_PACKAGE_COVERAGE, UI_BUILDER_COVERAGE, validateShowcaseCoverage } from '../coverage.js';
 import { viewportTier } from '../labs.js';
-import type { CelestialShowcaseModel, CelestialShowcaseMsg } from '../types.js';
+import type { CelestialShowcaseModel, CelestialShowcaseMsg, ShowcaseGalleryComponentMsg } from '../types.js';
 
 function findText(frame: string, needle: string): { col: number; row: number } {
   const lines = frame.split('\n');
@@ -46,6 +47,15 @@ describe('Celestial Flight Deck', () => {
 
   afterEach(() => {
     for (const handle of handles.splice(0)) handle.stop();
+  });
+
+  it('keeps the public package and curated builder coverage ledger complete and unique', () => {
+    expect(validateShowcaseCoverage()).toEqual([]);
+    expect(SHOWCASE_PACKAGE_COVERAGE).toHaveLength(17);
+    expect(new Set(SHOWCASE_PACKAGE_COVERAGE.map((entry) => entry.packageName)).size).toBe(17);
+    expect(UI_BUILDER_COVERAGE).toHaveLength(46);
+    expect(UI_BUILDER_COVERAGE.map((entry) => entry.name)).toEqual(UI_BUILDER_NAMES);
+    expect(UI_BUILDER_COVERAGE.filter((entry) => entry.evidence === 'interactive').length).toBeGreaterThan(30);
   });
 
   for (const size of [
@@ -109,6 +119,37 @@ describe('Celestial Flight Deck', () => {
 
     handle.dispatch({ type: 'window-action', id: 'telemetry', action: 'maximize' });
     expect(handle.lastFrame()).toContain('telemetry.');
+  });
+
+  it('keeps every paged capability instrument reachable at the minimum viewport', () => {
+    const handle = flightDeck(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
+    const expectReachable = (needle: string) => {
+      expect(handle.lastFrame()).toContain(needle);
+      expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
+    };
+
+    handle.dispatch({ type: 'core-page', page: 'locale' });
+    expectReachable('Next locale');
+    handle.dispatch({ type: 'core-page', page: 'ledger' });
+    expectReachable('Next ledger');
+
+    handle.dispatch({ type: 'switch-lab', lab: 'workflows' });
+    handle.dispatch({ type: 'workflow-page', delta: 1 });
+    expectReachable('Cycle validation sample');
+    handle.dispatch({ type: 'workflow-page', delta: 1 });
+    expectReachable('Cycle prompt outcome');
+
+    handle.dispatch({ type: 'switch-lab', lab: 'visuals' });
+    handle.dispatch({ type: 'visual-page', delta: 1 });
+    expectReachable('Cycle transition and effects');
+    handle.dispatch({ type: 'visual-page', delta: 1 });
+    expectReachable('Shift live dataset');
+    handle.dispatch({ type: 'visual-page', delta: 1 });
+    expectReachable('PULSAR DOCUMENT INSTRUMENT');
+
+    handle.dispatch({ type: 'switch-lab', lab: 'windows' });
+    handle.dispatch({ type: 'window-page', delta: 1 });
+    expectReachable('Cycle snap zone and tile axis');
   });
 
   it.each([
@@ -217,6 +258,50 @@ describe('Celestial Flight Deck', () => {
     handle.click(checkbox.col, checkbox.row);
 
     expect(handle.model.checkbox.checked).toBe(!checkedBefore);
+    expect(handle.model.completed.has('component')).toBe(true);
+  });
+
+  it('persists state changes from every previously staged gallery descriptor', () => {
+    const handle = flightDeck(140, 48);
+    const dispatchGallery = (component: ShowcaseGalleryComponentMsg) => handle.dispatch({ type: 'gallery-component', component });
+    const changesBefore = handle.model.evidence.componentChanges;
+
+    dispatchGallery({ id: 'checkboxGroup', msg: { type: 'toggle-at', index: 1 } });
+    dispatchGallery({ id: 'toggleGroup', msg: { type: 'toggle-at', index: 0 } });
+    dispatchGallery({ id: 'autocomplete', msg: { type: 'select-at', index: 1 } });
+    dispatchGallery({ id: 'combobox', msg: { type: 'char', char: '!' } });
+    dispatchGallery({ id: 'datePicker', msg: { type: 'next-month' } });
+    dispatchGallery({ id: 'multiSelect', msg: { type: 'toggle-at', index: 2 } });
+    dispatchGallery({ id: 'numberInput', msg: { type: 'increment' } });
+    dispatchGallery({ id: 'rangeSlider', msg: { type: 'set-low', value: 80 } });
+    dispatchGallery({ id: 'rating', msg: { type: 'click', index: 1 } });
+    dispatchGallery({ id: 'segmentedControl', msg: { type: 'select', index: 0 } });
+    dispatchGallery({ id: 'tagInput', msg: { type: 'remove-tag', index: 0 } });
+    dispatchGallery({ id: 'colorPicker', msg: { type: 'set-slider', field: 'hue', value: 200 } });
+    dispatchGallery({ id: 'optionList', msg: { type: 'opt-click', id: 'beta' } });
+    dispatchGallery({ id: 'cardGrid', msg: { type: 'hover-card', index: 0 } });
+    dispatchGallery({ id: 'popover', msg: { type: 'toggle' } });
+    dispatchGallery({ id: 'popoverGroup', msg: { type: 'toggle-at', index: 0 } });
+    dispatchGallery({ id: 'hovercard', msg: { type: 'hover-enter' } });
+
+    expect(handle.model.galleryModels.checkboxGroup.checked.has('pty')).toBe(true);
+    expect(handle.model.galleryModels.toggleGroup.checked.has('mouse')).toBe(false);
+    expect(handle.model.galleryModels.autocomplete.query).toBe('resize');
+    expect(handle.model.galleryModels.combobox.inputBuffer).toBe('Stellar!');
+    expect(handle.model.galleryModels.datePicker.viewMonth).toBe(8);
+    expect(handle.model.galleryModels.multiSelect.selected.has(2)).toBe(true);
+    expect(handle.model.galleryModels.numberInput.value).toBe(UI_BUILDER_COUNT + 1);
+    expect(handle.model.galleryModels.rangeSlider.low).toBe(80);
+    expect(handle.model.galleryModels.rating.value).toBe(2);
+    expect(handle.model.galleryModels.segmentedControl.selected).toBe(0);
+    expect(handle.model.galleryModels.tagInput.tags).toEqual(['mouse']);
+    expect(handle.model.galleryModels.colorPicker.hsl.h).toBe(200);
+    expect(handle.model.galleryModels.optionList.highlightedIndex).toBe(1);
+    expect(handle.model.galleryModels.cardGrid.hoveredIndex).toBe(0);
+    expect(handle.model.galleryModels.popover.visible).toBe(true);
+    expect(handle.model.galleryModels.popoverGroup.activeIndex).toBe(0);
+    expect(handle.model.galleryModels.hovercard.state).toBe('pending-show');
+    expect(handle.model.evidence.componentChanges).toBe(changesBefore + 17);
     expect(handle.model.completed.has('component')).toBe(true);
   });
 
@@ -424,6 +509,93 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.completed.has('visual')).toBe(true);
   });
 
+  it('pages through Rosetta and the complete machine-backed capability ledger', async () => {
+    const handle = flightDeck(140, 48);
+
+    handle.pressKey('l');
+    await handle.waitForUpdate();
+    expect(handle.model.corePage).toBe('locale');
+    expect(handle.lastFrame()).toContain('ROSETTA LOCALE LAB');
+    expect(handle.lastFrame()).toContain('Bidi + grapheme terminal lane');
+    const localeFrame = handle.lastFrame();
+    handle.dispatch({ type: 'locale-cycle', delta: 1 });
+    expect(handle.model.localeIndex).toBe(1);
+    expect(handle.model.evidence.localeChanges).toBe(1);
+    expect(handle.lastFrame()).not.toBe(localeFrame);
+
+    handle.pressKey('g');
+    await handle.waitForUpdate();
+    expect(handle.model.corePage).toBe('ledger');
+    const visiblePackages = new Set<string>();
+    for (let page = 0; page < 3; page += 1) {
+      const frame = handle.lastFrame();
+      for (const entry of SHOWCASE_PACKAGE_COVERAGE) {
+        if (frame.includes(entry.packageName)) visiblePackages.add(entry.packageName);
+      }
+      handle.dispatch({ type: 'ledger-cycle', delta: 1 });
+    }
+    expect([...visiblePackages].sort()).toEqual(SHOWCASE_PACKAGE_COVERAGE.map((entry) => entry.packageName).sort());
+  });
+
+  it('exercises every Visuals and Workflows instrument with live variants', async () => {
+    const handle = flightDeck(140, 48);
+
+    handle.pressKey('4');
+    await handle.waitForUpdate();
+    expect(handle.lastFrame()).toContain('RICH TERMINAL RENDERING');
+    handle.pressKey(']');
+    expect(handle.lastFrame()).toContain('TEXT + MOTION INSTRUMENT');
+    expect(handle.lastFrame()).toContain('fade transition');
+    handle.pressKey('v');
+    expect(handle.lastFrame()).toContain('slide transition');
+    handle.pressKey(']');
+    expect(handle.lastFrame()).toContain('STELLAR CHART DECK');
+    handle.pressKey(']');
+    expect(handle.lastFrame()).toContain('PULSAR DOCUMENT INSTRUMENT');
+    expect(handle.lastFrame()).toContain('stream pending');
+
+    handle.pressKey('3');
+    await handle.waitForUpdate();
+    expect(handle.lastFrame()).toContain('ORBIT WORKFLOWS');
+    handle.pressKey(']');
+    expect(handle.lastFrame()).toContain('ORBIT FORM ENGINE');
+    expect(handle.lastFrame()).toContain('Validation accepted');
+    handle.pressKey('v');
+    expect(handle.lastFrame()).toContain('Validation rejected');
+    handle.pressKey(']');
+    expect(handle.lastFrame()).toContain('ORBIT PROMPT CONSOLE');
+    expect(handle.lastFrame()).toContain('Input + confirmation');
+  });
+
+  it('demonstrates Horizon snap, tile, and session APIs without invisible manager input', async () => {
+    const handle = flightDeck(140, 48);
+    handle.pressKey('7');
+    await handle.waitForUpdate();
+    const telemetryBefore = { ...handle.model.windows.windows.find((window) => window.id === 'telemetry')! };
+
+    handle.pressKey(']');
+    expect(handle.model.windowPage).toBe(1);
+    expect(handle.lastFrame()).toContain('HORIZON LAYOUT SYSTEMS');
+    expect(handle.lastFrame()).toContain('saved sessions');
+    expect(handle.lastFrame()).toContain('flight-deck');
+    expect(handle.lastFrame()).toContain('Tiled workspace | columns');
+    expect(handle.lastFrame()).not.toContain('Drag anywhere on the titlebar outside its controls.');
+
+    handle.dispatch({
+      type: 'raw-mouse',
+      event: { type: 'press', x: telemetryBefore.x + 2, y: telemetryBefore.y + 1, button: 0, ctrl: false, alt: false, shift: false },
+    });
+    expect(handle.model.windowDrag).toBeNull();
+    expect(handle.model.windows.windows.find((window) => window.id === 'telemetry')).toMatchObject(telemetryBefore);
+
+    const snapFrame = handle.lastFrame();
+    handle.pressKey('v');
+    expect(handle.model.windowVariant).toBe(1);
+    expect(handle.lastFrame()).toContain('Tiled workspace | rows');
+    expect(handle.lastFrame()).not.toBe(snapFrame);
+    expect(handle.model.completed.has('window')).toBe(true);
+  });
+
   it('preserves the base app beneath layers and provides contextual Escape-dismissible help', async () => {
     const handle = flightDeck(100, 36);
     handle.pressKey('6');
@@ -541,7 +713,7 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.galleryContextMenu.open).toBe(true);
 
     handle.dispatch({ type: 'component-page', page: 0 });
-    expect(handle.model.galleryModels).toBe(registry);
+    expect(handle.model.galleryModels).toStrictEqual(registry);
     expect(handle.model.galleryContextMenu.open).toBe(false);
   });
 

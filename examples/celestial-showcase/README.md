@@ -1,6 +1,6 @@
 # Celestial Flight Deck
 
-The flagship demo for the focused Celestial open-source preview. It combines the six `@celestial/core` foundations, all 46 curated `@celestial/ui` builders, Orbit forms and wizards, Spectrum highlighting, Mirage effects, Nova transitions, Stellar charts, Pulsar Markdown, Telescope testing, and Horizon beta window management in one offline, deterministic application. The `contextMenuView` state renderer is demonstrated separately from the 46 component builders.
+The flagship demo for the focused Celestial open-source preview. It provides live or test-backed evidence for all 17 public packages and all 46 curated `@celestial/ui` builders in one offline, deterministic application. Its paged instruments cover the six `@celestial/core` foundations, Rosetta locale/bidi behavior, Orbit forms/validation/prompts/wizards, Spectrum highlighting, Mirage effects, Nova transitions, Stellar charts, Pulsar Markdown, Telescope testing, and Horizon beta window, snap, tile, and session management. The `contextMenuView` state renderer is demonstrated separately from the 46 component builders.
 
 ```bash
 pnpm demo:showcase
@@ -23,8 +23,10 @@ floating windows can remain visible together.
 
 - Mouse: hover any interactive control for an activation highlight; click labs, controls, smoke receipts, layer actions, workspace tabs, window chrome, and minimized shelf items; right-click labs, controls, windows, shelf items, or panel space for target-specific actions; drag the Mouse-lab receipt, sliders, and any non-control area of floating-window titlebars; resize windows from any edge or corner at wide size.
 - `1`-`8`: open Core, Components, Workflows, Visuals, Mouse, Layers, Windows, or Smoke.
-- `[` / `]`: page the curated component gallery.
-- `N` / `B`: advance or go back in the Orbit workflow.
+- `[` / `]`: page the active Components, Workflows, Visuals, or Windows instrument.
+- `F` / `L` / `G`: open Core Foundations, Locale, or capability Ledger.
+- `V`: cycle the live sample on validation, prompt, motion, chart, snap, and tile instruments.
+- `N` / `B`: advance or go back in the Orbit wizard while its overview is visible.
 - `?`, `F1`, or `H`: open help for the current lab.
 - `Ctrl+P`: open the command palette.
 - `Shift+F10` (or `F10` in terminals that do not report Shift): open a context menu for the current lab.
@@ -33,19 +35,20 @@ floating windows can remain visible together.
 
 ## Manual smoke test
 
-The Smoke lab records eleven receipts. Complete them in this order:
+The Smoke lab records twelve receipts. Complete them in this order:
 
-1. Start in **Core** and confirm Atlas capability detection, Corona contrast and glyph resolution, Aurora motion, Nebula state/signals, Gravity layout, and the Nexus HitMap probe are visible.
-2. Open **Components**, advance through all eight pages, and confirm the pages account for all 46 public builders: base inputs; grouped and assisted inputs; specialized form controls; navigation; data; display (including `indeterminateProgress` and `cardGrid`); feedback and layers; contextual surfaces (including `popoverGroup`). On page 1, hover controls, click **Dense** directly, and click or drag the slider. On the data page, click one table row, Shift+click a later row, and confirm the inclusive range is highlighted with a `range N-M` receipt. On page 8, dismiss the sample context menu with `Escape`, reopen it with the visible action, and confirm its gallery state survives rerenders.
-3. Open **Workflows**, switch between **Compact** and **Balanced** density, and confirm panel padding, spacer rows, and the responsive split threshold visibly change. Change the schema form's reduced-motion field, then use **Advance step** or `N` to move from Scope to Verify. Confirm the explicit form and wizard models survive navigation.
-4. Open **Visuals** and confirm highlighted TypeScript, a grapheme-safe Mirage gradient/shimmer, Nova transition output, a Stellar line chart, and rendered Pulsar Markdown are visible. With reduced motion enabled, confirm motion output is deterministic.
-5. Open **Mouse**, move over and click the target. Confirm the pointer coordinates, semantic target, event type, and click count change.
-6. Hold the verification receipt, drag it into the drop bay, and release. Confirm the drag offset and accepted-payload count change.
-7. Right-click an active and inactive lab tab, a control, blank panel space, a floating-window body, and a minimized shelf item. Confirm each menu is target-specific, supports pointer and arrow-key selection, includes **Close menu**, closes with `Escape`, resize, or click-away, and never activates the surface beneath it.
-8. Open **Layers**. Open modal, confirm, drawer, tooltip, palette, and toast in turn; close each with `Escape` or its visible affordance. In the drawer, use the visible layer buttons to stack a modal or confirmation, push a toast, and toggle reduced motion. Resize the modal to the minimum supported viewport and confirm the accented-character sentence wraps completely through its final `boundary.` marker. For the tooltip, click inside once and then outside. Confirm inside clicks do not dismiss it, outside clicks do, and the base flight deck never moves, shrinks, or disappears.
-9. Resize across 80 and 120 columns. Confirm the header reads `COMPACT / single`, `MEDIUM / split`, and `WIDE / floating` at the corresponding widths without losing form, workflow, control, window, layered-surface, or receipt state. Active drags and context menus should cancel on resize rather than retaining stale hit geometry.
-10. At 120+ columns, open **Windows**. Use **Bring events here** and confirm telemetry and events remain visible together in the active workspace. Click workspace tabs and window chrome, then minimize, restore, maximize, enter fullscreen, and close or reopen an instrument. Confirm maximized content remains below the application header and above the labeled shelf/status area, while fullscreen uses the complete viewport. Drag a window from blank titlebar space as well as its title text, then resize it from an edge and a corner. Confirm controls do not initiate drag and minimum bounds are enforced. Minimize an instrument, switch workspaces, then activate or right-click its shelf item and confirm the owning workspace becomes active.
-11. Press `?` in at least two labs. Confirm the drawer title and instructions change with the current lab, then close it with `Escape`. Open **Smoke** and confirm all eleven receipts are checked.
+1. Start in **Core / Foundations** and confirm Atlas capability detection, Corona contrast and glyph resolution, Aurora tween and spring motion, Nebula state/signals, Gravity layout, and the Nexus HitMap probe are visible.
+2. Open **Core / Locale**, change locales, and verify localized numbers, currency, dates, relative time, lists, bidi ordering, grapheme counts, and terminal-cell widths recompute. Open **Ledger** and page through all 17 public package receipts.
+3. Open **Components**, advance through all eight pages, and confirm all 46 public builders appear. Exercise the 17 stateful gallery descriptors on pages 2-8 as well as the base inputs: grouped controls, autocomplete, combobox, date and multi-select inputs, numeric/range/rating/segmented/tag/color controls, option list, card grid, popover, popover group, and hovercard. Confirm state survives page changes.
+4. Open **Workflows**. On the overview, switch density and advance the wizard. Page to **Typed validation** and cycle accepted/rejected email samples; then page to **Prompt descriptors** and cycle deterministic input, confirmation, single-select, and multi-select results.
+5. Open **Visuals**. Page through Overview, Text + motion, Charts, and Markdown. Cycle Nova transitions and Stellar data, and verify Spectrum tokenization, Mirage effects, four chart renderers, Pulsar frontmatter/TOC/search/streaming, and reduced-motion behavior.
+6. Open **Mouse**, move over and click the target. Confirm pointer coordinates, semantic target, event type, and click count change.
+7. Hold the verification receipt, drag it into the drop bay, and release. Confirm the drag offset and accepted-payload count change.
+8. Right-click an active and inactive lab tab, a control, blank panel space, a floating-window body, and a minimized shelf item. Confirm each menu is target-specific, supports pointer and arrow-key selection, includes **Close menu**, closes with `Escape`, resize, or click-away, and never activates the surface beneath it.
+9. Open **Layers**. Exercise modal, confirmation, drawer, tooltip, palette, and toast; use the drawer's live actions; resize to the minimum viewport; and confirm visible close affordances, Escape, click-away shielding, and complete wrapped copy.
+10. Resize across 80 and 120 columns. Confirm `COMPACT / single`, `MEDIUM / split`, and `WIDE / floating` representations preserve form, workflow, control, window, surface, and receipt state while stale drags and menus cancel.
+11. At 120+ columns, open **Windows / Manager**. Bring both instruments into one workspace and exercise workspace tabs, chrome, dragging, resizing, minimize/restore, maximize/fullscreen, close/reopen, and the all-workspace taskbar shelf. Then open **Layout systems**, cycle snap zones and column/row tiling, and confirm bounded frames plus saved/restored session receipts change without invisible floating-window hit targets.
+12. Press `?` in at least two labs. Confirm contextual instructions change, close help with `Escape`, then open **Smoke** and confirm all twelve receipts are checked.
 
 ## Automated smoke
 
@@ -56,4 +59,4 @@ pnpm --filter @celestial/demo-showcase build
 pnpm --filter @celestial/demo-showcase test:pty
 ```
 
-The headless suite covers all three breakpoints, all 46 builder names, durable gallery state, mouse-driven workflow density, functional drawer actions, Orbit workflow advancement, the five-package visual stack, live reduced-motion behavior, hover routing, direct radio and slider selection, modifier-aware table range selection, real Nexus drag/drop, evidence-backed smoke receipts, target-specific right-click menus, vertically clipped context-menu pointer mapping, click-away and resize cancellation, accessibility audit output, post-render mouse hit maps, cell-safe modal wrapping, layout-neutral layers, toast expiry behind modal surfaces, contextual help, full-titlebar window drag, edge/corner resize, inset-aware maximize/fullscreen geometry, labeled all-workspace shelf recovery, active-workspace window reassignment, simultaneous floating instruments, and adaptive state preservation. The PTY test covers real process launch, the `F10` keyboard context-menu fallback, navigation across all eight labs, terminal resize, help, Escape, and clean quit. Pointer right-click selection and drag assertions stay in the deterministic headless suite because host PTY mouse behavior varies.
+The headless suite enforces the machine-readable 17-package/46-builder ledger, persistent changes for every stateful gallery descriptor, every Core/Workflow/Visual/Window sub-instrument, all three breakpoints, accessibility audits, semantic and raw pointer routing, Orbit state, reduced motion, Nexus drag/drop, smoke receipts, target-specific context menus, layered dismissal, complete wrapping, toast expiry, and complete Horizon window/shelf/snap/tile/session behavior. The PTY test covers real process launch, the `F10` keyboard context-menu fallback, every lab and deep instrument, terminal resize, contextual help, Escape, and clean quit. Host-dependent pointer gestures stay in the deterministic headless suite.

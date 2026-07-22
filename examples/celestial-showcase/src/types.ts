@@ -2,10 +2,20 @@ import type { DragState, MouseEventData } from '@celestial/core';
 import type { FloatingWindowDragState, FloatingWindowResizeState, WindowManager, WorkspaceModel } from '@celestial/horizon';
 import type { SchemaFormModel, SchemaFormMsg, WizardModel, WizardMsg } from '@celestial/orbit';
 import type {
+  AutocompleteModel,
+  AutocompleteMsg,
   BreadcrumbModel,
   BreadcrumbMsg,
+  CardGridModel,
+  CardGridMsg,
+  CheckboxGroupModel,
+  CheckboxGroupMsg,
   CheckboxModel,
   CheckboxMsg,
+  ColorPickerModel,
+  ColorPickerMsg,
+  ComboboxModel,
+  ComboboxMsg,
   CommandPaletteModel,
   CommandPaletteMsg,
   ConfirmDialogModel,
@@ -14,26 +24,48 @@ import type {
   ContextMenuState,
   DataTableModel,
   DataTableMsg,
+  DatePickerModel,
+  DatePickerMsg,
   DrawerModel,
   DrawerMsg,
+  HovercardModel,
+  HovercardMsg,
   ModalModel,
   ModalMsg,
+  MultiSelectModel,
+  MultiSelectMsg,
+  NumberInputModel,
+  NumberInputMsg,
+  OptionListModel,
+  OptionListMsg,
   PaginationModel,
   PaginationMsg,
+  PopoverModel,
+  PopoverMsg,
   RadioGroupModel,
   RadioGroupMsg,
+  RangeSliderModel,
+  RangeSliderMsg,
+  RatingModel,
+  RatingMsg,
+  SegmentedControlModel,
+  SegmentedControlMsg,
   SelectModel,
   SelectMsg,
   SliderModel,
   SliderMsg,
   TabsModel,
   TabsMsg,
+  TagInputModel,
+  TagInputMsg,
   TextareaModel,
   TextareaMsg,
   TextInputModel,
   TextInputMsg,
   ToastModel,
   ToastMsg,
+  ToggleGroupModel,
+  ToggleGroupMsg,
   ToggleModel,
   ToggleMsg,
   TooltipModel,
@@ -42,17 +74,70 @@ import type {
   TreeMsg,
 } from '@celestial/ui';
 
+export interface ShowcaseGalleryModels {
+  checkboxGroup: CheckboxGroupModel;
+  toggleGroup: ToggleGroupModel;
+  autocomplete: AutocompleteModel;
+  combobox: ComboboxModel;
+  datePicker: DatePickerModel;
+  multiSelect: MultiSelectModel;
+  numberInput: NumberInputModel;
+  rangeSlider: RangeSliderModel;
+  rating: RatingModel;
+  segmentedControl: SegmentedControlModel;
+  tagInput: TagInputModel;
+  colorPicker: ColorPickerModel;
+  optionList: OptionListModel<string>;
+  cardGrid: CardGridModel;
+  popover: PopoverModel;
+  popoverGroup: { activeIndex: number };
+  hovercard: HovercardModel;
+}
+
+export type ShowcaseGalleryComponentMsg =
+  | { id: 'checkboxGroup'; msg: CheckboxGroupMsg }
+  | { id: 'toggleGroup'; msg: ToggleGroupMsg }
+  | { id: 'autocomplete'; msg: AutocompleteMsg }
+  | { id: 'combobox'; msg: ComboboxMsg }
+  | { id: 'datePicker'; msg: DatePickerMsg }
+  | { id: 'multiSelect'; msg: MultiSelectMsg }
+  | { id: 'numberInput'; msg: NumberInputMsg }
+  | { id: 'rangeSlider'; msg: RangeSliderMsg }
+  | { id: 'rating'; msg: RatingMsg }
+  | { id: 'segmentedControl'; msg: SegmentedControlMsg }
+  | { id: 'tagInput'; msg: TagInputMsg }
+  | { id: 'colorPicker'; msg: ColorPickerMsg }
+  | { id: 'optionList'; msg: OptionListMsg }
+  | { id: 'cardGrid'; msg: CardGridMsg }
+  | { id: 'popover'; msg: PopoverMsg }
+  | { id: 'popoverGroup'; msg: PopoverMsg }
+  | { id: 'hovercard'; msg: HovercardMsg };
+
 export type LabId = 'core' | 'components' | 'workflows' | 'visuals' | 'mouse' | 'layers' | 'windows' | 'smoke';
 export type ViewportTier = 'compact' | 'medium' | 'wide';
+export type CorePage = 'foundations' | 'locale' | 'ledger';
 export type ComponentFocus = 'none' | 'text' | 'textarea' | 'checkbox' | 'radio' | 'select' | 'toggle' | 'slider' | 'tabs' | 'pagination' | 'table' | 'tree';
 export type SurfaceId = 'modal' | 'confirm' | 'drawer' | 'tooltip' | 'palette' | 'toast';
-export type SmokeId = 'core' | 'component' | 'workflow' | 'visual' | 'mouse-click' | 'mouse-drag' | 'context-menu' | 'layer' | 'adaptive' | 'window' | 'help';
+export type SmokeId =
+  | 'core'
+  | 'component'
+  | 'workflow'
+  | 'visual'
+  | 'locale'
+  | 'mouse-click'
+  | 'mouse-drag'
+  | 'context-menu'
+  | 'layer'
+  | 'adaptive'
+  | 'window'
+  | 'help';
 
 export interface SmokeEvidence {
   coreVisits: number;
   componentChanges: number;
   workflowAdvances: number;
   visualVisits: number;
+  localeChanges: number;
   mouseClicks: number;
   payloadDrops: number;
   contextMenus: number;
@@ -112,13 +197,22 @@ export interface CelestialShowcaseModel {
   evidence: SmokeEvidence;
   completed: Set<SmokeId>;
   lastAction: string;
+  corePage: CorePage;
+  localeIndex: number;
+  ledgerPage: number;
+  visualPage: number;
+  visualVariant: number;
+  workflowPage: number;
+  workflowVariant: number;
+  windowPage: number;
+  windowVariant: number;
   componentPage: number;
   componentFocus: ComponentFocus;
   helpOpen: boolean;
   contextMenu: ContextMenuState<ShowcaseContextAction>;
   contextMenuSource: string | null;
   galleryContextMenu: ContextMenuState<string>;
-  galleryModels: Record<string, unknown>;
+  galleryModels: ShowcaseGalleryModels;
   hoveredRegion: string | null;
   shelfHoveredWindowId: string | null;
   pointer: PointerTelemetry;
@@ -162,6 +256,16 @@ export type CelestialShowcaseMsg =
   | { type: 'open-context-menu-keyboard' }
   | { type: 'run-action'; action: string }
   | { type: 'component-page'; page: number }
+  | { type: 'core-page'; page: CorePage }
+  | { type: 'locale-cycle'; delta: 1 | -1 }
+  | { type: 'ledger-cycle'; delta: 1 | -1 }
+  | { type: 'visual-page'; delta: 1 | -1 }
+  | { type: 'visual-variant' }
+  | { type: 'workflow-page'; delta: 1 | -1 }
+  | { type: 'workflow-variant' }
+  | { type: 'window-page'; delta: 1 | -1 }
+  | { type: 'window-variant' }
+  | { type: 'gallery-component'; component: ShowcaseGalleryComponentMsg }
   | { type: 'gallery-context-menu'; open: boolean }
   | { type: 'component-focus'; focus: ComponentFocus }
   | { type: 'text-input'; msg: TextInputMsg }

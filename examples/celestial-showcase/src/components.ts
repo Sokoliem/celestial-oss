@@ -51,7 +51,10 @@ import {
   tooltip,
   tree,
 } from '@celestial/ui';
-import type { CelestialShowcaseModel, CelestialShowcaseMsg, LabId } from './types.js';
+import { UI_BUILDER_COUNT } from './coverage.js';
+import type { CelestialShowcaseModel, CelestialShowcaseMsg, LabId, ShowcaseGalleryModels } from './types.js';
+
+export { UI_BUILDER_COUNT, UI_BUILDER_NAMES } from './coverage.js';
 
 interface CapabilityRow {
   id: string;
@@ -64,56 +67,6 @@ const headingStyle = style({ color: defaultTheme.colors.tones.accent, bold: true
 const labelStyle = style({ color: defaultTheme.colors.textSoft, bold: true });
 const mutedStyle = style({ color: defaultTheme.colors.muted });
 
-export const UI_BUILDER_NAMES = [
-  'button',
-  'textInput',
-  'textarea',
-  'checkbox',
-  'radioGroup',
-  'select',
-  'toggle',
-  'slider',
-  'checkboxGroup',
-  'toggleGroup',
-  'autocomplete',
-  'combobox',
-  'datePicker',
-  'multiSelect',
-  'numberInput',
-  'rangeSlider',
-  'rating',
-  'segmentedControl',
-  'tagInput',
-  'colorPicker',
-  'formField',
-  'tabs',
-  'breadcrumb',
-  'pagination',
-  'commandPalette',
-  'optionListView',
-  'dataTable',
-  'tree',
-  'list',
-  'progressBar',
-  'indeterminateProgress',
-  'spinner',
-  'card',
-  'cardGrid',
-  'divider',
-  'emptyState',
-  'badge',
-  'alert',
-  'tooltip',
-  'createToastManager',
-  'modal',
-  'confirmDialog',
-  'drawer',
-  'popover',
-  'popoverGroup',
-  'hovercard',
-] as const;
-
-export const UI_BUILDER_COUNT = UI_BUILDER_NAMES.length;
 export const GALLERY_PAGE_COUNT = 8;
 
 const capabilityRows: CapabilityRow[] = [
@@ -125,9 +78,9 @@ const capabilityRows: CapabilityRow[] = [
 
 const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }> = {
   core: {
-    purpose: 'Inspect the six packages behind the single @celestial/core entry point.',
-    mouse: 'Click another lab in the mission rail or the top lab strip.',
-    verify: 'Confirm capability detection, theme contrast, motion, reactivity, layout tier, and mouse status are visible.',
+    purpose: 'Inspect the core facade, the Rosetta locale lane, and the machine-checked public capability ledger.',
+    mouse: 'Switch among Foundations, Locale, and Ledger; change locale or page the ledger.',
+    verify: 'Confirm capability detection, theme contrast, motion, bidi formatting, and all public package receipts are visible.',
   },
   components: {
     purpose: 'Tour every curated @celestial/ui builder across eight compact pages.',
@@ -135,14 +88,14 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
     verify: `Advance through pages 1-8 and confirm the counter reaches ${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} builders.`,
   },
   workflows: {
-    purpose: 'Exercise Orbit schema forms and branch-aware wizard state using the same Elm update loop.',
-    mouse: 'Change a schema-driven field or use the visible Previous and Next wizard controls.',
-    verify: 'Advance the release wizard and confirm its visited-step graph and receipt update.',
+    purpose: 'Exercise Orbit schema forms, validation rules, prompt descriptors, and branch-aware wizard state using the same Elm update loop.',
+    mouse: 'Page among workflow instruments, change a field, cycle validation samples, or use the visible wizard controls.',
+    verify: 'Confirm schema, rule, prompt, and wizard receipts all change through public Orbit APIs.',
   },
   visuals: {
     purpose: 'Inspect Spectrum highlighting, Mirage effects, Nova transitions, Stellar charts, and Pulsar Markdown.',
-    mouse: 'Use the lab strip to revisit this live panel while resizing the terminal.',
-    verify: 'Confirm rich output stays width-safe and reduced-motion mode resolves to static end states.',
+    mouse: 'Page through text motion, charts, and Markdown; cycle the live sample while resizing the terminal.',
+    verify: 'Confirm each renderer stays width-safe and reduced-motion mode resolves to static end states.',
   },
   mouse: {
     purpose: 'Exercise terminal pointer tracking and event-scoped hit regions.',
@@ -155,14 +108,14 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
     verify: 'Use Escape on every surface and confirm the flight deck remains visible beneath drawers.',
   },
   windows: {
-    purpose: 'Exercise Horizon beta workspaces and managed floating windows.',
-    mouse: 'At 120+ columns, drag anywhere on a titlebar outside its controls; resize from edges and use window chrome.',
-    verify: 'Resize below 120 and 80 columns to see the same state represented as split and compact layouts.',
+    purpose: 'Exercise Horizon workspaces, managed windows, snap zones, recursive tiling, and session persistence.',
+    mouse: 'Manage floating windows, then page to Layout systems and cycle snap zones and tile axes.',
+    verify: 'Resize across tiers and confirm manager state, bounded snap frames, tiles, and restored sessions stay coherent.',
   },
   smoke: {
     purpose: 'Turn the interaction history into a repeatable acceptance check.',
     mouse: 'Click any incomplete receipt to jump to its relevant lab.',
-    verify: 'Complete all eleven receipts, then run the README headless and PTY commands.',
+    verify: 'Complete all twelve receipts, then run the README headless and PTY commands.',
   },
 };
 
@@ -356,8 +309,8 @@ export function createShowcaseComponents() {
   const indeterminateProgressComponent = indeterminateProgress({ width: 16, speed: 120 });
   const cardGridComponent = cardGrid({
     cards: [
-      { title: 'Runtime', content: text('Elm loop', mutedStyle), variant: 'outlined', size: 'sm', width: 15 },
-      { title: 'Render', content: text('Cell safe', mutedStyle), variant: 'outlined', size: 'sm', width: 15 },
+      { title: 'Runtime', content: text('Elm loop', mutedStyle), variant: 'outlined', size: 'sm', width: 15, onClick: () => undefined },
+      { title: 'Render', content: text('Cell safe', mutedStyle), variant: 'outlined', size: 'sm', width: 15, onClick: () => undefined },
     ],
     columns: 2,
     gap: 1,
@@ -505,6 +458,7 @@ export function createShowcaseComponents() {
 export type ShowcaseComponents = ReturnType<typeof createShowcaseComponents>;
 
 export function initialComponentModels(components: ShowcaseComponents) {
+  const autocompleteModel = components.autocompleteComponent.init()[0];
   return {
     textInput: components.textInputComponent.init()[0],
     textarea: components.textareaComponent.init()[0],
@@ -529,7 +483,13 @@ export function initialComponentModels(components: ShowcaseComponents) {
     galleryModels: {
       checkboxGroup: components.checkboxGroupComponent.init()[0],
       toggleGroup: components.toggleGroupComponent.init()[0],
-      autocomplete: components.autocompleteComponent.init()[0],
+      autocomplete: {
+        ...autocompleteModel,
+        query: 're',
+        suggestions: ['release', 'resize', 'render'],
+        highlighted: 0,
+        open: true,
+      },
       combobox: components.comboboxComponent.init()[0],
       datePicker: components.datePickerComponent.init()[0],
       multiSelect: components.multiSelectComponent.init()[0],
@@ -600,13 +560,13 @@ function galleryHeader(page: number, subtitle: string): VNode {
   return row(text(`CURATED UI  ${page + 1}/${GALLERY_PAGE_COUNT}`, headingStyle), text(`  ${subtitle}`, mutedStyle));
 }
 
-function galleryView<Model extends object>(
+function galleryView<Key extends keyof ShowcaseGalleryModels>(
   model: CelestialShowcaseModel,
-  id: string,
-  descriptor: { view(state: Model): VNode },
-  overrides?: Partial<Model>,
+  id: Key,
+  descriptor: { view(state: ShowcaseGalleryModels[Key]): VNode },
+  overrides?: Partial<ShowcaseGalleryModels[Key]>,
 ): VNode {
-  const state = model.galleryModels[id] as Model | undefined;
+  const state = model.galleryModels[id];
   if (!state) return text(`${id} state unavailable`, mutedStyle);
   return descriptor.view(overrides ? { ...state, ...overrides } : state);
 }
@@ -639,15 +599,7 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           text('    '),
           named('toggleGroup()', galleryView(model, 'toggleGroup', components.toggleGroupComponent)),
         ),
-        named(
-          'autocomplete()',
-          galleryView(model, 'autocomplete', components.autocompleteComponent, {
-            query: 're',
-            suggestions: ['release', 'resize', 'render'],
-            highlighted: 0,
-            open: true,
-          }),
-        ),
+        named('autocomplete()', galleryView(model, 'autocomplete', components.autocompleteComponent)),
         named('combobox()', galleryView(model, 'combobox', components.comboboxComponent)),
         named('datePicker()', galleryView(model, 'datePicker', components.datePickerComponent)),
         row(
@@ -770,13 +722,10 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           shortcut: defaultTheme.colors.textSoft,
         },
       });
-      const popoverNode = named(
-        'popover()',
-        galleryView(model, 'popover', components.popoverComponent, { visible: true, viewportCols: Math.max(36, model.cols - 8) }),
-      );
+      const popoverNode = named('popover()', galleryView(model, 'popover', components.popoverComponent, { viewportCols: Math.max(36, model.cols - 8) }));
       const hovercardNode = named(
         'hovercard()',
-        galleryView(model, 'hovercard', components.hovercardComponent, { state: 'open', viewportCols: Math.max(36, model.cols - 8) }),
+        galleryView(model, 'hovercard', components.hovercardComponent, { viewportCols: Math.max(36, model.cols - 8) }),
       );
       return column(
         galleryHeader(7, 'Contextual surfaces - 3 builders + menu helper'),
@@ -785,8 +734,8 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           contextNode ?? row(text('Context menu dismissed.  ', mutedStyle), action(model, 'gallery-context-menu', 'Open sample menu', 'info')),
         ),
         model.cols >= 100 ? row(popoverNode, text('  '), hovercardNode) : column(popoverNode, hovercardNode),
-        named('popoverGroup()', galleryView(model, 'popoverGroup', components.popoverGroupComponent, { activeIndex: 0 })),
-        text('Context surfaces expose visible close controls and Escape dismissal contracts.', mutedStyle, { wrap: true }),
+        named('popoverGroup()', galleryView(model, 'popoverGroup', components.popoverGroupComponent)),
+        text('Click popovers, hover the package card, and use their visible close controls or Escape.', mutedStyle, { wrap: true }),
       );
     }
   }

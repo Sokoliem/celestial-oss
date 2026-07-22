@@ -13,6 +13,7 @@ import {
   row,
   runtime,
   signal,
+  spring,
   style,
   styling,
   text,
@@ -20,14 +21,43 @@ import {
   type VNode,
   validateThemeContrast,
 } from '@celestial/core';
-import { createTabBar, getActiveWorkspace, getVisibleWindows, panel, splitPane } from '@celestial/horizon';
-import { gradient, shimmer } from '@celestial/mirage';
-import { fadeTransition } from '@celestial/nova';
-import { renderMarkdown } from '@celestial/pulsar';
-import { highlightCode } from '@celestial/spectrum';
-import { chart } from '@celestial/stellar';
+import {
+  applySnapZone,
+  computeSnapZones,
+  createSessionStore,
+  createTabBar,
+  getActiveWorkspace,
+  getVisibleWindows,
+  listSessions,
+  loadSession,
+  panel,
+  saveSession,
+  splitPane,
+  tile,
+  columns as tileColumns,
+  rows as tileRows,
+} from '@celestial/horizon';
+import { glow, gradient, shimmer, underlineWave } from '@celestial/mirage';
+import { fadeTransition, morphTransition, slideTransition } from '@celestial/nova';
+import {
+  confirmPrompt,
+  email,
+  form,
+  inputPrompt,
+  minLength,
+  multiSelectPrompt,
+  parseArgSchema,
+  runRules,
+  selectPrompt,
+  validateArgSchema,
+} from '@celestial/orbit';
+import { createMarkdownStream, extractFrontmatter, extractToc, findMatches, parseMarkdown, renderMarkdown } from '@celestial/pulsar';
+import { createLocaleContext, detectDirection, formatList, formatRelativeTime, measureTextWidth, segmentGraphemes } from '@celestial/rosetta';
+import { detectLanguage, highlightCode, tokenizeCode } from '@celestial/spectrum';
+import { areaChart, chart, heatmap, sparkline } from '@celestial/stellar';
 import { badge, button, progressBar } from '@celestial/ui';
 import { type ShowcaseComponents, UI_BUILDER_COUNT } from './components.js';
+import { SHOWCASE_PACKAGE_COVERAGE } from './coverage.js';
 import type { CelestialShowcaseModel, LabId, SmokeId, SurfaceId, ViewportTier } from './types.js';
 
 export const LABS: Array<{ id: LabId; label: string; key: string; summary: string }> = [
@@ -46,6 +76,7 @@ export const SMOKE_STEPS: Array<{ id: SmokeId; label: string; lab: LabId; instru
   { id: 'component', label: 'Component changed', lab: 'components', instruction: 'Toggle or edit a curated control.' },
   { id: 'workflow', label: 'Workflow advanced', lab: 'workflows', instruction: 'Advance the Orbit release wizard.' },
   { id: 'visual', label: 'Visual stack inspected', lab: 'visuals', instruction: 'Visit the Visuals lab.' },
+  { id: 'locale', label: 'Locale changed', lab: 'core', instruction: 'Open Core / Locale and change the Rosetta locale.' },
   { id: 'mouse-click', label: 'Mouse target clicked', lab: 'mouse', instruction: 'Click inside the pointer target.' },
   { id: 'mouse-drag', label: 'Payload dropped', lab: 'mouse', instruction: 'Drag the receipt into the drop bay.' },
   { id: 'context-menu', label: 'Context menu opened', lab: 'mouse', instruction: 'Right-click a lab, control, window, or blank panel area.' },
@@ -107,11 +138,15 @@ function coreCard(title: string, content: VNode, width = 34, height = 14): VNode
   });
 }
 
-export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
   const contrast = validateThemeContrast(defaultTheme);
+  const motionProgress = caps.reducedMotion ? 1 : (model.tick % 20) / 19;
   const animation = tween({ from: 0, to: 1, duration: 1000, easing: easing.easeInOut });
-  animation.seek((model.tick % 20) / 19);
+  animation.seek(motionProgress);
   const animated = animation.value();
+  const springAnimation = spring(1, { from: 0, stiffness: 170, damping: 26 });
+  springAnimation.seek(motionProgress);
+  const springValue = springAnimation.value();
   const layoutTier = viewportTier(model.cols);
   const glyph = styling.resolveGlyph(styling.DEFAULT_GLYPH_TOKENS.checked, caps.unicodeLevel);
   const hitmap = new interaction.HitMap<string>();
@@ -141,7 +176,7 @@ export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabili
           progressBar({ label: 'tween', value: animated, width: 18 }),
           capabilityStatus('Elm update tick', String(model.tick)),
           capabilityStatus('signal checksum', String(reactiveChecksum())),
-          capabilityStatus('motion', caps.reducedMotion ? 'static' : 'eased tween'),
+          capabilityStatus('motion', caps.reducedMotion ? 'static' : `spring ${springValue.toFixed(2)}`),
           text('Cmd + Sub + VDOM + signals', mutedStyle),
         ),
         width,
@@ -180,6 +215,7 @@ export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabili
       'Aurora + Nebula',
       column(
         progressBar({ label: 'tween', value: animated, width: 18 }),
+        progressBar({ label: 'spring', value: springValue, width: 18 }),
         text(caps.reducedMotion ? 'Atlas requests static motion.' : 'Deterministic eased tween.', mutedStyle),
         text(''),
         capabilityStatus('Elm update tick', String(model.tick)),
@@ -208,11 +244,110 @@ export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabili
   );
 }
 
+const localeSamples = [
+  { id: 'en-US', label: 'English', currency: 'USD', text: 'Release 17 Celestial packages' },
+  { id: 'de-DE', label: 'Deutsch', currency: 'EUR', text: '17 Celestial-Pakete veröffentlichen' },
+  { id: 'ar-EG', label: 'العربية', currency: 'EGP', text: 'إطلاق ١٧ حزمة Celestial' },
+  { id: 'ja-JP', label: '日本語', currency: 'JPY', text: 'Celestial 17 パッケージを公開' },
+] as const;
+
+function renderLocaleLab(model: CelestialShowcaseModel): VNode {
+  const sample = localeSamples[((model.localeIndex % localeSamples.length) + localeSamples.length) % localeSamples.length]!;
+  const locale = createLocaleContext({ lang: sample.id, dir: 'auto' });
+  const graphemeSample = '👩‍🚀 e\u0301 العربية 日本語';
+  const graphemes = segmentGraphemes(graphemeSample);
+  const visual = locale.reorderBidi(sample.text);
+  const width = Math.max(24, Math.min(54, model.cols - 18));
+  const formatPanel = panel({
+    title: `Locale scope | ${sample.id}`,
+    content: column(
+      capabilityStatus('language', sample.label),
+      capabilityStatus('direction', locale.dir),
+      capabilityStatus('number', locale.formatNumber(1234567.89)),
+      capabilityStatus('currency', locale.formatCurrency(12345.67, sample.currency)),
+      capabilityStatus('date', locale.formatDate(Date.UTC(2026, 6, 21), { dateStyle: 'long', timeZone: 'UTC' })),
+      capabilityStatus('relative', formatRelativeTime(-2, 'day', sample.id)),
+      capabilityStatus('list', formatList(['Atlas', 'Nebula', 'Horizon'], sample.id)),
+    ),
+    fill: true,
+  });
+  const textPanel = panel({
+    title: 'Bidi + grapheme terminal lane',
+    content: column(
+      text(`logical  ${sample.text}`, mutedStyle, { wrap: true }),
+      text(`visual   ${visual}`, successStyle, { wrap: true }),
+      text(`detected ${detectDirection(sample.text)} | ${measureTextWidth(sample.text)} cells`, actionStyle),
+      text(''),
+      text(graphemeSample),
+      text(`${graphemes.length} graphemes | ${measureTextWidth(graphemeSample)} cells`, mutedStyle),
+      text(locale.wrapBidi(sample.text, width).join(' / '), mutedStyle, { wrap: true }),
+    ),
+    fill: true,
+  });
+
+  return column(
+    row(text('ROSETTA LOCALE LAB', headingStyle), text('  locale, bidi, and terminal cells', mutedStyle)),
+    row(action(model, 'locale-prev', 'Previous locale', 'neutral'), text('  '), action(model, 'locale-next', 'Next locale', 'success')),
+    text('Change locale to recompute every receipt through the public Rosetta API.', mutedStyle, { wrap: true }),
+    text(''),
+    model.cols >= 100 ? splitPane({ direction: 'horizontal', ratio: 0.5, first: formatPanel, second: textPanel, minSize: 30 }) : column(formatPanel, textPanel),
+  );
+}
+
+function renderCapabilityLedger(model: CelestialShowcaseModel): VNode {
+  const pageSize = 6;
+  const pageCount = Math.ceil(SHOWCASE_PACKAGE_COVERAGE.length / pageSize);
+  const page = ((model.ledgerPage % pageCount) + pageCount) % pageCount;
+  const entries = SHOWCASE_PACKAGE_COVERAGE.slice(page * pageSize, (page + 1) * pageSize);
+  const liveCount = SHOWCASE_PACKAGE_COVERAGE.filter((entry) => entry.evidence === 'live').length;
+
+  return column(
+    row(
+      text('CAPABILITY LEDGER', headingStyle),
+      text(`  ${SHOWCASE_PACKAGE_COVERAGE.length} packages | ${liveCount} live + ${SHOWCASE_PACKAGE_COVERAGE.length - liveCount} test`, successStyle),
+    ),
+    text('The ledger is imported by the demo and its tests. Every entry names the instrument that produces its evidence.', mutedStyle, { wrap: true }),
+    row(
+      action(model, 'ledger-prev', 'Previous ledger', 'neutral'),
+      text(`  page ${page + 1}/${pageCount}  `, mutedStyle),
+      action(model, 'ledger-next', 'Next ledger', 'success'),
+    ),
+    text(''),
+    ...entries.map((entry) =>
+      panel({
+        title: `${entry.evidence.toUpperCase()}  ${entry.packageName}`,
+        content: row(
+          text(`${entry.lab.padEnd(18)} `, mutedStyle),
+          runtime.flex(text(entry.capabilities.join(' | '), undefined, { wrap: true }), { flex: 1, minWidth: 1 }),
+        ),
+      }),
+    ),
+  );
+}
+
+export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+  const navigation = row(
+    action(
+      model,
+      'core-foundations',
+      model.corePage === 'foundations' ? 'Foundations [active]' : 'Foundations',
+      model.corePage === 'foundations' ? 'success' : 'neutral',
+    ),
+    text('  '),
+    action(model, 'core-locale', model.corePage === 'locale' ? 'Locale [active]' : 'Locale', model.corePage === 'locale' ? 'success' : 'neutral'),
+    text('  '),
+    action(model, 'core-ledger', model.corePage === 'ledger' ? 'Ledger [active]' : 'Ledger', model.corePage === 'ledger' ? 'success' : 'neutral'),
+  );
+  const content =
+    model.corePage === 'locale' ? renderLocaleLab(model) : model.corePage === 'ledger' ? renderCapabilityLedger(model) : renderFoundationsLab(model, caps);
+  return column(navigation, text(''), content);
+}
+
 function ansiBlock(content: string): VNode {
   return column(...content.split('\n').map((line) => text(line || ' ')));
 }
 
-export function renderWorkflowsLab(components: ShowcaseComponents, model: CelestialShowcaseModel): VNode {
+function renderWorkflowOverview(components: ShowcaseComponents, model: CelestialShowcaseModel): VNode {
   const graph = components.wizardComponent.getGraph();
   const density = model.schemaForm.values['density'] === 'compact' ? 'compact' : 'balanced';
   const compact = density === 'compact';
@@ -283,7 +418,96 @@ export function renderWorkflowsLab(components: ShowcaseComponents, model: Celest
   );
 }
 
-export function renderVisualsLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+function renderValidationLab(model: CelestialShowcaseModel): VNode {
+  const samples = ['release@celestial.dev', 'broken-address', 'ops@example.org'];
+  const sample = samples[((model.workflowVariant % samples.length) + samples.length) % samples.length]!;
+  const rules = [minLength(8), email()];
+  const ruleErrors = runRules(rules, sample);
+  const accountForm = form({
+    fields: {
+      email: { label: 'Release contact', defaultValue: '', validate: rules, validateOn: 'change' },
+      retries: { label: 'Retry budget', type: 'number', defaultValue: 3 },
+    },
+  });
+  let [formModel] = accountForm.init();
+  formModel = accountForm.setValue(formModel, 'email', sample);
+  formModel = accountForm.validate(formModel);
+  const values = accountForm.getValues(formModel);
+  const schema = {
+    fields: [
+      { kind: 'text', name: 'channel', label: 'Channel', required: true },
+      { kind: 'toggle', name: 'signed', label: 'Signed', default: false },
+    ],
+  };
+  const schemaResult = validateArgSchema(schema);
+  const parsed = parseArgSchema(schema);
+
+  return column(
+    row(text('ORBIT FORM ENGINE', headingStyle), text('  typed values + validation + schema parsing', mutedStyle)),
+    action(model, 'workflow-cycle', 'Cycle validation sample', ruleErrors.length ? 'warning' : 'success'),
+    text(''),
+    panel({
+      title: ruleErrors.length ? 'Validation rejected' : 'Validation accepted',
+      content: column(
+        capabilityStatus('email', values.email),
+        capabilityStatus('valid', String(formModel.valid), formModel.valid),
+        capabilityStatus('dirty fields', accountForm.getDirtyFields(formModel).join(', ') || 'none'),
+        capabilityStatus('errors', ruleErrors.join(' | ') || 'none', ruleErrors.length === 0),
+        capabilityStatus('schema', schemaResult.success ? `${parsed.fields.length} fields` : 'invalid', schemaResult.success),
+      ),
+    }),
+    panel({ title: 'Live typed form view', content: accountForm.view(formModel), fill: true }),
+  );
+}
+
+function renderPromptLab(model: CelestialShowcaseModel): VNode {
+  const variant = ((model.workflowVariant % 3) + 3) % 3;
+  const input = inputPrompt({ message: 'Release name', defaultValue: variant === 0 ? 'preview' : variant === 1 ? 'candidate' : 'stable' });
+  let [inputModel] = input.init();
+  [inputModel] = input.update({ type: 'prompt:submit' }, inputModel);
+  const confirm = confirmPrompt({ message: 'Publish this channel?', defaultValue: false });
+  let [confirmModel] = confirm.init();
+  [confirmModel] = confirm.update({ type: variant === 2 ? 'confirm:yes' : 'confirm:no' }, confirmModel);
+  const select = selectPrompt({ message: 'Channel', options: ['preview', 'next', 'latest'] });
+  let [selectModel] = select.init();
+  [selectModel] = select.update({ type: 'select:choose-at', index: variant }, selectModel);
+  const multi = multiSelectPrompt({ message: 'Checks', options: ['types', 'unit', 'pty'], minSelect: 1 });
+  let [multiModel] = multi.init();
+  [multiModel] = multi.update({ type: 'multi:toggle-at', index: variant }, multiModel);
+
+  return column(
+    row(text('ORBIT PROMPT CONSOLE', headingStyle), text('  deterministic descriptors, host-owned IO', mutedStyle)),
+    action(model, 'workflow-cycle', 'Cycle prompt outcome', 'success'),
+    text(''),
+    panel({ title: 'Input + confirmation', content: column(input.view(inputModel), confirm.view(confirmModel)), fill: true }),
+    panel({ title: 'Single + multi select', content: column(select.view(selectModel), multi.view(multiModel)), fill: true }),
+    text(
+      `Receipts: name=${input.getValue(inputModel)} | publish=${confirm.getValue(confirmModel)} | channel=${select.getValue(selectModel)} | checks=${multi.getValue(multiModel).join(',')}`,
+      mutedStyle,
+      {
+        wrap: true,
+      },
+    ),
+  );
+}
+
+export function renderWorkflowsLab(components: ShowcaseComponents, model: CelestialShowcaseModel): VNode {
+  const pageCount = 3;
+  const page = ((model.workflowPage % pageCount) + pageCount) % pageCount;
+  const labels = ['Schema + wizard', 'Typed validation', 'Prompt descriptors'];
+  const content = page === 1 ? renderValidationLab(model) : page === 2 ? renderPromptLab(model) : renderWorkflowOverview(components, model);
+  return column(
+    row(
+      action(model, 'workflow-page-prev', 'Previous workflow', 'neutral'),
+      text(`  ${page + 1}/${pageCount} ${labels[page]}  `, mutedStyle),
+      action(model, 'workflow-page-next', 'Next workflow', 'success'),
+    ),
+    text(''),
+    content,
+  );
+}
+
+function renderVisualOverview(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
   const width = Math.max(12, Math.min(46, model.cols - 18));
   const motionTick = caps.reducedMotion ? 0 : model.tick;
   const highlighted = highlightCode('const release = validate({ unicode: true });', { language: 'typescript', theme: 'dracula' });
@@ -328,6 +552,117 @@ export function renderVisualsLab(model: CelestialShowcaseModel, caps: AtlasCapab
     text('Stateful highlighting, opt-out motion, braille charts, and Markdown share one Unicode-aware render lane.', mutedStyle, { wrap: true }),
     text(''),
     model.cols >= 100 ? splitPane({ direction: 'horizontal', ratio: 0.5, first: textPanel, second: renderPanel, minSize: 30 }) : column(textPanel, renderPanel),
+  );
+}
+
+function renderTextMotionLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+  const source = 'const deck = release({ packages: 17, safe: true });';
+  const language = detectLanguage('flight-deck.ts') ?? 'plaintext';
+  const tokens = tokenizeCode(source, language) ?? [];
+  const highlighted = highlightCode(source, { language, theme: 'dracula' });
+  const controllers = [fadeTransition, slideTransition, morphTransition] as const;
+  const names = ['fade', 'slide', 'morph'] as const;
+  const variant = ((model.visualVariant % controllers.length) + controllers.length) % controllers.length;
+  const controller = controllers[variant]!({ duration: 20, reduceMotion: caps.reducedMotion });
+  const state = controller.tick(controller.start(0), caps.reducedMotion ? 20 : model.tick % 21);
+  const transitioned = controller.render('private surface', 'public flight deck', state);
+  const wave = underlineWave('Width-safe motion instrument', {
+    color: defaultTheme.colors.tones.accent,
+    tick: caps.reducedMotion ? 0 : model.tick,
+    reduceMotion: caps.reducedMotion,
+  });
+  const glowText = glow('semantic terminal light', { color: defaultTheme.colors.tones.success, intensity: 1 });
+
+  return column(
+    row(text('TEXT + MOTION INSTRUMENT', headingStyle), text(`  ${names[variant]} transition`, successStyle)),
+    action(model, 'visual-cycle', 'Cycle transition and effects', 'success'),
+    text(''),
+    panel({
+      title: `Spectrum detected ${language} | ${tokens.length} tokens`,
+      content: column(text(highlighted), text(`categories ${[...new Set(tokens.map((token) => token.category))].join(' | ')}`, mutedStyle, { wrap: true })),
+    }),
+    panel({
+      title: 'Mirage + Nova',
+      content: column(
+        text(`${names[variant]} ${Math.round(state.progress * 100)}%  ${transitioned}`),
+        ansiBlock(wave),
+        ansiBlock(glowText),
+        text(caps.reducedMotion ? 'Reduced motion resolves to deterministic end states.' : 'Cycle changes the live transition strategy.', mutedStyle, {
+          wrap: true,
+        }),
+      ),
+    }),
+  );
+}
+
+function renderChartLab(model: CelestialShowcaseModel): VNode {
+  const shift = model.visualVariant % 4;
+  const data = [3, 5, 4, 8, 7, 11, 10].map((value, index) => value + ((index + shift) % 3));
+  const width = Math.max(18, Math.min(42, model.cols - 20));
+  const line = chart.line({ data, width, height: 4, filled: false }).toString();
+  const area = areaChart({ series: [{ label: 'receipts', data }], width, height: 4 }).toString();
+  const heat = heatmap({ data: [data.slice(0, 4), data.slice(3, 7)], rowLabels: ['A', 'B'], cellWidth: 2 }).toString();
+  const spark = sparkline({ data, width: Math.min(24, width), height: 2, showRange: true }).toString();
+  const primary = panel({ title: 'Line + area', content: column(ansiBlock(line), text(''), ansiBlock(area)), fill: true });
+  const secondary = panel({ title: 'Heatmap + sparkline', content: column(ansiBlock(heat), text(''), ansiBlock(spark)), fill: true });
+
+  return column(
+    row(text('STELLAR CHART DECK', headingStyle), text('  four renderers, shared data', mutedStyle)),
+    action(model, 'visual-cycle', 'Shift live dataset', 'success'),
+    text(''),
+    model.cols >= 100 ? splitPane({ direction: 'horizontal', ratio: 0.55, first: primary, second: secondary, minSize: 28 }) : column(primary, secondary),
+  );
+}
+
+function renderMarkdownLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+  const width = Math.max(20, Math.min(54, model.cols - 18));
+  const source = `---\ntitle: Flight Deck\nchannel: preview\n---\n# Release ledger\n\nThe **release** keeps terminal cells safe.\n\n## Checks\n\n- Build\n- PTY\n- Packed install\n\n\`\`\`ts\nconst release = validate(17);\n\`\`\``;
+  const frontmatter = extractFrontmatter(source);
+  const toc = extractToc(frontmatter.body);
+  const tokens = parseMarkdown(frontmatter.body);
+  const matches = findMatches(tokens, 'release');
+  const stream = createMarkdownStream({ width, reduceMotion: caps.reducedMotion });
+  stream.append('# Streaming receipt\n\n');
+  const pending = stream.append('A partial **release');
+  const committed = stream.append('** update.\n\n- deterministic\n');
+  const rendered = renderMarkdown(frontmatter.body, { width, reduceMotion: caps.reducedMotion });
+
+  return column(
+    row(text('PULSAR DOCUMENT INSTRUMENT', headingStyle), text('  parser, search, TOC, stream', mutedStyle)),
+    panel({
+      title: 'Document receipts',
+      content: column(
+        capabilityStatus('frontmatter', Object.keys(frontmatter.data).join(', ')),
+        capabilityStatus('headings', toc.map((entry) => entry.text).join(' > ')),
+        capabilityStatus('search matches', String(matches.length)),
+        capabilityStatus('stream pending', String(pending.pendingSource.length)),
+        capabilityStatus('stream tokens', String(committed.tokens.length)),
+      ),
+    }),
+    panel({ title: 'Rendered Markdown', content: ansiBlock(rendered), fill: true }),
+  );
+}
+
+export function renderVisualsLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+  const pageCount = 4;
+  const page = ((model.visualPage % pageCount) + pageCount) % pageCount;
+  const labels = ['Overview', 'Text + motion', 'Charts', 'Markdown'];
+  const content =
+    page === 1
+      ? renderTextMotionLab(model, caps)
+      : page === 2
+        ? renderChartLab(model)
+        : page === 3
+          ? renderMarkdownLab(model, caps)
+          : renderVisualOverview(model, caps);
+  return column(
+    row(
+      action(model, 'visual-prev', 'Previous visual', 'neutral'),
+      text(`  ${page + 1}/${pageCount} ${labels[page]}  `, mutedStyle),
+      action(model, 'visual-next', 'Next visual', 'success'),
+    ),
+    text(''),
+    content,
   );
 }
 
@@ -494,7 +829,7 @@ export function renderWindowContent(model: CelestialShowcaseModel, id: string): 
   );
 }
 
-export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
+function renderWindowManagerLab(model: CelestialShowcaseModel): VNode {
   const active = getActiveWorkspace(model.workspaces);
   const front = getVisibleWindows(model.windows)[0];
   const workspaceBar = createTabBar({
@@ -532,7 +867,7 @@ export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
     text(''),
     panel({
       title: 'Window manager state',
-      content: column(...managerRows, text(''), controls, text('Open/Bring places the instrument in this workspace.', mutedStyle)),
+      content: column(controls, text('Open/Bring places the instrument in this workspace.', mutedStyle), text(''), ...managerRows),
       focused: true,
     }),
     text(''),
@@ -555,6 +890,73 @@ export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
             wrap: true,
           })
         : text('Compact mode keeps the front instrument live inline. Resize to 120+ columns for floating windows.', warningStyle, { wrap: true }),
+  );
+}
+
+function renderWindowLayoutLab(model: CelestialShowcaseModel): VNode {
+  const bounds = {
+    cols: Math.max(24, model.cols - (model.cols >= 120 ? 32 : 8)),
+    rows: Math.max(10, model.rows - 16),
+  };
+  const snapZones = computeSnapZones(bounds);
+  const zoneIndex = ((model.windowVariant % snapZones.length) + snapZones.length) % snapZones.length;
+  const selectedZone = snapZones[zoneIndex]!;
+  const snappedFrame = applySnapZone({ x: 3, y: 2, width: Math.min(30, bounds.cols), height: Math.min(10, bounds.rows) }, selectedZone);
+  const activeWorkspace = getActiveWorkspace(model.workspaces);
+  const sessionStore = saveSession(createSessionStore(), {
+    name: 'flight-deck',
+    workspace: {
+      layout: {
+        snapZone: selectedZone.id,
+        tileAxis: model.windowVariant % 2 === 0 ? 'columns' : 'rows',
+        windows: model.windows.windows.map((window) => window.id),
+      },
+      activeIndex: model.workspaces.activeIndex,
+    },
+    preview: { title: 'Flight Deck instruments', panes: model.windows.windows.length },
+    savedAt: 1,
+  });
+  const restoredSession = loadSession(sessionStore, 'flight-deck');
+  const panes = [
+    panel({ title: 'Telemetry tile', content: column(text('Live instrument bus'), text(`${model.cols} x ${model.rows}`, mutedStyle)), fill: true }),
+    panel({ title: 'Events tile', content: column(text('Deterministic ledger'), text(`frame ${model.tick}`, mutedStyle)), fill: true }),
+    panel({ title: 'Session tile', content: column(text(activeWorkspace?.name ?? 'No workspace'), text('restorable', successStyle)), fill: true }),
+  ];
+  const tileAxis = model.windowVariant % 2 === 0 ? 'columns' : 'rows';
+  const tiled = tile(tileAxis === 'columns' ? tileColumns(...panes) : tileRows(...panes));
+  const snapPanel = panel({
+    title: `Snap zone ${zoneIndex + 1}/${snapZones.length}`,
+    content: column(
+      capabilityStatus('zone', selectedZone.label ?? selectedZone.id),
+      capabilityStatus('kind', selectedZone.kind),
+      capabilityStatus('target frame', `${snappedFrame.x},${snappedFrame.y} ${snappedFrame.width}x${snappedFrame.height}`),
+      capabilityStatus('tile layout', tileAxis),
+      capabilityStatus('saved sessions', listSessions(sessionStore).join(', ')),
+      capabilityStatus('restored panes', String(restoredSession?.preview.panes ?? 0), restoredSession !== null),
+    ),
+  });
+
+  return column(
+    row(text('HORIZON LAYOUT SYSTEMS', headingStyle), text('  snap, tile, persist, restore', mutedStyle)),
+    action(model, 'window-cycle', 'Cycle snap zone and tile axis', 'success'),
+    text('Every cycle recomputes a bounded snap frame, a recursive tile tree, and a serializable workspace session.', mutedStyle, { wrap: true }),
+    text(''),
+    snapPanel,
+    panel({ title: `Tiled workspace | ${tileAxis}`, content: tiled, fill: true }),
+  );
+}
+
+export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
+  const pageCount = 2;
+  const page = ((model.windowPage % pageCount) + pageCount) % pageCount;
+  return column(
+    row(
+      action(model, 'window-page-prev', 'Previous window system', 'neutral'),
+      text(`  ${page + 1}/${pageCount} ${page === 0 ? 'Manager' : 'Layout systems'}  `, mutedStyle),
+      action(model, 'window-page-next', 'Next window system', 'success'),
+    ),
+    text(''),
+    page === 0 ? renderWindowManagerLab(model) : renderWindowLayoutLab(model),
   );
 }
 
