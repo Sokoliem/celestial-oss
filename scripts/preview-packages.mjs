@@ -70,6 +70,7 @@ export const previewDemos = Object.freeze({
       '@celestial/nova',
       '@celestial/stellar',
       '@celestial/pulsar',
+      '@celestial/rosetta',
     ]),
   }),
 });

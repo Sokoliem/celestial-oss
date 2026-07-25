@@ -58,8 +58,10 @@ import {
   type ShowcaseComponents,
   UI_BUILDER_COUNT,
 } from './components.js';
+import { SHOWCASE_PACKAGE_COVERAGE } from './coverage.js';
 import {
   LABS,
+  LOCALE_SAMPLE_COUNT,
   labForSmoke,
   renderCoreLab,
   renderLayersLab,
@@ -71,7 +73,10 @@ import {
   renderWorkflowsLab,
   SMOKE_STEPS,
   setReactiveTick,
+  VISUAL_PAGE_LABELS,
   viewportTier,
+  WINDOW_PAGE_LABELS,
+  WORKFLOW_PAGE_LABELS,
 } from './labs.js';
 import type {
   CelestialShowcaseModel,
@@ -80,6 +85,7 @@ import type {
   LabId,
   MouseDragPayload,
   ShowcaseContextAction,
+  ShowcaseGalleryModels,
   ShowcaseWorkspace,
   SmokeEvidence,
   SmokeId,
@@ -186,6 +192,7 @@ const EMPTY_EVIDENCE: SmokeEvidence = {
   componentChanges: 0,
   workflowAdvances: 0,
   visualVisits: 0,
+  localeChanges: 0,
   mouseClicks: 0,
   payloadDrops: 0,
   contextMenus: 0,
@@ -200,6 +207,7 @@ const evidenceField: Record<SmokeId, keyof SmokeEvidence> = {
   component: 'componentChanges',
   workflow: 'workflowAdvances',
   visual: 'visualVisits',
+  locale: 'localeChanges',
   'mouse-click': 'mouseClicks',
   'mouse-drag': 'payloadDrops',
   'context-menu': 'contextMenus',
@@ -247,9 +255,25 @@ const actionLabels: Record<string, string> = {
   toast: 'Push toast',
   'gallery-prev': 'Previous component page',
   'gallery-next': 'Next component page',
+  'core-foundations': 'Open core foundations',
+  'core-locale': 'Open Rosetta locale lab',
+  'core-ledger': 'Open capability ledger',
+  'locale-prev': 'Previous locale',
+  'locale-next': 'Next locale',
+  'ledger-prev': 'Previous ledger page',
+  'ledger-next': 'Next ledger page',
+  'visual-prev': 'Previous visual instrument',
+  'visual-next': 'Next visual instrument',
+  'visual-cycle': 'Cycle visual sample',
   'workflow-toggle-motion': 'Toggle reduced motion',
   'workflow-prev': 'Previous workflow step',
   'workflow-next': 'Advance workflow step',
+  'workflow-page-prev': 'Previous workflow instrument',
+  'workflow-page-next': 'Next workflow instrument',
+  'workflow-cycle': 'Cycle workflow sample',
+  'window-page-prev': 'Previous window system',
+  'window-page-next': 'Next window system',
+  'window-cycle': 'Cycle snap zone and tile layout',
   'reopen-telemetry': 'Reopen telemetry instrument',
   'reopen-events': 'Reopen event instrument',
 };
@@ -460,6 +484,24 @@ function mapDescriptor<Model, Msg>(
   return [next, Cmd.map(command, wrap)];
 }
 
+function updateGalleryDescriptor<Key extends keyof ShowcaseGalleryModels, Msg>(
+  model: CelestialShowcaseModel,
+  key: Key,
+  descriptor: ComponentDescriptor<ShowcaseGalleryModels[Key], Msg>,
+  message: Msg,
+  wrap: (message: Msg) => CelestialShowcaseMsg,
+  action: string,
+): [CelestialShowcaseModel, CmdEffect<CelestialShowcaseMsg>] {
+  const before = model.galleryModels[key];
+  const [after, command] = mapDescriptor(descriptor, message, before, wrap);
+  // Descriptors receive a no-op message per subscribed element on every pointer move.
+  // Reallocating the registry for those would churn the record and destroy the identity
+  // that makes gallery state observably durable across page changes.
+  if (after === before) return [markChanged(model, before, after, 'component', action), command];
+  const next = { ...model, galleryModels: { ...model.galleryModels, [key]: after } };
+  return [markChanged(next, before, after, 'component', action), command];
+}
+
 function mapSubscriptions<Model, Msg>(
   descriptor: ComponentDescriptor<Model, Msg>,
   model: Model,
@@ -571,7 +613,7 @@ function adaptiveContext(model: CelestialShowcaseModel): VNode {
       text(''),
       text('Front window', titleStyle),
       text(front ? `${front.title}: ${front.mode}` : 'none', mutedStyle, { wrap: true }),
-      ...(front && model.activeLab === 'windows' ? [renderWindowContent(model, front.id)] : []),
+      ...(front && model.activeLab === 'windows' && model.windowPage === 0 ? [renderWindowContent(model, front.id)] : []),
       text(''),
       actionNode(model, 'help', 'Help', '?'),
     ),
@@ -765,6 +807,15 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
       evidence,
       completed: completedFromEvidence(evidence),
       lastAction: 'Flight Deck initialized through @celestial/core.',
+      corePage: 'foundations',
+      localeIndex: 0,
+      ledgerPage: 0,
+      visualPage: 0,
+      visualVariant: 0,
+      workflowPage: 0,
+      workflowVariant: 0,
+      windowPage: 0,
+      windowVariant: 0,
       componentPage: 0,
       componentFocus: 'none',
       helpOpen: false,
@@ -850,7 +901,11 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             }
             case 'next-receipt': {
               const next = SMOKE_STEPS.find((step) => !closed.completed.has(step.id));
-              return next ? this.update({ type: 'switch-lab', lab: next.lab }, closed) : [closed, Cmd.none()];
+              if (!next) return [closed, Cmd.none()];
+              const [switched, switchCommand] = this.update({ type: 'switch-lab', lab: next.lab }, closed);
+              if (next.id !== 'locale') return [switched, switchCommand];
+              const [localized, localeCommand] = this.update({ type: 'core-page', page: 'locale' }, switched);
+              return [localized, Cmd.batch(switchCommand, localeCommand)];
             }
             case 'window-action':
               return this.update({ type: 'window-action', id: selected.msg.id, action: selected.msg.action }, closed);
@@ -859,6 +914,9 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             case 'close':
               return [{ ...closed, lastAction: 'Closed context menu.' }, Cmd.none()];
           }
+          // Without this the case falls through into 'open-context-menu-keyboard' the
+          // moment ShowcaseContextAction gains an unhandled member.
+          return [withAction(closed, `Unhandled context action: ${(selected.msg as { type: string }).type}.`), Cmd.none()];
         }
         case 'open-context-menu-keyboard': {
           const x = Math.min(Math.max(model.pointer.x || 2, 1), Math.max(1, model.cols - 2));
@@ -873,6 +931,16 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           if (action === 'gallery-prev') return this.update({ type: 'component-page', page: model.componentPage - 1 }, model);
           if (action === 'gallery-next') return this.update({ type: 'component-page', page: model.componentPage + 1 }, model);
           if (action === 'gallery-context-menu') return this.update({ type: 'gallery-context-menu', open: true }, model);
+          if (action === 'core-foundations') return this.update({ type: 'core-page', page: 'foundations' }, model);
+          if (action === 'core-locale') return this.update({ type: 'core-page', page: 'locale' }, model);
+          if (action === 'core-ledger') return this.update({ type: 'core-page', page: 'ledger' }, model);
+          if (action === 'locale-prev') return this.update({ type: 'locale-cycle', delta: -1 }, model);
+          if (action === 'locale-next') return this.update({ type: 'locale-cycle', delta: 1 }, model);
+          if (action === 'ledger-prev') return this.update({ type: 'ledger-cycle', delta: -1 }, model);
+          if (action === 'ledger-next') return this.update({ type: 'ledger-cycle', delta: 1 }, model);
+          if (action === 'visual-prev') return this.update({ type: 'visual-page', delta: -1 }, model);
+          if (action === 'visual-next') return this.update({ type: 'visual-page', delta: 1 }, model);
+          if (action === 'visual-cycle') return this.update({ type: 'visual-variant' }, model);
           if (action === 'workflow-toggle-motion') {
             const current = model.schemaForm.values['reducedMotion'] === true;
             return this.update({ type: 'schema-form', msg: { type: 'schema-form:set-field', field: 'reducedMotion', value: !current } }, model);
@@ -881,6 +949,12 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           if (action === 'workflow-next') {
             return this.update({ type: 'wizard', msg: { type: model.wizard.finished ? 'wizard:reset' : 'wizard:next' } }, model);
           }
+          if (action === 'workflow-page-prev') return this.update({ type: 'workflow-page', delta: -1 }, model);
+          if (action === 'workflow-page-next') return this.update({ type: 'workflow-page', delta: 1 }, model);
+          if (action === 'workflow-cycle') return this.update({ type: 'workflow-variant' }, model);
+          if (action === 'window-page-prev') return this.update({ type: 'window-page', delta: -1 }, model);
+          if (action === 'window-page-next') return this.update({ type: 'window-page', delta: 1 }, model);
+          if (action === 'window-cycle') return this.update({ type: 'window-variant' }, model);
           if (action === 'reopen-telemetry') return this.update({ type: 'window-action', id: 'telemetry', action: 'reopen' }, model);
           if (action === 'reopen-events') return this.update({ type: 'window-action', id: 'events', action: 'reopen' }, model);
           return [model, Cmd.none()];
@@ -894,6 +968,202 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             withAction({ ...cancelled, componentPage: page, galleryContextMenu }, `Opened curated UI page ${page + 1}/${GALLERY_PAGE_COUNT}.`),
             Cmd.none(),
           ];
+        }
+        case 'core-page':
+          return [withAction({ ...cancelActiveInteractions(model, true), corePage: message.page }, `Opened Core ${message.page} instrument.`), Cmd.none()];
+        case 'locale-cycle': {
+          const count = LOCALE_SAMPLE_COUNT;
+          const localeIndex = (model.localeIndex + message.delta + count) % count;
+          return [mark({ ...model, localeIndex }, 'locale', `Changed Rosetta locale sample ${localeIndex + 1}/${count}.`), Cmd.none()];
+        }
+        case 'ledger-cycle': {
+          const pageCount = Math.ceil(SHOWCASE_PACKAGE_COVERAGE.length / 6);
+          const ledgerPage = (model.ledgerPage + message.delta + pageCount) % pageCount;
+          return [withAction({ ...model, ledgerPage }, `Opened capability ledger page ${ledgerPage + 1}/${pageCount}.`), Cmd.none()];
+        }
+        case 'visual-page': {
+          const pageCount = VISUAL_PAGE_LABELS.length;
+          const visualPage = (model.visualPage + message.delta + pageCount) % pageCount;
+          return [mark({ ...model, visualPage }, 'visual', `Opened visual instrument ${visualPage + 1}/${pageCount}.`), Cmd.none()];
+        }
+        case 'visual-variant':
+          return [mark({ ...model, visualVariant: model.visualVariant + 1 }, 'visual', 'Changed the live visual sample.'), Cmd.none()];
+        // Paging and cycling are navigation, not evidence. The 'visual' receipt above is
+        // earned by visiting the Visuals lab at all, so paging may mark it; 'workflow'
+        // reads "Advance the Orbit release wizard" and 'window' reads "Focus, minimize,
+        // maximize, restore, or close a window", so only those actions may mark those.
+        case 'workflow-page': {
+          const pageCount = WORKFLOW_PAGE_LABELS.length;
+          const workflowPage = (model.workflowPage + message.delta + pageCount) % pageCount;
+          return [withAction({ ...model, workflowPage }, `Opened workflow instrument ${workflowPage + 1}/${pageCount}.`), Cmd.none()];
+        }
+        case 'workflow-variant':
+          return [withAction({ ...model, workflowVariant: model.workflowVariant + 1 }, 'Changed the live workflow sample.'), Cmd.none()];
+        case 'window-page': {
+          const pageCount = WINDOW_PAGE_LABELS.length;
+          const windowPage = (model.windowPage + message.delta + pageCount) % pageCount;
+          return [withAction({ ...cancelActiveInteractions(model), windowPage }, `Opened window system ${windowPage + 1}/${pageCount}.`), Cmd.none()];
+        }
+        case 'window-variant':
+          return [withAction({ ...model, windowVariant: model.windowVariant + 1 }, 'Changed the live snap zone and tile layout.'), Cmd.none()];
+        case 'gallery-component': {
+          const { component } = message;
+          switch (component.id) {
+            case 'checkboxGroup':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.checkboxGroupComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'checkboxGroup', msg } }),
+                'Changed checkboxGroup().',
+              );
+            case 'toggleGroup':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.toggleGroupComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'toggleGroup', msg } }),
+                'Changed toggleGroup().',
+              );
+            case 'autocomplete':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.autocompleteComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'autocomplete', msg } }),
+                'Changed autocomplete().',
+              );
+            case 'combobox':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.comboboxComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'combobox', msg } }),
+                'Changed combobox().',
+              );
+            case 'datePicker':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.datePickerComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'datePicker', msg } }),
+                'Changed datePicker().',
+              );
+            case 'multiSelect':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.multiSelectComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'multiSelect', msg } }),
+                'Changed multiSelect().',
+              );
+            case 'numberInput':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.numberInputComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'numberInput', msg } }),
+                'Changed numberInput().',
+              );
+            case 'rangeSlider':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.rangeSliderComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'rangeSlider', msg } }),
+                'Changed rangeSlider().',
+              );
+            case 'rating':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.ratingComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'rating', msg } }),
+                'Changed rating().',
+              );
+            case 'segmentedControl':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.segmentedControlComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'segmentedControl', msg } }),
+                'Changed segmentedControl().',
+              );
+            case 'tagInput':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.tagInputComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'tagInput', msg } }),
+                'Changed tagInput().',
+              );
+            case 'colorPicker':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.colorPickerComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'colorPicker', msg } }),
+                'Changed colorPicker().',
+              );
+            case 'optionList':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.optionListComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'optionList', msg } }),
+                'Changed optionListView().',
+              );
+            case 'cardGrid':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.cardGridComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'cardGrid', msg } }),
+                'Changed cardGrid().',
+              );
+            case 'popover':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.popoverComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'popover', msg } }),
+                'Changed popover().',
+              );
+            case 'popoverGroup':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.popoverGroupComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'popoverGroup', msg } }),
+                'Changed popoverGroup().',
+              );
+            case 'hovercard':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.hovercardComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'hovercard', msg } }),
+                'Changed hovercard().',
+              );
+          }
+          return [model, Cmd.none()];
         }
         case 'component-focus':
           return [withAction(withComponentFocus(model, message.focus), `Focused ${message.focus} component.`), Cmd.none()];
@@ -1062,6 +1332,9 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
               return markOpened(result, result[0].toast.toasts.length > base.toast.toasts.length, 'Opened toast layer.');
             }
           }
+          // Without this the case falls through into 'switch-workspace', which would
+          // report an unrelated "invalid workspace index undefined" for a new SurfaceId.
+          return [withAction(base, `Unhandled surface: ${message.surface as string}.`), Cmd.none()];
         }
         case 'switch-workspace': {
           const workspace = workspaceDefinitions[message.index];
@@ -1149,7 +1422,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
               return [dragDemo.phase === 'dropped' ? recordDemoDrop(next) : next, Cmd.none()];
             }
           }
-          if (model.activeLab !== 'windows' || viewportTier(model.cols) !== 'wide') return [next, Cmd.none()];
+          if (model.activeLab !== 'windows' || model.windowPage !== 0 || viewportTier(model.cols) !== 'wide') return [next, Cmd.none()];
 
           if (eventData.type === 'move' && !model.windowDrag) {
             next = { ...next, windows: windowManagerHoverAt(next.windows, eventData.x, eventData.y) };
@@ -1308,7 +1581,10 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           }
           if (handlerTag.startsWith('showcase-smoke:')) {
             const id = handlerTag.slice('showcase-smoke:'.length) as SmokeId;
-            return this.update({ type: 'switch-lab', lab: labForSmoke(id) }, model);
+            const [switched, switchCommand] = this.update({ type: 'switch-lab', lab: labForSmoke(id) }, model);
+            if (id !== 'locale') return [switched, switchCommand];
+            const [localized, localeCommand] = this.update({ type: 'core-page', page: 'locale' }, switched);
+            return [localized, Cmd.batch(switchCommand, localeCommand)];
           }
           if (handlerTag.startsWith('showcase-drag:')) {
             const phase = handlerTag.slice('showcase-drag:'.length);
@@ -1473,7 +1749,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         sidebarRatio: 0.23,
       });
 
-      if (tier === 'wide' && model.activeLab === 'windows') base = withFloatingWindows(base, dynamicWindows(model, themeCtx));
+      if (tier === 'wide' && model.activeLab === 'windows' && model.windowPage === 0) base = withFloatingWindows(base, dynamicWindows(model, themeCtx));
 
       base = event(
         'showcase-context-deck',
@@ -1584,16 +1860,116 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             mapSubscriptions(components.tabsComponent, model.tabs, (msg) => ({ type: 'tabs', msg })),
             mapSubscriptions(components.breadcrumbComponent, model.breadcrumb, (msg) => ({ type: 'breadcrumb', msg })),
             mapSubscriptions(components.paginationComponent, model.pagination, (msg) => ({ type: 'pagination', msg })),
+            mapSubscriptions(components.optionListComponent, model.galleryModels.optionList, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'optionList', msg },
+            })),
           );
         } else if (model.componentPage === 4) {
           base.push(
             mapSubscriptions(components.tableComponent, model.table, (msg) => ({ type: 'table', msg })),
             mapSubscriptions(components.treeComponent, model.tree, (msg) => ({ type: 'tree', msg })),
           );
+        } else if (model.componentPage === 1) {
+          base.push(
+            mapSubscriptions(components.checkboxGroupComponent, model.galleryModels.checkboxGroup, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'checkboxGroup', msg },
+            })),
+            mapSubscriptions(components.toggleGroupComponent, model.galleryModels.toggleGroup, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'toggleGroup', msg },
+            })),
+            mapSubscriptions(components.autocompleteComponent, model.galleryModels.autocomplete, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'autocomplete', msg },
+            })),
+            mapSubscriptions(components.comboboxComponent, model.galleryModels.combobox, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'combobox', msg },
+            })),
+            mapSubscriptions(components.datePickerComponent, model.galleryModels.datePicker, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'datePicker', msg },
+            })),
+            mapSubscriptions(components.multiSelectComponent, model.galleryModels.multiSelect, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'multiSelect', msg },
+            })),
+            mapSubscriptions(components.numberInputComponent, model.galleryModels.numberInput, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'numberInput', msg },
+            })),
+          );
+        } else if (model.componentPage === 2) {
+          base.push(
+            mapSubscriptions(components.rangeSliderComponent, model.galleryModels.rangeSlider, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'rangeSlider', msg },
+            })),
+            mapSubscriptions(components.ratingComponent, model.galleryModels.rating, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'rating', msg },
+            })),
+            mapSubscriptions(components.segmentedControlComponent, model.galleryModels.segmentedControl, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'segmentedControl', msg },
+            })),
+            mapSubscriptions(components.tagInputComponent, model.galleryModels.tagInput, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'tagInput', msg },
+            })),
+            mapSubscriptions(components.colorPickerComponent, model.galleryModels.colorPicker, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'colorPicker', msg },
+            })),
+          );
+        } else if (model.componentPage === 5) {
+          base.push(
+            mapSubscriptions(components.cardGridComponent, model.galleryModels.cardGrid, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'cardGrid', msg },
+            })),
+          );
+        } else if (model.componentPage === GALLERY_PAGE_COUNT - 1) {
+          base.push(
+            mapSubscriptions(components.popoverComponent, model.galleryModels.popover, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'popover', msg },
+            })),
+            mapSubscriptions(components.popoverGroupComponent, model.galleryModels.popoverGroup, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'popoverGroup', msg },
+            })),
+            mapSubscriptions(components.hovercardComponent, model.galleryModels.hovercard, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'hovercard', msg },
+            })),
+          );
         }
       }
 
+      if (model.activeLab === 'core') {
+        base.push(
+          Sub.key('f', { type: 'core-page', page: 'foundations' }),
+          Sub.key('l', { type: 'core-page', page: 'locale' }),
+          Sub.key('g', { type: 'core-page', page: 'ledger' }),
+        );
+      }
+
+      if (model.activeLab === 'visuals') {
+        base.push(Sub.key('[', { type: 'visual-page', delta: -1 }), Sub.key(']', { type: 'visual-page', delta: 1 }), Sub.key('v', { type: 'visual-variant' }));
+      }
+
       if (model.activeLab === 'workflows') {
+        base.push(
+          Sub.key('[', { type: 'workflow-page', delta: -1 }),
+          Sub.key(']', { type: 'workflow-page', delta: 1 }),
+          Sub.key('v', { type: 'workflow-variant' }),
+        );
+      }
+
+      if (model.activeLab === 'workflows' && model.workflowPage === 0) {
         base.push(
           mapSubscriptions(components.schemaFormComponent, model.schemaForm, (msg) => ({ type: 'schema-form', msg })),
           Sub.key('n', { type: 'wizard', msg: { type: model.wizard.finished ? 'wizard:reset' : 'wizard:next' } }),
@@ -1601,7 +1977,24 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         );
       }
 
-      if (model.componentFocus !== 'text' && model.componentFocus !== 'textarea') base.push(Sub.key('q', { type: 'quit' }));
+      if (model.activeLab === 'windows') {
+        base.push(Sub.key('[', { type: 'window-page', delta: -1 }), Sub.key(']', { type: 'window-page', delta: 1 }), Sub.key('v', { type: 'window-variant' }));
+      }
+
+      // Gate on actual focus rather than page index: these gallery builders swallow raw
+      // characters only while focused, so a page-based guard both suppressed q on pages
+      // where nothing was focused and would silently stop matching if pages were reordered.
+      const galleryTextEntry =
+        model.activeLab === 'components' &&
+        [
+          model.galleryModels.autocomplete.focused,
+          model.galleryModels.combobox.focused,
+          model.galleryModels.tagInput.focused,
+          model.galleryModels.numberInput.focused,
+          model.galleryModels.datePicker.focused,
+          model.galleryModels.colorPicker.focused,
+        ].some(Boolean);
+      if (model.componentFocus !== 'text' && model.componentFocus !== 'textarea' && !galleryTextEntry) base.push(Sub.key('q', { type: 'quit' }));
       base.push(Sub.keyWithModifiers('c', { ctrl: true }, { type: 'quit' }));
       return Sub.batch(...persistent, ...base);
     },

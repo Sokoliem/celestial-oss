@@ -89,7 +89,7 @@ The same architecture powers four supported, local-only demos:
 | Task Console | `pnpm demo:tasks` | Real worker processes, streaming subscriptions, progress, cancellation, retry, responsive layout, and layered UI |
 | API Inspector | `pnpm demo:api` | Loopback HTTP, abortable commands, form controls, response tabs, history, and error states |
 | Horizon Workbench | `pnpm demo:horizon` | Beta splits, tabs, workspaces, responsive panes, managed floating windows, and window chrome |
-| Celestial Flight Deck | `pnpm demo:showcase` | The complete focused preview: eight labs, 46 curated builders, adaptive Orbit workflows, functional layered controls, rich terminal output, target-specific right-click menus, workspace-aware windows with a minimized taskbar, contextual help, and evidence-backed smoke receipts |
+| Celestial Flight Deck | `pnpm demo:showcase` | A machine-backed tour of all 17 public packages and 46 curated builders, with Rosetta locale/bidi tools, deep Orbit and rich-output instruments, layered controls, context menus, and workspace-aware Horizon windows, shelf, snapping, tiling, and sessions |
 
 All four demos import only the supported preview packages. They use bundled/local fixtures and never require credentials or an external service. The Flight Deck's detailed manual and automated acceptance path is in [`examples/celestial-showcase/README.md`](examples/celestial-showcase/README.md).
 
@@ -165,7 +165,7 @@ Real subprocess interaction is available through `@celestial/test/pty` when the 
 
 ## Horizon beta
 
-Horizon is intentionally labeled beta. Its published runtime dependency closure is only `@celestial/core`, and its preview surface covers window and pane management. PTY embedding, Lens automation, and advanced cross-package transitions are not part of the beta API.
+Horizon is intentionally labeled beta. Its published runtime dependency closure is only `@celestial/core`, and its preview surface covers panes, workspaces, managed windows, the minimized shelf, bounded snap zones, recursive tiling, and serializable sessions. PTY embedding, Lens automation, and advanced cross-package transitions are not part of the beta API.
 
 ## Repository scope
 

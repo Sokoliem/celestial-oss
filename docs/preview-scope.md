@@ -24,7 +24,7 @@ Four private workspaces demonstrate the supported packages without widening the 
 - `examples/task-console` uses `@celestial/core` and `@celestial/ui` with bundled Node worker fixtures.
 - `examples/api-inspector` uses `@celestial/core` and `@celestial/ui` with an ephemeral loopback HTTP server.
 - `examples/horizon-workbench` adds the `@celestial/horizon` beta surface for window and workspace management.
-- `examples/celestial-showcase` combines the entire focused preview into an adaptive, mouse-first Flight Deck with eight labs, target-specific right-click menus, workspace-aware managed windows and minimized shelf, contextual help, and evidence-backed smoke receipts.
+- `examples/celestial-showcase` combines the entire focused preview into an adaptive, mouse-first Flight Deck with eight labs, five of them paged, a machine-checked 17-package/46-builder ledger, Rosetta locale and bidi receipts, deep Orbit and rich-rendering instruments, target-specific right-click menus, and Horizon windows, shelf, snap, tile, and session behavior.
 
 The boundary checker validates both their manifests and source imports. `@celestial/test` and `@celestial/test/pty` are permitted only in test files. Other applications and examples are outside this repository's scope.
 
@@ -55,6 +55,7 @@ Horizon may be published only when all of these conditions are true:
 2. Its emitted JavaScript and declarations contain no imports from unpublished Celestial packages.
 3. Build, typecheck, unit, mouse, persistence, and public-API tests pass.
 4. PTY embedding, Lens automation, and advanced transition integrations remain outside the public root.
+5. The Flight Deck exercises managed windows, all-workspace shelf recovery, bounded snap zones, recursive tiling, and session save/load through public exports.
 
 If the gate fails, Horizon stays private without blocking the other preview packages.
 

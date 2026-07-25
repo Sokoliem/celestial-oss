@@ -1,9 +1,13 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createScreen, createTestApp, fireMouse, type TestAppHandle } from '@celestial/test';
+import * as ui from '@celestial/ui';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
 import { GALLERY_PAGE_COUNT, UI_BUILDER_COUNT, UI_BUILDER_NAMES } from '../components.js';
-import { viewportTier } from '../labs.js';
-import type { CelestialShowcaseModel, CelestialShowcaseMsg } from '../types.js';
+import { SHOWCASE_PACKAGE_COVERAGE, UI_BUILDER_COVERAGE, validateShowcaseCoverage } from '../coverage.js';
+import { LOCALE_SAMPLE_COUNT, VISUAL_PAGE_LABELS, viewportTier, WINDOW_PAGE_LABELS, WORKFLOW_PAGE_LABELS } from '../labs.js';
+import type { CelestialShowcaseModel, CelestialShowcaseMsg, ShowcaseGalleryComponentMsg } from '../types.js';
 
 function findText(frame: string, needle: string): { col: number; row: number } {
   const lines = frame.split('\n');
@@ -46,6 +50,46 @@ describe('Celestial Flight Deck', () => {
 
   afterEach(() => {
     for (const handle of handles.splice(0)) handle.stop();
+  });
+
+  it('keeps the public package and curated builder coverage ledger complete and unique', () => {
+    expect(validateShowcaseCoverage()).toEqual([]);
+    expect(new Set(SHOWCASE_PACKAGE_COVERAGE.map((entry) => entry.packageName)).size).toBe(SHOWCASE_PACKAGE_COVERAGE.length);
+    expect(UI_BUILDER_COVERAGE.map((entry) => entry.name)).toEqual(UI_BUILDER_NAMES);
+    expect(UI_BUILDER_COVERAGE.filter((entry) => entry.evidence === 'interactive').length).toBeGreaterThan(30);
+  });
+
+  // The ledger exists to prove coverage, so it has to be checked against the repo
+  // rather than against itself. These two tests are what make the 17/46 counts in
+  // coverage.ts derived facts instead of restated ones.
+  it('matches the ledger against the public packages actually present in the workspace', () => {
+    const packagesDir = fileURLToPath(new URL('../../../../packages/', import.meta.url));
+    const onDisk = readdirSync(packagesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => JSON.parse(readFileSync(`${packagesDir}${entry.name}/package.json`, 'utf8')) as { name: string; private?: boolean })
+      .filter((manifest) => manifest.private !== true)
+      .map((manifest) => manifest.name);
+
+    // Set equality both ways: a package added to the repo, removed from it, or renamed
+    // must fail here rather than silently drifting from the ledger the demo renders.
+    expect([...SHOWCASE_PACKAGE_COVERAGE.map((entry) => entry.packageName)].sort()).toEqual([...onDisk].sort());
+  });
+
+  it('matches every curated builder name against the real @celestial/ui export surface', () => {
+    const exported = new Set(
+      Object.entries(ui)
+        .filter(([, value]) => typeof value === 'function')
+        .map(([name]) => name),
+    );
+    for (const name of UI_BUILDER_NAMES) expect(exported).toContain(name);
+
+    // contextMenuView is a real export that is deliberately kept out of the curated
+    // builder count and covered instead by the '@celestial/ui' capability receipt
+    // named 'context menu helper'. Pinning both halves keeps that intentional, so a
+    // future builder cannot be dropped from the ledger by simply forgetting it.
+    expect(exported).toContain('contextMenuView');
+    expect([...UI_BUILDER_NAMES]).not.toContain('contextMenuView');
+    expect(SHOWCASE_PACKAGE_COVERAGE.find((entry) => entry.packageName === '@celestial/ui')?.capabilities).toContain('context menu helper');
   });
 
   for (const size of [
@@ -109,6 +153,37 @@ describe('Celestial Flight Deck', () => {
 
     handle.dispatch({ type: 'window-action', id: 'telemetry', action: 'maximize' });
     expect(handle.lastFrame()).toContain('telemetry.');
+  });
+
+  it('keeps every paged capability instrument reachable at the minimum viewport', () => {
+    const handle = flightDeck(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
+    const expectReachable = (needle: string) => {
+      expect(handle.lastFrame()).toContain(needle);
+      expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
+    };
+
+    handle.dispatch({ type: 'core-page', page: 'locale' });
+    expectReachable('Next locale');
+    handle.dispatch({ type: 'core-page', page: 'ledger' });
+    expectReachable('Next ledger');
+
+    handle.dispatch({ type: 'switch-lab', lab: 'workflows' });
+    handle.dispatch({ type: 'workflow-page', delta: 1 });
+    expectReachable('Cycle validation sample');
+    handle.dispatch({ type: 'workflow-page', delta: 1 });
+    expectReachable('Cycle prompt outcome');
+
+    handle.dispatch({ type: 'switch-lab', lab: 'visuals' });
+    handle.dispatch({ type: 'visual-page', delta: 1 });
+    expectReachable('Cycle transition and effects');
+    handle.dispatch({ type: 'visual-page', delta: 1 });
+    expectReachable('Shift live dataset');
+    handle.dispatch({ type: 'visual-page', delta: 1 });
+    expectReachable('PULSAR DOCUMENT INSTRUMENT');
+
+    handle.dispatch({ type: 'switch-lab', lab: 'windows' });
+    handle.dispatch({ type: 'window-page', delta: 1 });
+    expectReachable('Cycle snap zone and tile axis');
   });
 
   it.each([
@@ -194,7 +269,6 @@ describe('Celestial Flight Deck', () => {
 
     expect(UI_BUILDER_COUNT).toBe(46);
     expect([...UI_BUILDER_NAMES]).toEqual(expect.arrayContaining(['indeterminateProgress', 'cardGrid', 'popoverGroup']));
-    expect([...UI_BUILDER_NAMES]).not.toContain('contextMenuView');
 
     const builders = new Set<string>();
     for (let page = 0; page < GALLERY_PAGE_COUNT; page += 1) {
@@ -217,6 +291,50 @@ describe('Celestial Flight Deck', () => {
     handle.click(checkbox.col, checkbox.row);
 
     expect(handle.model.checkbox.checked).toBe(!checkedBefore);
+    expect(handle.model.completed.has('component')).toBe(true);
+  });
+
+  it('persists state changes from every previously staged gallery descriptor', () => {
+    const handle = flightDeck(140, 48);
+    const dispatchGallery = (component: ShowcaseGalleryComponentMsg) => handle.dispatch({ type: 'gallery-component', component });
+    const changesBefore = handle.model.evidence.componentChanges;
+
+    dispatchGallery({ id: 'checkboxGroup', msg: { type: 'toggle-at', index: 1 } });
+    dispatchGallery({ id: 'toggleGroup', msg: { type: 'toggle-at', index: 0 } });
+    dispatchGallery({ id: 'autocomplete', msg: { type: 'select-at', index: 1 } });
+    dispatchGallery({ id: 'combobox', msg: { type: 'char', char: '!' } });
+    dispatchGallery({ id: 'datePicker', msg: { type: 'next-month' } });
+    dispatchGallery({ id: 'multiSelect', msg: { type: 'toggle-at', index: 2 } });
+    dispatchGallery({ id: 'numberInput', msg: { type: 'increment' } });
+    dispatchGallery({ id: 'rangeSlider', msg: { type: 'set-low', value: 80 } });
+    dispatchGallery({ id: 'rating', msg: { type: 'click', index: 1 } });
+    dispatchGallery({ id: 'segmentedControl', msg: { type: 'select', index: 0 } });
+    dispatchGallery({ id: 'tagInput', msg: { type: 'remove-tag', index: 0 } });
+    dispatchGallery({ id: 'colorPicker', msg: { type: 'set-slider', field: 'hue', value: 200 } });
+    dispatchGallery({ id: 'optionList', msg: { type: 'opt-click', id: 'beta' } });
+    dispatchGallery({ id: 'cardGrid', msg: { type: 'hover-card', index: 0 } });
+    dispatchGallery({ id: 'popover', msg: { type: 'toggle' } });
+    dispatchGallery({ id: 'popoverGroup', msg: { type: 'toggle-at', index: 0 } });
+    dispatchGallery({ id: 'hovercard', msg: { type: 'hover-enter' } });
+
+    expect(handle.model.galleryModels.checkboxGroup.checked.has('pty')).toBe(true);
+    expect(handle.model.galleryModels.toggleGroup.checked.has('mouse')).toBe(false);
+    expect(handle.model.galleryModels.autocomplete.query).toBe('resize');
+    expect(handle.model.galleryModels.combobox.inputBuffer).toBe('Stellar!');
+    expect(handle.model.galleryModels.datePicker.viewMonth).toBe(8);
+    expect(handle.model.galleryModels.multiSelect.selected.has(2)).toBe(true);
+    expect(handle.model.galleryModels.numberInput.value).toBe(UI_BUILDER_COUNT + 1);
+    expect(handle.model.galleryModels.rangeSlider.low).toBe(80);
+    expect(handle.model.galleryModels.rating.value).toBe(2);
+    expect(handle.model.galleryModels.segmentedControl.selected).toBe(0);
+    expect(handle.model.galleryModels.tagInput.tags).toEqual(['mouse']);
+    expect(handle.model.galleryModels.colorPicker.hsl.h).toBe(200);
+    expect(handle.model.galleryModels.optionList.highlightedIndex).toBe(1);
+    expect(handle.model.galleryModels.cardGrid.hoveredIndex).toBe(0);
+    expect(handle.model.galleryModels.popover.visible).toBe(true);
+    expect(handle.model.galleryModels.popoverGroup.activeIndex).toBe(0);
+    expect(handle.model.galleryModels.hovercard.state).toBe('pending-show');
+    expect(handle.model.evidence.componentChanges).toBe(changesBefore + 17);
     expect(handle.model.completed.has('component')).toBe(true);
   });
 
@@ -424,6 +542,174 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.completed.has('visual')).toBe(true);
   });
 
+  it('pages through Rosetta and the complete machine-backed capability ledger', async () => {
+    const handle = flightDeck(140, 48);
+
+    handle.pressKey('l');
+    await handle.waitForUpdate();
+    expect(handle.model.corePage).toBe('locale');
+    expect(handle.lastFrame()).toContain('ROSETTA LOCALE LAB');
+    expect(handle.lastFrame()).toContain('Bidi + grapheme terminal lane');
+    const localeFrame = handle.lastFrame();
+    handle.dispatch({ type: 'locale-cycle', delta: 1 });
+    expect(handle.model.localeIndex).toBe(1);
+    expect(handle.model.evidence.localeChanges).toBe(1);
+    expect(handle.lastFrame()).not.toBe(localeFrame);
+
+    handle.pressKey('g');
+    await handle.waitForUpdate();
+    expect(handle.model.corePage).toBe('ledger');
+    const visiblePackages = new Set<string>();
+    for (let page = 0; page < 3; page += 1) {
+      const frame = handle.lastFrame();
+      for (const entry of SHOWCASE_PACKAGE_COVERAGE) {
+        if (frame.includes(entry.packageName)) visiblePackages.add(entry.packageName);
+      }
+      handle.dispatch({ type: 'ledger-cycle', delta: 1 });
+    }
+    expect([...visiblePackages].sort()).toEqual(SHOWCASE_PACKAGE_COVERAGE.map((entry) => entry.packageName).sort());
+  });
+
+  it('exercises every Visuals and Workflows instrument with live variants', async () => {
+    const handle = flightDeck(140, 48);
+
+    handle.pressKey('4');
+    await handle.waitForUpdate();
+    expect(handle.lastFrame()).toContain('RICH TERMINAL RENDERING');
+    handle.pressKey(']');
+    expect(handle.lastFrame()).toContain('TEXT + MOTION INSTRUMENT');
+    expect(handle.lastFrame()).toContain('fade transition');
+    handle.pressKey('v');
+    expect(handle.lastFrame()).toContain('slide transition');
+    handle.pressKey(']');
+    expect(handle.lastFrame()).toContain('STELLAR CHART DECK');
+    handle.pressKey(']');
+    expect(handle.lastFrame()).toContain('PULSAR DOCUMENT INSTRUMENT');
+    expect(handle.lastFrame()).toContain('stream pending');
+
+    handle.pressKey('3');
+    await handle.waitForUpdate();
+    expect(handle.lastFrame()).toContain('ORBIT WORKFLOWS');
+    handle.pressKey(']');
+    expect(handle.lastFrame()).toContain('ORBIT FORM ENGINE');
+    expect(handle.lastFrame()).toContain('Validation accepted');
+    handle.pressKey('v');
+    expect(handle.lastFrame()).toContain('Validation rejected');
+    handle.pressKey(']');
+    expect(handle.lastFrame()).toContain('ORBIT PROMPT CONSOLE');
+    expect(handle.lastFrame()).toContain('Input + confirmation');
+  });
+
+  it('demonstrates Horizon snap, tile, and session APIs without invisible manager input', async () => {
+    const handle = flightDeck(140, 48);
+    handle.pressKey('7');
+    await handle.waitForUpdate();
+    const telemetryBefore = { ...handle.model.windows.windows.find((window) => window.id === 'telemetry')! };
+
+    handle.pressKey(']');
+    expect(handle.model.windowPage).toBe(1);
+    expect(handle.lastFrame()).toContain('HORIZON LAYOUT SYSTEMS');
+    expect(handle.lastFrame()).toContain('saved sessions');
+    expect(handle.lastFrame()).toContain('flight-deck');
+    expect(handle.lastFrame()).toContain('Tiled workspace | columns');
+    expect(handle.lastFrame()).not.toContain('Drag anywhere on the titlebar outside its controls.');
+
+    handle.dispatch({
+      type: 'raw-mouse',
+      event: { type: 'press', x: telemetryBefore.x + 2, y: telemetryBefore.y + 1, button: 0, ctrl: false, alt: false, shift: false },
+    });
+    expect(handle.model.windowDrag).toBeNull();
+    expect(handle.model.windows.windows.find((window) => window.id === 'telemetry')).toMatchObject(telemetryBefore);
+
+    const snapFrame = handle.lastFrame();
+    handle.pressKey('v');
+    expect(handle.model.windowVariant).toBe(1);
+    expect(handle.lastFrame()).toContain('Tiled workspace | rows');
+    expect(handle.lastFrame()).not.toBe(snapFrame);
+
+    // The 'window' receipt reads "Focus, minimize, maximize, restore, or close a
+    // window", so paging to the layout page and cycling its layout must not earn it.
+    expect(handle.model.completed.has('window')).toBe(false);
+    handle.dispatch({ type: 'window-action', id: 'telemetry', action: 'maximize' });
+    expect(handle.model.completed.has('window')).toBe(true);
+  });
+
+  // Every paged instrument wraps with `(page + delta + count) % count`. The `+ count`
+  // term only matters going backwards, so paging forward never executes it. These press
+  // `[` from page 0 to prove the wrap lands on the last page instead of -1.
+  it.each([
+    ['4', '[', 'visualPage', VISUAL_PAGE_LABELS.length],
+    ['3', '[', 'workflowPage', WORKFLOW_PAGE_LABELS.length],
+    ['7', '[', 'windowPage', WINDOW_PAGE_LABELS.length],
+  ] as const)('wraps backward from the first page to the last with %s then %s', async (lab, key, field, pageCount) => {
+    const handle = flightDeck(140, 48);
+    handle.pressKey(lab);
+    await handle.waitForUpdate();
+    expect(handle.model[field]).toBe(0);
+
+    handle.pressKey(key);
+    await handle.waitForUpdate();
+    expect(handle.model[field]).toBe(pageCount - 1);
+
+    handle.pressKey(']');
+    await handle.waitForUpdate();
+    expect(handle.model[field]).toBe(0);
+  });
+
+  it('wraps the Rosetta locale backward through every sample including the bidi one', async () => {
+    const handle = flightDeck(140, 48);
+    handle.pressKey('1');
+    await handle.waitForUpdate();
+    handle.pressKey('l');
+    await handle.waitForUpdate();
+    expect(handle.model.localeIndex).toBe(0);
+
+    handle.dispatch({ type: 'locale-cycle', delta: -1 });
+    expect(handle.model.localeIndex).toBe(LOCALE_SAMPLE_COUNT - 1);
+
+    // Walk the full cycle and assert each sample renders a distinct locale scope, so a
+    // sample added to labs.ts cannot become unreachable behind a stale bound.
+    const scopes = new Set<string>();
+    for (let step = 0; step < LOCALE_SAMPLE_COUNT; step += 1) {
+      const line = handle
+        .lastFrame()
+        .split('\n')
+        .find((row) => row.includes('Locale scope |'));
+      if (line) scopes.add(line.trim());
+      handle.dispatch({ type: 'locale-cycle', delta: 1 });
+    }
+    expect(scopes.size).toBe(LOCALE_SAMPLE_COUNT);
+    expect(handle.model.localeIndex).toBe(LOCALE_SAMPLE_COUNT - 1);
+  });
+
+  it('suppresses quit only while a gallery text builder is focused', async () => {
+    const handle = flightDeck(140, 48);
+    handle.pressKey('2');
+    await handle.waitForUpdate();
+    handle.dispatch({ type: 'component-page', page: 1 });
+    await handle.waitForUpdate();
+
+    // Nothing focused yet, so q must still quit even on a text-entry page.
+    expect(handle.model.galleryModels.tagInput.focused).toBe(false);
+    handle.pressKey('q');
+    await handle.waitForUpdate();
+    expect(handle.messageCoverage().byType['quit'] ?? 0).toBe(1);
+
+    // With the tag input focused, q is a character and must not quit.
+    const typing = flightDeck(140, 48);
+    typing.pressKey('2');
+    await typing.waitForUpdate();
+    typing.dispatch({ type: 'component-page', page: 2 });
+    await typing.waitForUpdate();
+    typing.dispatch({ type: 'gallery-component', component: { id: 'tagInput', msg: { type: 'focus' } } });
+    await typing.waitForUpdate();
+    expect(typing.model.galleryModels.tagInput.focused).toBe(true);
+    typing.resetMessageCoverage();
+    typing.pressKey('q');
+    await typing.waitForUpdate();
+    expect(typing.messageCoverage().byType['quit'] ?? 0).toBe(0);
+  });
+
   it('preserves the base app beneath layers and provides contextual Escape-dismissible help', async () => {
     const handle = flightDeck(100, 36);
     handle.pressKey('6');
@@ -541,6 +827,9 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.galleryContextMenu.open).toBe(true);
 
     handle.dispatch({ type: 'component-page', page: 0 });
+    // Identity, not deep equality: paging must leave the registry object itself
+    // untouched. Deep equality would still pass if a no-op pointer message rebuilt the
+    // whole record, which is exactly the churn updateGalleryDescriptor now avoids.
     expect(handle.model.galleryModels).toBe(registry);
     expect(handle.model.galleryContextMenu.open).toBe(false);
   });

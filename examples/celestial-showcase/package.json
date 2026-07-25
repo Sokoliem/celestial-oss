@@ -19,6 +19,7 @@
     "@celestial/nova": "workspace:*",
     "@celestial/orbit": "workspace:*",
     "@celestial/pulsar": "workspace:*",
+    "@celestial/rosetta": "workspace:*",
     "@celestial/spectrum": "workspace:*",
     "@celestial/stellar": "workspace:*",
     "@celestial/ui": "workspace:*"
