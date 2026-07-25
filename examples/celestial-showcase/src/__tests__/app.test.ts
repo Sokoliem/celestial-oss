@@ -1,12 +1,21 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createSessionStore, saveSession } from '@celestial/horizon';
 import { createScreen, createTestApp, fireMouse, type TestAppHandle } from '@celestial/test';
 import * as ui from '@celestial/ui';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
 import { GALLERY_PAGE_COUNT, UI_BUILDER_COUNT, UI_BUILDER_NAMES } from '../components.js';
 import { SHOWCASE_PACKAGE_COVERAGE, UI_BUILDER_COVERAGE, validateShowcaseCoverage } from '../coverage.js';
-import { LOCALE_SAMPLE_COUNT, VISUAL_PAGE_LABELS, viewportTier, WINDOW_PAGE_LABELS, WORKFLOW_PAGE_LABELS } from '../labs.js';
+import {
+  describeLocaleSupport,
+  LOCALE_SAMPLE_COUNT,
+  roundTripSession,
+  VISUAL_PAGE_LABELS,
+  viewportTier,
+  WINDOW_PAGE_LABELS,
+  WORKFLOW_PAGE_LABELS,
+} from '../labs.js';
 import type { CelestialShowcaseModel, CelestialShowcaseMsg, ShowcaseGalleryComponentMsg } from '../types.js';
 
 function findText(frame: string, needle: string): { col: number; row: number } {
@@ -90,6 +99,61 @@ describe('Celestial Flight Deck', () => {
     expect(exported).toContain('contextMenuView');
     expect([...UI_BUILDER_NAMES]).not.toContain('contextMenuView');
     expect(SHOWCASE_PACKAGE_COVERAGE.find((entry) => entry.packageName === '@celestial/ui')?.capabilities).toContain('context menu helper');
+  });
+
+  it('detects whether the runtime actually carries locale data for a sample', () => {
+    expect(describeLocaleSupport('en-US').supported).toBe(true);
+
+    // A well-formed tag with no data behaves exactly like the small-ICU failure mode:
+    // Intl resolves it to the default locale and formats English while the panel still
+    // claims the requested locale. The demo has to be able to say so.
+    expect(describeLocaleSupport('xx-XX').supported).toBe(false);
+  });
+
+  it('reports runtime locale data availability in the Rosetta instrument', async () => {
+    const handle = flightDeck(140, 48);
+    handle.pressKey('1');
+    await handle.waitForUpdate();
+    handle.pressKey('l');
+    await handle.waitForUpdate();
+
+    // The receipt has to name the runtime's locale-data state either way, so an
+    // English-only build is visibly distinguishable from working Rosetta output.
+    expect(handle.lastFrame()).toContain('locale data');
+    expect(handle.lastFrame()).toContain('full ICU data');
+  });
+
+  it('proves the Horizon session survived serialization rather than a same-tick read', async () => {
+    const handle = flightDeck(140, 48);
+    handle.pressKey('7');
+    await handle.waitForUpdate();
+    handle.pressKey(']');
+    await handle.waitForUpdate();
+
+    expect(handle.lastFrame()).toContain('session round trip');
+    expect(handle.lastFrame()).toContain('restored via JSON');
+  });
+
+  it('round trips a saved workspace session through serialization', () => {
+    const store = saveSession(createSessionStore(), {
+      name: 'flight-deck',
+      workspace: { layout: { tileAxis: 'columns' }, activeIndex: 0 },
+      preview: { title: 'Flight Deck instruments', panes: 3 },
+      savedAt: 1,
+    });
+
+    const restored = roundTripSession(store, 'flight-deck');
+    expect(restored?.preview.panes).toBe(3);
+    expect(restored?.workspace.activeIndex).toBe(0);
+
+    // Equal in value but a distinct object: that gap is the proof it travelled through
+    // serialization rather than being handed back from the same in-memory store. A
+    // direct loadSession would return the identical reference and fail this.
+    expect(restored).toEqual(store.sessions['flight-deck']);
+    expect(restored).not.toBe(store.sessions['flight-deck']);
+
+    // The failure path the same-tick save/load could never reach.
+    expect(roundTripSession(store, 'missing')).toBeNull();
   });
 
   for (const size of [

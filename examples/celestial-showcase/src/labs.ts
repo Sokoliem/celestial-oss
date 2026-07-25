@@ -31,11 +31,13 @@ import {
   listSessions,
   loadSession,
   panel,
+  type SessionStore,
   saveSession,
   splitPane,
   tile,
   columns as tileColumns,
   rows as tileRows,
+  type WorkspaceSession,
 } from '@celestial/horizon';
 import { glow, gradient, shimmer, underlineWave } from '@celestial/mirage';
 import { fadeTransition, morphTransition, slideTransition } from '@celestial/nova';
@@ -127,8 +129,22 @@ function action(
   return node;
 }
 
-function capabilityStatus(label: string, value: string, good = true): VNode {
+/**
+ * A receipt that asserts something passed or failed. `good` is required: defaulting it
+ * to true let roughly twenty receipts render fallback and empty values in success green,
+ * which is what made broken instruments look verified.
+ */
+function capabilityStatus(label: string, value: string, good: boolean): VNode {
   return row(text(`${label.padEnd(18)} `, mutedStyle), text(value, good ? successStyle : warningStyle));
+}
+
+/**
+ * A readout that reports a value without claiming it passed anything — terminal name,
+ * pointer coordinates, viewport size. These are context, not evidence, so they must not
+ * borrow the success tone that the receipts above use to mean "verified".
+ */
+function capabilityInfo(label: string, value: string): VNode {
+  return row(text(`${label.padEnd(18)} `, mutedStyle), text(value, actionStyle));
 }
 
 function coreCard(title: string, content: VNode, width = 34, height = 14): VNode {
@@ -161,11 +177,11 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
       coreCard(
         'Atlas + Corona',
         column(
-          capabilityStatus('terminal', caps.terminalName),
-          capabilityStatus('color / unicode', `${caps.colorLevel} / ${caps.unicodeLevel}`),
+          capabilityInfo('terminal', caps.terminalName),
+          capabilityInfo('color / unicode', `${caps.colorLevel} / ${caps.unicodeLevel}`),
           capabilityStatus('mouse tracking', caps.mouseTracking ? 'available' : 'fallback', caps.mouseTracking),
           capabilityStatus('WCAG AA pairs', `${contrast.pairsChecked - contrast.violations.length}/${contrast.pairsChecked}`, contrast.pass),
-          capabilityStatus('semantic glyph', `${glyph} resolved`),
+          capabilityStatus('semantic glyph', glyph ? `${glyph} resolved` : 'unresolved', glyph.length > 0),
         ),
         width,
         8,
@@ -174,9 +190,9 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
         'Aurora + Nebula',
         column(
           progressBar({ label: 'tween', value: animated, width: 18 }),
-          capabilityStatus('Elm update tick', String(model.tick)),
-          capabilityStatus('signal checksum', String(reactiveChecksum())),
-          capabilityStatus('motion', caps.reducedMotion ? 'static' : `spring ${springValue.toFixed(2)}`),
+          capabilityInfo('Elm update tick', String(model.tick)),
+          capabilityInfo('signal checksum', String(reactiveChecksum())),
+          capabilityInfo('motion', caps.reducedMotion ? 'static' : `spring ${springValue.toFixed(2)}`),
           text('Cmd + Sub + VDOM + signals', mutedStyle),
         ),
         width,
@@ -185,11 +201,11 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
       coreCard(
         'Gravity + Nexus',
         column(
-          capabilityStatus('viewport tier', layoutTier),
-          capabilityStatus('terminal', `${model.cols} x ${model.rows}`),
-          capabilityStatus('flex layout', 'responsive'),
-          capabilityStatus('HitMap probe', nexusProbe),
-          capabilityStatus('last pointer', `${model.pointer.x},${model.pointer.y}`),
+          capabilityInfo('viewport tier', layoutTier),
+          capabilityInfo('terminal', `${model.cols} x ${model.rows}`),
+          capabilityInfo('flex layout', 'responsive'),
+          capabilityStatus('HitMap probe', nexusProbe, nexusProbe !== 'miss'),
+          capabilityInfo('last pointer', `${model.pointer.x},${model.pointer.y}`),
         ),
         width,
         8,
@@ -201,14 +217,14 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
     coreCard(
       'Atlas + Corona',
       column(
-        capabilityStatus('terminal', caps.terminalName),
-        capabilityStatus('color', caps.colorLevel),
-        capabilityStatus('unicode', caps.unicodeLevel),
+        capabilityInfo('terminal', caps.terminalName),
+        capabilityInfo('color', caps.colorLevel),
+        capabilityInfo('unicode', caps.unicodeLevel),
         capabilityStatus('mouse tracking', caps.mouseTracking ? 'available' : 'fallback', caps.mouseTracking),
         text(''),
         capabilityStatus('WCAG AA pairs', `${contrast.pairsChecked - contrast.violations.length}/${contrast.pairsChecked}`, contrast.pass),
-        capabilityStatus('semantic glyph', `${glyph} resolved`),
-        capabilityStatus('reduced motion', defaultTheme.motion.reduceMotion ? 'enabled' : 'disabled'),
+        capabilityStatus('semantic glyph', glyph ? `${glyph} resolved` : 'unresolved', glyph.length > 0),
+        capabilityInfo('reduced motion', defaultTheme.motion.reduceMotion ? 'enabled' : 'disabled'),
       ),
     ),
     coreCard(
@@ -218,20 +234,20 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
         progressBar({ label: 'spring', value: springValue, width: 18 }),
         text(caps.reducedMotion ? 'Atlas requests static motion.' : 'Deterministic eased tween.', mutedStyle),
         text(''),
-        capabilityStatus('Elm update tick', String(model.tick)),
-        capabilityStatus('signal checksum', String(reactiveChecksum())),
+        capabilityInfo('Elm update tick', String(model.tick)),
+        capabilityInfo('signal checksum', String(reactiveChecksum())),
         text('Cmd + Sub + VDOM + signals', mutedStyle),
       ),
     ),
     coreCard(
       'Gravity + Nexus',
       column(
-        capabilityStatus('viewport tier', layoutTier),
-        capabilityStatus('terminal', `${model.cols} x ${model.rows}`),
+        capabilityInfo('viewport tier', layoutTier),
+        capabilityInfo('terminal', `${model.cols} x ${model.rows}`),
         text('Responsive flex layout', mutedStyle),
         text(''),
-        capabilityStatus('HitMap probe', nexusProbe),
-        capabilityStatus('last pointer', `${model.pointer.x},${model.pointer.y}`),
+        capabilityStatus('HitMap probe', nexusProbe, nexusProbe !== 'miss'),
+        capabilityInfo('last pointer', `${model.pointer.x},${model.pointer.y}`),
         text('Hit regions + raw mouse', mutedStyle),
       ),
     ),
@@ -260,6 +276,47 @@ const localeSamples = [
 
 export const LOCALE_SAMPLE_COUNT = localeSamples.length;
 
+/**
+ * Report whether this runtime actually carries data for a locale.
+ *
+ * A Node build without full ICU does not throw on `de-DE` or `ja-JP`; it silently
+ * resolves them to the default locale and formats English. Without this check the
+ * locale instrument renders English receipts in success green under a `ja-JP` heading,
+ * which reads as "Rosetta is broken" rather than "this runtime has no locale data".
+ */
+export function describeLocaleSupport(localeId: string): { supported: boolean; detail: string } {
+  const formatters: Array<[string, boolean]> = [
+    ['Intl.NumberFormat', typeof Intl.NumberFormat === 'function'],
+    ['Intl.DateTimeFormat', typeof Intl.DateTimeFormat === 'function'],
+    ['Intl.RelativeTimeFormat', typeof Intl.RelativeTimeFormat === 'function'],
+    ['Intl.ListFormat', typeof Intl.ListFormat === 'function'],
+  ];
+  const missing = formatters.filter(([, present]) => !present).map(([name]) => name);
+  if (missing.length > 0) return { supported: false, detail: `${missing.join(', ')} unavailable` };
+
+  try {
+    const hasNumbers = Intl.NumberFormat.supportedLocalesOf(localeId).length > 0;
+    const hasDates = Intl.DateTimeFormat.supportedLocalesOf(localeId).length > 0;
+    if (hasNumbers && hasDates) return { supported: true, detail: 'full ICU data' };
+    return { supported: false, detail: `no ICU data, formatting as ${new Intl.NumberFormat(localeId).resolvedOptions().locale}` };
+  } catch {
+    // supportedLocalesOf throws RangeError on a malformed tag, which is a genuine
+    // failure to report rather than a reason to fall back to a green receipt.
+    return { supported: false, detail: 'malformed locale tag' };
+  }
+}
+
+/**
+ * Restore a session through an actual serialization round trip.
+ *
+ * Saving and loading against the same in-memory store cannot fail, so it proves nothing
+ * about persistence. Serializing first exercises the property that matters for a real
+ * session file: that the saved workspace survives leaving the process.
+ */
+export function roundTripSession(store: SessionStore, name: string): WorkspaceSession | null {
+  return loadSession(JSON.parse(JSON.stringify(store)) as SessionStore, name);
+}
+
 function renderLocaleLab(model: CelestialShowcaseModel): VNode {
   const sample = localeSamples[((model.localeIndex % localeSamples.length) + localeSamples.length) % localeSamples.length]!;
   const locale = createLocaleContext({ lang: sample.id, dir: 'auto' });
@@ -267,16 +324,20 @@ function renderLocaleLab(model: CelestialShowcaseModel): VNode {
   const graphemes = segmentGraphemes(graphemeSample);
   const visual = locale.reorderBidi(sample.text);
   const width = Math.max(24, Math.min(54, model.cols - 18));
+  const support = describeLocaleSupport(sample.id);
   const formatPanel = panel({
     title: `Locale scope | ${sample.id}`,
     content: column(
-      capabilityStatus('language', sample.label),
-      capabilityStatus('direction', locale.dir),
-      capabilityStatus('number', locale.formatNumber(1234567.89)),
-      capabilityStatus('currency', locale.formatCurrency(12345.67, sample.currency)),
-      capabilityStatus('date', locale.formatDate(Date.UTC(2026, 6, 21), { dateStyle: 'long', timeZone: 'UTC' })),
-      capabilityStatus('relative', formatRelativeTime(-2, 'day', sample.id)),
-      capabilityStatus('list', formatList(['Atlas', 'Nebula', 'Horizon'], sample.id)),
+      capabilityStatus('locale data', support.detail, support.supported),
+      capabilityInfo('language', sample.label),
+      capabilityInfo('direction', locale.dir),
+      // These receipts pass only when the runtime really has data for the locale.
+      // Otherwise Intl formats English and the values below are the default locale's.
+      capabilityStatus('number', locale.formatNumber(1234567.89), support.supported),
+      capabilityStatus('currency', locale.formatCurrency(12345.67, sample.currency), support.supported),
+      capabilityStatus('date', locale.formatDate(Date.UTC(2026, 6, 21), { dateStyle: 'long', timeZone: 'UTC' }), support.supported),
+      capabilityStatus('relative', formatRelativeTime(-2, 'day', sample.id), support.supported),
+      capabilityStatus('list', formatList(['Atlas', 'Nebula', 'Horizon'], sample.id), support.supported),
     ),
     fill: true,
   });
@@ -462,9 +523,9 @@ function renderValidationLab(model: CelestialShowcaseModel): VNode {
     panel({
       title: ruleErrors.length ? 'Validation rejected' : 'Validation accepted',
       content: column(
-        capabilityStatus('email', values.email),
+        capabilityInfo('email', values.email),
         capabilityStatus('valid', String(formModel.valid), formModel.valid),
-        capabilityStatus('dirty fields', accountForm.getDirtyFields(formModel).join(', ') || 'none'),
+        capabilityInfo('dirty fields', accountForm.getDirtyFields(formModel).join(', ') || 'none'),
         capabilityStatus('errors', ruleErrors.join(' | ') || 'none', ruleErrors.length === 0),
         capabilityStatus('schema', schemaReceipt, schemaResult.success),
       ),
@@ -645,11 +706,13 @@ function renderMarkdownLab(model: CelestialShowcaseModel, caps: AtlasCapabilitie
     panel({
       title: 'Document receipts',
       content: column(
-        capabilityStatus('frontmatter', Object.keys(frontmatter.data).join(', ')),
-        capabilityStatus('headings', toc.map((entry) => entry.text).join(' > ')),
-        capabilityStatus('search matches', String(matches.length)),
-        capabilityStatus('stream pending', String(pending.pendingSource.length)),
-        capabilityStatus('stream tokens', String(committed.tokens.length)),
+        // Pulsar's parsers return empty results rather than throwing, so an empty value
+        // here means the parse gave up. Without these predicates that rendered as green.
+        capabilityStatus('frontmatter', Object.keys(frontmatter.data).join(', ') || 'not parsed', Object.keys(frontmatter.data).length > 0),
+        capabilityStatus('headings', toc.map((entry) => entry.text).join(' > ') || 'none extracted', toc.length > 0),
+        capabilityStatus('search matches', String(matches.length), matches.length > 0),
+        capabilityStatus('stream pending', String(pending.pendingSource.length), pending.pendingSource.length > 0),
+        capabilityStatus('stream tokens', String(committed.tokens.length), committed.tokens.length > 0),
       ),
     }),
     panel({ title: 'Rendered Markdown', content: ansiBlock(rendered), fill: true }),
@@ -709,11 +772,11 @@ export function renderMouseLab(model: CelestialShowcaseModel): VNode {
   const telemetry = panel({
     title: 'Pointer receipts',
     content: column(
-      capabilityStatus('coordinates', `${model.pointer.x}, ${model.pointer.y}`),
-      capabilityStatus('event type', model.pointer.type),
-      capabilityStatus('element target', model.pointer.target),
-      capabilityStatus('click count', String(model.pointer.clicks)),
-      capabilityStatus('tracking', model.pointer.hovering ? 'inside target' : 'global'),
+      capabilityInfo('coordinates', `${model.pointer.x}, ${model.pointer.y}`),
+      capabilityInfo('event type', model.pointer.type),
+      capabilityInfo('element target', model.pointer.target),
+      capabilityInfo('click count', String(model.pointer.clicks)),
+      capabilityInfo('tracking', model.pointer.hovering ? 'inside target' : 'global'),
     ),
   });
 
@@ -826,10 +889,11 @@ export function renderWindowContent(model: CelestialShowcaseModel, id: string): 
   if (id === 'telemetry') {
     return column(
       text('Live instrument bus', titleStyle),
-      capabilityStatus('workspace', active?.name ?? 'none'),
-      capabilityStatus('viewport', `${model.cols} x ${model.rows}`),
-      capabilityStatus('pointer', `${model.pointer.x},${model.pointer.y}`),
-      capabilityStatus('receipts', `${model.completed.size}/${SMOKE_STEPS.length}`),
+      // A missing active workspace is a real desync, not a value worth painting green.
+      capabilityStatus('workspace', active?.name ?? 'none', active !== undefined),
+      capabilityInfo('viewport', `${model.cols} x ${model.rows}`),
+      capabilityInfo('pointer', `${model.pointer.x},${model.pointer.y}`),
+      capabilityInfo('receipts', `${model.completed.size}/${SMOKE_STEPS.length}`),
       text('Drag anywhere on the titlebar outside its controls.', mutedStyle),
     );
   }
@@ -929,7 +993,12 @@ function renderWindowLayoutLab(model: CelestialShowcaseModel): VNode {
     preview: { title: 'Flight Deck instruments', panes: model.windows.windows.length },
     savedAt: 1,
   });
-  const restoredSession = loadSession(sessionStore, 'flight-deck');
+  const savedPanes = model.windows.windows.length;
+  const restoredSession = roundTripSession(sessionStore, 'flight-deck');
+  const restoredPanes = restoredSession?.preview.panes ?? 0;
+  // A same-tick save/load could not fail, so it proved nothing. Comparing the restored
+  // pane count against what was saved makes this an assertion the demo can actually lose.
+  const sessionRestored = restoredSession !== null && restoredPanes === savedPanes;
   const panes = [
     panel({ title: 'Telemetry tile', content: column(text('Live instrument bus'), text(`${model.cols} x ${model.rows}`, mutedStyle)), fill: true }),
     panel({ title: 'Events tile', content: column(text('Deterministic ledger'), text(`frame ${model.tick}`, mutedStyle)), fill: true }),
@@ -940,12 +1009,13 @@ function renderWindowLayoutLab(model: CelestialShowcaseModel): VNode {
   const snapPanel = panel({
     title: `Snap zone ${zoneIndex + 1}/${snapZones.length}`,
     content: column(
-      capabilityStatus('zone', selectedZone.label ?? selectedZone.id),
-      capabilityStatus('kind', selectedZone.kind),
-      capabilityStatus('target frame', `${snappedFrame.x},${snappedFrame.y} ${snappedFrame.width}x${snappedFrame.height}`),
-      capabilityStatus('tile layout', tileAxis),
-      capabilityStatus('saved sessions', listSessions(sessionStore).join(', ')),
-      capabilityStatus('restored panes', String(restoredSession?.preview.panes ?? 0), restoredSession !== null),
+      capabilityInfo('zone', selectedZone.label ?? selectedZone.id),
+      capabilityInfo('kind', selectedZone.kind),
+      capabilityInfo('target frame', `${snappedFrame.x},${snappedFrame.y} ${snappedFrame.width}x${snappedFrame.height}`),
+      capabilityInfo('tile layout', tileAxis),
+      capabilityStatus('saved sessions', listSessions(sessionStore).join(', ') || 'none', listSessions(sessionStore).length > 0),
+      capabilityStatus('session round trip', sessionRestored ? `restored via JSON` : 'lost in transport', sessionRestored),
+      capabilityStatus('restored panes', `${restoredPanes}/${savedPanes}`, sessionRestored),
     ),
   });
 
