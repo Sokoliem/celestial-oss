@@ -61,9 +61,9 @@ import { SHOWCASE_PACKAGE_COVERAGE } from './coverage.js';
 import type { CelestialShowcaseModel, LabId, SmokeId, SurfaceId, ViewportTier } from './types.js';
 
 export const LABS: Array<{ id: LabId; label: string; key: string; summary: string }> = [
-  { id: 'core', label: 'Core', key: '1', summary: 'Six foundations, one facade' },
+  { id: 'core', label: 'Core', key: '1', summary: 'Foundations, locale, ledger' },
   { id: 'components', label: 'Components', key: '2', summary: `${UI_BUILDER_COUNT} curated builders` },
-  { id: 'workflows', label: 'Workflows', key: '3', summary: 'Schema forms and wizards' },
+  { id: 'workflows', label: 'Workflows', key: '3', summary: 'Forms, validation, prompts' },
   { id: 'visuals', label: 'Visuals', key: '4', summary: 'Code, motion, charts, Markdown' },
   { id: 'mouse', label: 'Mouse', key: '5', summary: 'Pointer and hit regions' },
   { id: 'layers', label: 'Layers', key: '6', summary: 'Stacked transient surfaces' },
@@ -244,12 +244,21 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
   );
 }
 
+// Page counts are shared with the update path in app.ts. Keeping them in one place
+// stops a new page or locale sample from becoming silently unreachable because only
+// one of the two modulo bounds was updated.
+export const WORKFLOW_PAGE_LABELS = ['Schema + wizard', 'Typed validation', 'Prompt descriptors'] as const;
+export const VISUAL_PAGE_LABELS = ['Overview', 'Text + motion', 'Charts', 'Markdown'] as const;
+export const WINDOW_PAGE_LABELS = ['Manager', 'Layout systems'] as const;
+
 const localeSamples = [
   { id: 'en-US', label: 'English', currency: 'USD', text: 'Release 17 Celestial packages' },
   { id: 'de-DE', label: 'Deutsch', currency: 'EUR', text: '17 Celestial-Pakete veröffentlichen' },
   { id: 'ar-EG', label: 'العربية', currency: 'EGP', text: 'إطلاق ١٧ حزمة Celestial' },
   { id: 'ja-JP', label: '日本語', currency: 'JPY', text: 'Celestial 17 パッケージを公開' },
 ] as const;
+
+export const LOCALE_SAMPLE_COUNT = localeSamples.length;
 
 function renderLocaleLab(model: CelestialShowcaseModel): VNode {
   const sample = localeSamples[((model.localeIndex % localeSamples.length) + localeSamples.length) % localeSamples.length]!;
@@ -440,7 +449,11 @@ function renderValidationLab(model: CelestialShowcaseModel): VNode {
     ],
   };
   const schemaResult = validateArgSchema(schema);
-  const parsed = parseArgSchema(schema);
+  // parseArgSchema() throws on an invalid schema, so it may only be called inside the
+  // success branch; calling it unconditionally made the 'invalid' receipt unreachable.
+  const schemaReceipt = schemaResult.success
+    ? `${parseArgSchema(schema).fields.length} fields`
+    : schemaResult.issues.map((issue) => `${issue.path || 'schema'}: ${issue.message}`).join(' | ');
 
   return column(
     row(text('ORBIT FORM ENGINE', headingStyle), text('  typed values + validation + schema parsing', mutedStyle)),
@@ -453,7 +466,7 @@ function renderValidationLab(model: CelestialShowcaseModel): VNode {
         capabilityStatus('valid', String(formModel.valid), formModel.valid),
         capabilityStatus('dirty fields', accountForm.getDirtyFields(formModel).join(', ') || 'none'),
         capabilityStatus('errors', ruleErrors.join(' | ') || 'none', ruleErrors.length === 0),
-        capabilityStatus('schema', schemaResult.success ? `${parsed.fields.length} fields` : 'invalid', schemaResult.success),
+        capabilityStatus('schema', schemaReceipt, schemaResult.success),
       ),
     }),
     panel({ title: 'Live typed form view', content: accountForm.view(formModel), fill: true }),
@@ -492,9 +505,9 @@ function renderPromptLab(model: CelestialShowcaseModel): VNode {
 }
 
 export function renderWorkflowsLab(components: ShowcaseComponents, model: CelestialShowcaseModel): VNode {
-  const pageCount = 3;
+  const pageCount = WORKFLOW_PAGE_LABELS.length;
   const page = ((model.workflowPage % pageCount) + pageCount) % pageCount;
-  const labels = ['Schema + wizard', 'Typed validation', 'Prompt descriptors'];
+  const labels = WORKFLOW_PAGE_LABELS;
   const content = page === 1 ? renderValidationLab(model) : page === 2 ? renderPromptLab(model) : renderWorkflowOverview(components, model);
   return column(
     row(
@@ -644,9 +657,9 @@ function renderMarkdownLab(model: CelestialShowcaseModel, caps: AtlasCapabilitie
 }
 
 export function renderVisualsLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
-  const pageCount = 4;
+  const pageCount = VISUAL_PAGE_LABELS.length;
   const page = ((model.visualPage % pageCount) + pageCount) % pageCount;
-  const labels = ['Overview', 'Text + motion', 'Charts', 'Markdown'];
+  const labels = VISUAL_PAGE_LABELS;
   const content =
     page === 1
       ? renderTextMotionLab(model, caps)
@@ -947,12 +960,12 @@ function renderWindowLayoutLab(model: CelestialShowcaseModel): VNode {
 }
 
 export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
-  const pageCount = 2;
+  const pageCount = WINDOW_PAGE_LABELS.length;
   const page = ((model.windowPage % pageCount) + pageCount) % pageCount;
   return column(
     row(
       action(model, 'window-page-prev', 'Previous window system', 'neutral'),
-      text(`  ${page + 1}/${pageCount} ${page === 0 ? 'Manager' : 'Layout systems'}  `, mutedStyle),
+      text(`  ${page + 1}/${pageCount} ${WINDOW_PAGE_LABELS[page]}  `, mutedStyle),
       action(model, 'window-page-next', 'Next window system', 'success'),
     ),
     text(''),

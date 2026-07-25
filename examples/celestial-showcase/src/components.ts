@@ -85,7 +85,7 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
   components: {
     purpose: 'Tour every curated @celestial/ui builder across eight compact pages.',
     mouse: 'Click controls to focus, toggle, advance, or open their real layered surface.',
-    verify: `Advance through pages 1-8 and confirm the counter reaches ${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} builders.`,
+    verify: `Advance through pages 1-8; each page names its builders, and page 7 carries the ${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} curated badge.`,
   },
   workflows: {
     purpose: 'Exercise Orbit schema forms, validation rules, prompt descriptors, and branch-aware wizard state using the same Elm update loop.',

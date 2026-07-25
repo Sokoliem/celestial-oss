@@ -24,7 +24,7 @@ export const SHOWCASE_PACKAGE_COVERAGE = [
   { packageName: '@celestial/nebula', lab: 'Core/Layers', evidence: 'live', capabilities: ['Elm loop', 'VDOM', 'signals', 'layers'] },
   { packageName: '@celestial/nexus', lab: 'Mouse', evidence: 'live', capabilities: ['HitMap', 'drag and drop', 'context routing'] },
   { packageName: '@celestial/nova', lab: 'Visuals', evidence: 'live', capabilities: ['fade', 'slide', 'morph'] },
-  { packageName: '@celestial/orbit', lab: 'Workflows', evidence: 'live', capabilities: ['schema form', 'wizard', 'validation', 'schema parsing'] },
+  { packageName: '@celestial/orbit', lab: 'Workflows', evidence: 'live', capabilities: ['schema form', 'wizard', 'validation', 'schema parsing', 'prompts'] },
   { packageName: '@celestial/pulsar', lab: 'Visuals', evidence: 'live', capabilities: ['Markdown', 'streaming', 'search', 'TOC'] },
   { packageName: '@celestial/rosetta', lab: 'Core/Locale', evidence: 'live', capabilities: ['locale format', 'bidi', 'graphemes'] },
   { packageName: '@celestial/spectrum', lab: 'Visuals', evidence: 'live', capabilities: ['highlighting', 'language detection', 'tokenization'] },
@@ -85,13 +85,18 @@ export const UI_BUILDER_COVERAGE = [
 export const UI_BUILDER_NAMES = UI_BUILDER_COVERAGE.map((entry) => entry.name);
 export const UI_BUILDER_COUNT = UI_BUILDER_COVERAGE.length;
 
+/**
+ * Structural self-checks only. The ledger's counts are verified against the workspace
+ * packages on disk and the real `@celestial/ui` export surface in `app.test.ts`;
+ * restating them as literals here would just add a second copy free to drift.
+ */
 export function validateShowcaseCoverage(): string[] {
   const issues: string[] = [];
   const packageNames = SHOWCASE_PACKAGE_COVERAGE.map((entry) => entry.packageName);
   const builderNames = UI_BUILDER_COVERAGE.map((entry) => entry.name);
-  if (packageNames.length !== 17) issues.push(`Expected 17 public packages, found ${packageNames.length}.`);
+  if (packageNames.length === 0) issues.push('Package coverage is empty.');
   if (new Set(packageNames).size !== packageNames.length) issues.push('Package coverage contains duplicate entries.');
-  if (builderNames.length !== 46) issues.push(`Expected 46 curated builders, found ${builderNames.length}.`);
+  if (builderNames.length === 0) issues.push('Builder coverage is empty.');
   if (new Set(builderNames).size !== builderNames.length) issues.push('Builder coverage contains duplicate entries.');
   if ((SHOWCASE_PACKAGE_COVERAGE as readonly ShowcasePackageCoverage[]).some((entry) => entry.capabilities.length === 0)) {
     issues.push('Every package requires at least one capability receipt.');

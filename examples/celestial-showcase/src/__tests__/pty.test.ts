@@ -3,7 +3,7 @@ import { createPtyHarness } from '@celestial/test/pty';
 import { describe, expect, it } from 'vitest';
 
 describe('Celestial Flight Deck PTY', () => {
-  it('launches, traverses every lab and deep instrument, resizes, opens help, and exits cleanly', async () => {
+  it('launches, traverses every lab and its deep instruments, resizes, opens help, and exits cleanly', async () => {
     const packageRoot = fileURLToPath(new URL('../..', import.meta.url));
     const harness = await createPtyHarness({
       command: process.execPath,
@@ -23,9 +23,9 @@ describe('Celestial Flight Deck PTY', () => {
       harness.write('\u001b[21~');
       await harness.waitForText('Open Core help');
       harness.write('\u001b');
-      // The status-bar diff may repaint that receipt in non-contiguous chunks.
-      // A lab shortcut only works after Escape dismisses the topmost menu, so
-      // the next assertion verifies the state transition behaviorally.
+      // Sub-page keys and lab shortcuts are both swallowed while a context menu is
+      // open, so the 'Locale scope |' assertion below verifies the Escape behaviorally
+      // rather than asserting on a status-bar receipt that may repaint in chunks.
       await new Promise<void>((resolve) => setTimeout(resolve, 75));
 
       harness.write('l');
@@ -40,10 +40,19 @@ describe('Celestial Flight Deck PTY', () => {
       await harness.waitForText('Release preferences');
       harness.write(']');
       await harness.waitForText('Validation accepted');
+      harness.write(']');
+      // Headings replace in place and are not guaranteed to reach the transcript as one
+      // contiguous chunk, so each deep instrument below is confirmed by a freshly
+      // painted body receipt instead of its title.
+      await harness.waitForText('Single + multi select');
       harness.write('4');
       await harness.waitForText('Stellar line chart');
       harness.write(']');
       await harness.waitForText('semantic terminal light');
+      harness.write(']');
+      await harness.waitForText('Heatmap + sparkline');
+      harness.write(']');
+      await harness.waitForText('Document receipts');
       harness.write('5');
       await harness.waitForText('verification receipt');
       harness.write('6');

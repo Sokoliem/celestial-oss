@@ -61,6 +61,7 @@ import {
 import { SHOWCASE_PACKAGE_COVERAGE } from './coverage.js';
 import {
   LABS,
+  LOCALE_SAMPLE_COUNT,
   labForSmoke,
   renderCoreLab,
   renderLayersLab,
@@ -72,7 +73,10 @@ import {
   renderWorkflowsLab,
   SMOKE_STEPS,
   setReactiveTick,
+  VISUAL_PAGE_LABELS,
   viewportTier,
+  WINDOW_PAGE_LABELS,
+  WORKFLOW_PAGE_LABELS,
 } from './labs.js';
 import type {
   CelestialShowcaseModel,
@@ -490,6 +494,10 @@ function updateGalleryDescriptor<Key extends keyof ShowcaseGalleryModels, Msg>(
 ): [CelestialShowcaseModel, CmdEffect<CelestialShowcaseMsg>] {
   const before = model.galleryModels[key];
   const [after, command] = mapDescriptor(descriptor, message, before, wrap);
+  // Descriptors receive a no-op message per subscribed element on every pointer move.
+  // Reallocating the registry for those would churn the record and destroy the identity
+  // that makes gallery state observably durable across page changes.
+  if (after === before) return [markChanged(model, before, after, 'component', action), command];
   const next = { ...model, galleryModels: { ...model.galleryModels, [key]: after } };
   return [markChanged(next, before, after, 'component', action), command];
 }
@@ -906,6 +914,9 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             case 'close':
               return [{ ...closed, lastAction: 'Closed context menu.' }, Cmd.none()];
           }
+          // Without this the case falls through into 'open-context-menu-keyboard' the
+          // moment ShowcaseContextAction gains an unhandled member.
+          return [withAction(closed, `Unhandled context action: ${(selected.msg as { type: string }).type}.`), Cmd.none()];
         }
         case 'open-context-menu-keyboard': {
           const x = Math.min(Math.max(model.pointer.x || 2, 1), Math.max(1, model.cols - 2));
@@ -961,7 +972,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         case 'core-page':
           return [withAction({ ...cancelActiveInteractions(model, true), corePage: message.page }, `Opened Core ${message.page} instrument.`), Cmd.none()];
         case 'locale-cycle': {
-          const count = 4;
+          const count = LOCALE_SAMPLE_COUNT;
           const localeIndex = (model.localeIndex + message.delta + count) % count;
           return [mark({ ...model, localeIndex }, 'locale', `Changed Rosetta locale sample ${localeIndex + 1}/${count}.`), Cmd.none()];
         }
@@ -971,26 +982,30 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           return [withAction({ ...model, ledgerPage }, `Opened capability ledger page ${ledgerPage + 1}/${pageCount}.`), Cmd.none()];
         }
         case 'visual-page': {
-          const pageCount = 4;
+          const pageCount = VISUAL_PAGE_LABELS.length;
           const visualPage = (model.visualPage + message.delta + pageCount) % pageCount;
           return [mark({ ...model, visualPage }, 'visual', `Opened visual instrument ${visualPage + 1}/${pageCount}.`), Cmd.none()];
         }
         case 'visual-variant':
           return [mark({ ...model, visualVariant: model.visualVariant + 1 }, 'visual', 'Changed the live visual sample.'), Cmd.none()];
+        // Paging and cycling are navigation, not evidence. The 'visual' receipt above is
+        // earned by visiting the Visuals lab at all, so paging may mark it; 'workflow'
+        // reads "Advance the Orbit release wizard" and 'window' reads "Focus, minimize,
+        // maximize, restore, or close a window", so only those actions may mark those.
         case 'workflow-page': {
-          const pageCount = 3;
+          const pageCount = WORKFLOW_PAGE_LABELS.length;
           const workflowPage = (model.workflowPage + message.delta + pageCount) % pageCount;
-          return [mark({ ...model, workflowPage }, 'workflow', `Opened workflow instrument ${workflowPage + 1}/${pageCount}.`), Cmd.none()];
+          return [withAction({ ...model, workflowPage }, `Opened workflow instrument ${workflowPage + 1}/${pageCount}.`), Cmd.none()];
         }
         case 'workflow-variant':
-          return [mark({ ...model, workflowVariant: model.workflowVariant + 1 }, 'workflow', 'Changed the live workflow sample.'), Cmd.none()];
+          return [withAction({ ...model, workflowVariant: model.workflowVariant + 1 }, 'Changed the live workflow sample.'), Cmd.none()];
         case 'window-page': {
-          const pageCount = 2;
+          const pageCount = WINDOW_PAGE_LABELS.length;
           const windowPage = (model.windowPage + message.delta + pageCount) % pageCount;
-          return [mark({ ...cancelActiveInteractions(model), windowPage }, 'window', `Opened window system ${windowPage + 1}/${pageCount}.`), Cmd.none()];
+          return [withAction({ ...cancelActiveInteractions(model), windowPage }, `Opened window system ${windowPage + 1}/${pageCount}.`), Cmd.none()];
         }
         case 'window-variant':
-          return [mark({ ...model, windowVariant: model.windowVariant + 1 }, 'window', 'Changed the live snap zone and tile layout.'), Cmd.none()];
+          return [withAction({ ...model, windowVariant: model.windowVariant + 1 }, 'Changed the live snap zone and tile layout.'), Cmd.none()];
         case 'gallery-component': {
           const { component } = message;
           switch (component.id) {
@@ -1317,6 +1332,9 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
               return markOpened(result, result[0].toast.toasts.length > base.toast.toasts.length, 'Opened toast layer.');
             }
           }
+          // Without this the case falls through into 'switch-workspace', which would
+          // report an unrelated "invalid workspace index undefined" for a new SurfaceId.
+          return [withAction(base, `Unhandled surface: ${message.surface as string}.`), Cmd.none()];
         }
         case 'switch-workspace': {
           const workspace = workspaceDefinitions[message.index];
@@ -1963,7 +1981,19 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         base.push(Sub.key('[', { type: 'window-page', delta: -1 }), Sub.key(']', { type: 'window-page', delta: 1 }), Sub.key('v', { type: 'window-variant' }));
       }
 
-      const galleryTextEntry = model.activeLab === 'components' && (model.componentPage === 1 || model.componentPage === 2);
+      // Gate on actual focus rather than page index: these gallery builders swallow raw
+      // characters only while focused, so a page-based guard both suppressed q on pages
+      // where nothing was focused and would silently stop matching if pages were reordered.
+      const galleryTextEntry =
+        model.activeLab === 'components' &&
+        [
+          model.galleryModels.autocomplete.focused,
+          model.galleryModels.combobox.focused,
+          model.galleryModels.tagInput.focused,
+          model.galleryModels.numberInput.focused,
+          model.galleryModels.datePicker.focused,
+          model.galleryModels.colorPicker.focused,
+        ].some(Boolean);
       if (model.componentFocus !== 'text' && model.componentFocus !== 'textarea' && !galleryTextEntry) base.push(Sub.key('q', { type: 'quit' }));
       base.push(Sub.keyWithModifiers('c', { ctrl: true }, { type: 'quit' }));
       return Sub.batch(...persistent, ...base);

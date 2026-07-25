@@ -24,9 +24,9 @@ floating windows can remain visible together.
 - Mouse: hover any interactive control for an activation highlight; click labs, controls, smoke receipts, layer actions, workspace tabs, window chrome, and minimized shelf items; right-click labs, controls, windows, shelf items, or panel space for target-specific actions; drag the Mouse-lab receipt, sliders, and any non-control area of floating-window titlebars; resize windows from any edge or corner at wide size.
 - `1`-`8`: open Core, Components, Workflows, Visuals, Mouse, Layers, Windows, or Smoke.
 - `[` / `]`: page the active Components, Workflows, Visuals, or Windows instrument.
-- `F` / `L` / `G`: open Core Foundations, Locale, or capability Ledger.
-- `V`: cycle the live sample on validation, prompt, motion, chart, snap, and tile instruments.
-- `N` / `B`: advance or go back in the Orbit wizard while its overview is visible.
+- `F` / `L` / `G` (Core lab only): open Core Foundations, Locale, or capability Ledger. The Ledger pages through its own Previous/Next controls.
+- `V` (Workflows, Visuals, or Windows): cycle the live sample on the validation, prompt, motion, chart, snap, and tile instruments.
+- `N` / `B`: advance the Orbit wizard (or restart it once finished) and step back, while its overview is visible.
 - `?`, `F1`, or `H`: open help for the current lab.
 - `Ctrl+P`: open the command palette.
 - `Shift+F10` (or `F10` in terminals that do not report Shift): open a context menu for the current lab.
@@ -59,4 +59,4 @@ pnpm --filter @celestial/demo-showcase build
 pnpm --filter @celestial/demo-showcase test:pty
 ```
 
-The headless suite enforces the machine-readable 17-package/46-builder ledger, persistent changes for every stateful gallery descriptor, every Core/Workflow/Visual/Window sub-instrument, all three breakpoints, accessibility audits, semantic and raw pointer routing, Orbit state, reduced motion, Nexus drag/drop, smoke receipts, target-specific context menus, layered dismissal, complete wrapping, toast expiry, and complete Horizon window/shelf/snap/tile/session behavior. The PTY test covers real process launch, the `F10` keyboard context-menu fallback, every lab and deep instrument, terminal resize, contextual help, Escape, and clean quit. Host-dependent pointer gestures stay in the deterministic headless suite.
+The headless suite enforces the machine-readable 17-package/46-builder ledger, persistent changes for every stateful gallery descriptor, every Core/Workflow/Visual/Window sub-instrument, all three breakpoints, accessibility audits, semantic and raw pointer routing, Orbit state, reduced motion, Nexus drag/drop, smoke receipts, target-specific context menus, layered dismissal, complete wrapping, toast expiry, and complete Horizon window/shelf/snap/tile/session behavior. The PTY test covers real process launch, the `F10` keyboard context-menu fallback, every lab, both Core sub-pages, every Workflows/Visuals/Windows deep instrument, the first Components page turn, terminal resize, contextual help, Escape, and clean quit. Host-dependent pointer gestures stay in the deterministic headless suite.

@@ -1,9 +1,12 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createScreen, createTestApp, fireMouse, type TestAppHandle } from '@celestial/test';
+import * as ui from '@celestial/ui';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
 import { GALLERY_PAGE_COUNT, UI_BUILDER_COUNT, UI_BUILDER_NAMES } from '../components.js';
 import { SHOWCASE_PACKAGE_COVERAGE, UI_BUILDER_COVERAGE, validateShowcaseCoverage } from '../coverage.js';
-import { viewportTier } from '../labs.js';
+import { LOCALE_SAMPLE_COUNT, VISUAL_PAGE_LABELS, viewportTier, WINDOW_PAGE_LABELS, WORKFLOW_PAGE_LABELS } from '../labs.js';
 import type { CelestialShowcaseModel, CelestialShowcaseMsg, ShowcaseGalleryComponentMsg } from '../types.js';
 
 function findText(frame: string, needle: string): { col: number; row: number } {
@@ -51,11 +54,42 @@ describe('Celestial Flight Deck', () => {
 
   it('keeps the public package and curated builder coverage ledger complete and unique', () => {
     expect(validateShowcaseCoverage()).toEqual([]);
-    expect(SHOWCASE_PACKAGE_COVERAGE).toHaveLength(17);
-    expect(new Set(SHOWCASE_PACKAGE_COVERAGE.map((entry) => entry.packageName)).size).toBe(17);
-    expect(UI_BUILDER_COVERAGE).toHaveLength(46);
+    expect(new Set(SHOWCASE_PACKAGE_COVERAGE.map((entry) => entry.packageName)).size).toBe(SHOWCASE_PACKAGE_COVERAGE.length);
     expect(UI_BUILDER_COVERAGE.map((entry) => entry.name)).toEqual(UI_BUILDER_NAMES);
     expect(UI_BUILDER_COVERAGE.filter((entry) => entry.evidence === 'interactive').length).toBeGreaterThan(30);
+  });
+
+  // The ledger exists to prove coverage, so it has to be checked against the repo
+  // rather than against itself. These two tests are what make the 17/46 counts in
+  // coverage.ts derived facts instead of restated ones.
+  it('matches the ledger against the public packages actually present in the workspace', () => {
+    const packagesDir = fileURLToPath(new URL('../../../../packages/', import.meta.url));
+    const onDisk = readdirSync(packagesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => JSON.parse(readFileSync(`${packagesDir}${entry.name}/package.json`, 'utf8')) as { name: string; private?: boolean })
+      .filter((manifest) => manifest.private !== true)
+      .map((manifest) => manifest.name);
+
+    // Set equality both ways: a package added to the repo, removed from it, or renamed
+    // must fail here rather than silently drifting from the ledger the demo renders.
+    expect([...SHOWCASE_PACKAGE_COVERAGE.map((entry) => entry.packageName)].sort()).toEqual([...onDisk].sort());
+  });
+
+  it('matches every curated builder name against the real @celestial/ui export surface', () => {
+    const exported = new Set(
+      Object.entries(ui)
+        .filter(([, value]) => typeof value === 'function')
+        .map(([name]) => name),
+    );
+    for (const name of UI_BUILDER_NAMES) expect(exported).toContain(name);
+
+    // contextMenuView is a real export that is deliberately kept out of the curated
+    // builder count and covered instead by the '@celestial/ui' capability receipt
+    // named 'context menu helper'. Pinning both halves keeps that intentional, so a
+    // future builder cannot be dropped from the ledger by simply forgetting it.
+    expect(exported).toContain('contextMenuView');
+    expect([...UI_BUILDER_NAMES]).not.toContain('contextMenuView');
+    expect(SHOWCASE_PACKAGE_COVERAGE.find((entry) => entry.packageName === '@celestial/ui')?.capabilities).toContain('context menu helper');
   });
 
   for (const size of [
@@ -235,7 +269,6 @@ describe('Celestial Flight Deck', () => {
 
     expect(UI_BUILDER_COUNT).toBe(46);
     expect([...UI_BUILDER_NAMES]).toEqual(expect.arrayContaining(['indeterminateProgress', 'cardGrid', 'popoverGroup']));
-    expect([...UI_BUILDER_NAMES]).not.toContain('contextMenuView');
 
     const builders = new Set<string>();
     for (let page = 0; page < GALLERY_PAGE_COUNT; page += 1) {
@@ -593,7 +626,88 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.windowVariant).toBe(1);
     expect(handle.lastFrame()).toContain('Tiled workspace | rows');
     expect(handle.lastFrame()).not.toBe(snapFrame);
+
+    // The 'window' receipt reads "Focus, minimize, maximize, restore, or close a
+    // window", so paging to the layout page and cycling its layout must not earn it.
+    expect(handle.model.completed.has('window')).toBe(false);
+    handle.dispatch({ type: 'window-action', id: 'telemetry', action: 'maximize' });
     expect(handle.model.completed.has('window')).toBe(true);
+  });
+
+  // Every paged instrument wraps with `(page + delta + count) % count`. The `+ count`
+  // term only matters going backwards, so paging forward never executes it. These press
+  // `[` from page 0 to prove the wrap lands on the last page instead of -1.
+  it.each([
+    ['4', '[', 'visualPage', VISUAL_PAGE_LABELS.length],
+    ['3', '[', 'workflowPage', WORKFLOW_PAGE_LABELS.length],
+    ['7', '[', 'windowPage', WINDOW_PAGE_LABELS.length],
+  ] as const)('wraps backward from the first page to the last with %s then %s', async (lab, key, field, pageCount) => {
+    const handle = flightDeck(140, 48);
+    handle.pressKey(lab);
+    await handle.waitForUpdate();
+    expect(handle.model[field]).toBe(0);
+
+    handle.pressKey(key);
+    await handle.waitForUpdate();
+    expect(handle.model[field]).toBe(pageCount - 1);
+
+    handle.pressKey(']');
+    await handle.waitForUpdate();
+    expect(handle.model[field]).toBe(0);
+  });
+
+  it('wraps the Rosetta locale backward through every sample including the bidi one', async () => {
+    const handle = flightDeck(140, 48);
+    handle.pressKey('1');
+    await handle.waitForUpdate();
+    handle.pressKey('l');
+    await handle.waitForUpdate();
+    expect(handle.model.localeIndex).toBe(0);
+
+    handle.dispatch({ type: 'locale-cycle', delta: -1 });
+    expect(handle.model.localeIndex).toBe(LOCALE_SAMPLE_COUNT - 1);
+
+    // Walk the full cycle and assert each sample renders a distinct locale scope, so a
+    // sample added to labs.ts cannot become unreachable behind a stale bound.
+    const scopes = new Set<string>();
+    for (let step = 0; step < LOCALE_SAMPLE_COUNT; step += 1) {
+      const line = handle
+        .lastFrame()
+        .split('\n')
+        .find((row) => row.includes('Locale scope |'));
+      if (line) scopes.add(line.trim());
+      handle.dispatch({ type: 'locale-cycle', delta: 1 });
+    }
+    expect(scopes.size).toBe(LOCALE_SAMPLE_COUNT);
+    expect(handle.model.localeIndex).toBe(LOCALE_SAMPLE_COUNT - 1);
+  });
+
+  it('suppresses quit only while a gallery text builder is focused', async () => {
+    const handle = flightDeck(140, 48);
+    handle.pressKey('2');
+    await handle.waitForUpdate();
+    handle.dispatch({ type: 'component-page', page: 1 });
+    await handle.waitForUpdate();
+
+    // Nothing focused yet, so q must still quit even on a text-entry page.
+    expect(handle.model.galleryModels.tagInput.focused).toBe(false);
+    handle.pressKey('q');
+    await handle.waitForUpdate();
+    expect(handle.messageCoverage().byType['quit'] ?? 0).toBe(1);
+
+    // With the tag input focused, q is a character and must not quit.
+    const typing = flightDeck(140, 48);
+    typing.pressKey('2');
+    await typing.waitForUpdate();
+    typing.dispatch({ type: 'component-page', page: 2 });
+    await typing.waitForUpdate();
+    typing.dispatch({ type: 'gallery-component', component: { id: 'tagInput', msg: { type: 'focus' } } });
+    await typing.waitForUpdate();
+    expect(typing.model.galleryModels.tagInput.focused).toBe(true);
+    typing.resetMessageCoverage();
+    typing.pressKey('q');
+    await typing.waitForUpdate();
+    expect(typing.messageCoverage().byType['quit'] ?? 0).toBe(0);
   });
 
   it('preserves the base app beneath layers and provides contextual Escape-dismissible help', async () => {
@@ -713,7 +827,10 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.galleryContextMenu.open).toBe(true);
 
     handle.dispatch({ type: 'component-page', page: 0 });
-    expect(handle.model.galleryModels).toStrictEqual(registry);
+    // Identity, not deep equality: paging must leave the registry object itself
+    // untouched. Deep equality would still pass if a no-op pointer message rebuilt the
+    // whole record, which is exactly the churn updateGalleryDescriptor now avoids.
+    expect(handle.model.galleryModels).toBe(registry);
     expect(handle.model.galleryContextMenu.open).toBe(false);
   });
 
