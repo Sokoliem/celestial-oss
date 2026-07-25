@@ -71,6 +71,18 @@ export interface AppOptions {
 
   /** Called when the render pipeline throws. The previous frame is preserved on screen. */
   onRenderError?: (error: unknown) => void;
+
+  /**
+   * Where caught update/view/subscription errors go when `onRenderError` is not
+   * supplied.
+   *
+   * - `'stderr'` (default) — write the message and stack to `process.stderr`
+   * - `'silent'` — on-screen red row only
+   *
+   * The runtime always keeps the app running; this controls whether the failure
+   * leaves a trace beyond a single terminal row that the next repaint erases.
+   */
+  renderErrorReporting?: 'stderr' | 'silent';
   /** Called when the render pipeline recovers after a previous error. */
   onRenderRecovery?: () => void;
 

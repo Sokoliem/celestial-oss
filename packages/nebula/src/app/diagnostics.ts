@@ -24,11 +24,23 @@ export function installDiagnostics<Model, M>(ctx: RuntimeContext<Model, M>): voi
     const msg = err instanceof Error ? err.message : String(err);
     if (msg !== ctx.lastRenderErrorMsg) {
       ctx.lastRenderErrorMsg = msg;
-      try {
-        ctx.options?.onRenderError?.(err);
-      } catch (callbackError: unknown) {
+      const handler = ctx.options?.onRenderError;
+      if (handler) {
+        try {
+          handler(err);
+        } catch (callbackError: unknown) {
+          if (typeof process !== 'undefined' && process.stderr) {
+            process.stderr.write(`[nebula] onRenderError callback failed: ${String(callbackError)}\n`);
+          }
+        }
+      } else if ((ctx.options?.renderErrorReporting ?? 'stderr') === 'stderr') {
+        // With no handler the only trace was a single truncated row on the alt
+        // screen, which vanishes on the next repaint and never reaches CI logs.
+        // stderr survives the alt-screen buffer and is captured by PTY harnesses
+        // and shell redirection, without disturbing the rendered frame.
         if (typeof process !== 'undefined' && process.stderr) {
-          process.stderr.write(`[nebula] onRenderError callback failed: ${String(callbackError)}\n`);
+          const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+          process.stderr.write(`[nebula] uncaught render error: ${detail}\n`);
         }
       }
       try {
