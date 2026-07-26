@@ -202,9 +202,9 @@ export type {
 export { measureTooltipBubble, renderTooltipBubble, tooltip, tooltipContract } from './tooltip.js';
 // Command spine: one action registry drives palette entries and key bindings,
 // so a shortcut and the command that advertises it cannot disagree.
-export type { ActionCommandOptions, ActionKeyBindingOptions, UnbindableShortcut } from './actions.js';
+export type { ActionCommandOptions, ActionKeyBindingOptions, UnbindableShortcut, UnbindableShortcutReason } from './actions.js';
 export { actionCommands, actionKeyBindings, formatActionShortcut, unbindableActionShortcuts } from './actions.js';
-export type { KeyBinding } from './keyboard.js';
+export type { HelpViewOptions, KeyBinding } from './keyboard.js';
 export { formatDisplayKey, formatKeyBinding, getMatchingKeyBinding, helpView, keyMap, matchesKeyBinding } from './keyboard.js';
 export type { TreeConfig, TreeModel, TreeMsg, TreeNode, TreeNodeInfo, TreeTokens } from './tree.js';
 export { tree, treeContract } from './tree.js';

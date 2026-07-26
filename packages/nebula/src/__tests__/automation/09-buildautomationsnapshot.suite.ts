@@ -136,6 +136,55 @@ describe('buildAutomationSnapshot', () => {
     expect(snap.actions.some((action) => action.role === 'listbox' && action.label === 'Mode')).toBe(true);
   });
 
+  it('keeps disabled semantics in elements but excludes them from actions', () => {
+    const enabled = textNode('Enabled');
+    setVNodeMeta(enabled, { a11y: { role: 'menuitem', label: 'Enabled' } });
+    const disabled = textNode('Disabled');
+    setVNodeMeta(disabled, { a11y: { role: 'menuitem', label: 'Disabled', disabled: true } });
+    const disabledFocused = textNode('Disabled focused');
+    setVNodeMeta(disabledFocused, { a11y: { role: 'button', label: 'Disabled focused', disabled: true } });
+    const disabledFocusNode = focusNode('disabled-own-focus', textNode('Disabled own focus'), true);
+    setVNodeMeta(disabledFocusNode, { a11y: { role: 'button', label: 'Disabled own focus', disabled: true } });
+
+    const tree = columnNode(enabled, disabled, focusNode('disabled-focus', disabledFocused, true), disabledFocusNode);
+    const grid = makeCellGrid(['Enabled', 'Disabled', 'Disabled focused', 'Disabled own focus']);
+    const snap = buildAutomationSnapshot(tree, grid, 18, 4);
+
+    expect(snap.elements.find((element) => element.a11y?.label === 'Disabled')).toMatchObject({ disabled: true });
+    expect(snap.elements.find((element) => element.a11y?.label === 'Disabled focused')).toMatchObject({ disabled: true });
+    expect(snap.elements.find((element) => element.a11y?.label === 'Disabled own focus')).toMatchObject({ disabled: true });
+    expect(snap.actions.some((action) => action.label === 'Enabled')).toBe(true);
+    expect(snap.actions.some((action) => action.label === 'Disabled')).toBe(false);
+    expect(snap.actions.some((action) => action.label === 'Disabled focused' || action.focusId === 'disabled-focus')).toBe(false);
+    expect(snap.actions.some((action) => action.label === 'Disabled own focus' || action.focusId === 'disabled-own-focus')).toBe(false);
+  });
+
+  it('inherits disabled semantics for role-based descendant actions', () => {
+    const descendant = textNode('Disabled descendant');
+    setVNodeMeta(descendant, { a11y: { role: 'button', label: 'Disabled descendant' } });
+    const disabledAncestor = columnNode(descendant);
+    setVNodeMeta(disabledAncestor, { a11y: { disabled: true } });
+
+    const snap = buildAutomationSnapshot(disabledAncestor, makeCellGrid(['Disabled descendant']), 19, 1);
+
+    expect(snap.elements.find((element) => element.a11y?.label === 'Disabled descendant')).toMatchObject({ disabled: true });
+    expect(snap.actions.some((action) => action.label === 'Disabled descendant')).toBe(false);
+  });
+
+  it('excludes hidden focus candidates from actions, including inherited hidden state', () => {
+    const hiddenOwn = focusNode('hidden-own', textNode('Hidden own'), true);
+    setVNodeMeta(hiddenOwn, { a11y: { role: 'button', label: 'Hidden own', hidden: true } });
+    const hiddenChild = textNode('Hidden child');
+    setVNodeMeta(hiddenChild, { a11y: { role: 'button', label: 'Hidden child', hidden: true } });
+    const hiddenAncestor = columnNode(focusNode('hidden-inherited', textNode('Hidden inherited'), true));
+    setVNodeMeta(hiddenAncestor, { a11y: { hidden: true } });
+
+    const tree = columnNode(hiddenOwn, focusNode('hidden-child', hiddenChild, true), hiddenAncestor);
+    const snap = buildAutomationSnapshot(tree, makeCellGrid(['Hidden own', 'Hidden child', 'Hidden inherited']), 16, 3);
+
+    expect(snap.actions.some((action) => ['hidden-own', 'hidden-child', 'hidden-inherited'].includes(action.focusId ?? ''))).toBe(false);
+  });
+
   it('handles complex tree with multiple elements and actions', () => {
     const btn1 = textNode('Save');
     setVNodeMeta(btn1, { a11y: { role: 'button', label: 'Save' } });

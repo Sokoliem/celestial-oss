@@ -101,4 +101,42 @@ describe('Sub.keyEvent', () => {
 
     handle.stop();
   });
+
+  it('matches exact Tab subscriptions before built-in focus traversal', async () => {
+    const { state, app, Cmd, Sub } = await loadRuntime();
+    const received: string[] = [];
+    const handle = app<{}, string>({
+      init: () => [{}, Cmd.none()],
+      update: (msg, model) => {
+        received.push(msg);
+        return [model, Cmd.none()];
+      },
+      view: () => ({ kind: 'text', content: 'ok' }),
+      subscriptions: () => Sub.keyWithModifiers('tab', { ctrl: false, alt: false, shift: false }, 'tab'),
+    });
+
+    state.inputHandler?.(Buffer.from('\t', 'utf8'));
+
+    expect(received).toEqual(['tab']);
+    handle.stop();
+  });
+
+  it('does not treat a shifted key event as an unmodified Sub.key match', async () => {
+    const { state, app, Cmd, Sub } = await loadRuntime();
+    const received: string[] = [];
+    const handle = app<{}, string>({
+      init: () => [{}, Cmd.none()],
+      update: (msg, model) => {
+        received.push(msg);
+        return [model, Cmd.none()];
+      },
+      view: () => ({ kind: 'text', content: 'ok' }),
+      subscriptions: () => Sub.key('A', 'plain'),
+    });
+
+    state.inputHandler?.(Buffer.from('A', 'utf8'));
+
+    expect(received).toEqual([]);
+    handle.stop();
+  });
 });

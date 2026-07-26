@@ -6,6 +6,8 @@ export interface Command<M = unknown> {
   label: string;
   category?: string;
   shortcut?: string;
+  /** Render the command, but prevent keyboard and pointer activation. */
+  disabled?: boolean;
   msg: M;
   keywords?: string[];
 }

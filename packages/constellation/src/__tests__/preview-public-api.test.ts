@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as ui from '../index.js';
 import {
+  actionCommands,
+  actionKeyBindings,
   alert,
   autocomplete,
   badge,
@@ -22,9 +24,11 @@ import {
   emptyState,
   formField,
   hovercard,
+  helpView,
   indeterminateProgress,
   list,
   modal,
+  keyMap,
   multiSelect,
   numberInput,
   optionListView,
@@ -47,6 +51,7 @@ import {
   toggleGroup,
   tooltip,
   tree,
+  unbindableActionShortcuts,
 } from '../index.js';
 
 const componentBuilders = [
@@ -108,5 +113,11 @@ describe('@celestial/ui preview surface', () => {
 
   it('does not export experimental components', () => {
     for (const name of excludedBuilders) expect(name in ui).toBe(false);
+  });
+
+  it('exports the command-spine helpers from the public entrypoint', () => {
+    for (const helper of [actionCommands, actionKeyBindings, unbindableActionShortcuts, keyMap, helpView]) {
+      expect(helper).toBeTypeOf('function');
+    }
   });
 });

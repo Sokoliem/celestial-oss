@@ -42,6 +42,7 @@ export interface AutomationElementSnapshot {
   focused: boolean;
   focusId?: string;
   hidden?: boolean;
+  disabled?: boolean;
   selected?: boolean;
   expanded?: boolean;
 }
@@ -59,6 +60,7 @@ export interface AutomationActionSnapshot {
   testId?: string;
   focusId?: string;
   focused: boolean;
+  disabled?: boolean;
   selected?: boolean;
   expanded?: boolean;
   source: 'focus' | 'role';
@@ -82,6 +84,7 @@ export interface CollectedNode {
   a11y?: AriaAttrs;
   focused?: boolean;
   hidden?: boolean;
+  disabled?: boolean;
   textContent: string;
 }
 

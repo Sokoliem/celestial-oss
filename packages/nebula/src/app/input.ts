@@ -29,17 +29,22 @@ export function installInput<Model, M>(ctx: RuntimeContext<Model, M>): void {
       maybeFastEcho(event);
       const subs = ctx.safeGetSubs();
       ctx.dispatchKeyEvent(subs, event);
+      if (!ctx.running || ctx.suspended) return;
+
+      // Key subscriptions are reconciled after raw decoded-key handlers so a
+      // dismissal or mode change can update the active key map for this same
+      // event. Match before Tab focus traversal so exact Tab bindings remain
+      // observable without consuming the built-in focus move.
+      const refreshedSubs = ctx.safeGetSubs();
+      ctx.matchKeySub(refreshedSubs, event.key, event);
+      if (!ctx.running || ctx.suspended) return;
 
       if (event.key === 'tab' && !event.ctrl && !event.alt) {
         ctx.focusState = event.shift ? focusPrev(ctx.focusState, ctx.lastFocusNodes) : focusNext(ctx.focusState, ctx.lastFocusNodes);
-        ctx.dispatchFocusChange(subs, ctx.focusState.currentId);
+        ctx.dispatchFocusChange(ctx.safeGetSubs(), ctx.focusState.currentId);
         ctx.cancelScheduledRender();
         ctx.render();
-        continue;
       }
-
-      const refreshedSubs = ctx.safeGetSubs();
-      ctx.matchKeySub(refreshedSubs, event.key, event);
     }
   }
 
@@ -196,7 +201,7 @@ function installFeedbackDispatchers<Model, M>(ctx: RuntimeContext<Model, M>): vo
   ctx.matchKeySub = (sub: Sub<M>, key: string, event: { ctrl: boolean; alt: boolean; shift: boolean }): void => {
     walkSubscriptionLeaves(ctx, sub, 'subscriptions', (kind, emit) => {
       if (kind.kind === 'key') {
-        if (!event.ctrl && !event.alt && kind.key === key) {
+        if (!event.ctrl && !event.alt && !event.shift && kind.key === key) {
           emit(kind.msg);
         }
       } else if (kind.kind === 'keyWithModifiers') {

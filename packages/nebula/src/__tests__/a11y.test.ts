@@ -20,9 +20,10 @@ import {
 
 describe('createAria', () => {
   it('stores provided attrs', () => {
-    const attrs = createAria({ role: 'navigation', label: 'Main Menu' });
+    const attrs = createAria({ role: 'navigation', label: 'Main Menu', disabled: true });
     expect(attrs.role).toBe('navigation');
     expect(attrs.label).toBe('Main Menu');
+    expect(attrs.disabled).toBe(true);
   });
 
   it('handles empty input', () => {
@@ -48,10 +49,11 @@ describe('mergeAria', () => {
 
   it('combines non-overlapping attrs', () => {
     const base = { role: 'navigation' as const };
-    const override = { label: 'Sidebar' };
+    const override = { label: 'Sidebar', disabled: true };
     const merged = mergeAria(base, override);
     expect(merged.role).toBe('navigation');
     expect(merged.label).toBe('Sidebar');
+    expect(merged.disabled).toBe(true);
   });
 });
 
@@ -72,6 +74,7 @@ describe('isInteractive', () => {
   it('true for button and textbox', () => {
     expect(isInteractive({ role: 'button' })).toBe(true);
     expect(isInteractive({ role: 'textbox' })).toBe(true);
+    expect(isInteractive({ role: 'button', disabled: true })).toBe(true);
   });
 
   it('true for listitem with checked or selected', () => {
@@ -120,6 +123,11 @@ describe('describeElement', () => {
   it('role only (no label)', () => {
     const desc = describeElement({ role: 'banner' });
     expect(desc).toBe('banner');
+  });
+
+  it('includes disabled state without changing the accessible label', () => {
+    expect(describeElement({ role: 'menuitem', label: 'Save', disabled: true })).toBe('menuitem (disabled): Save');
+    expect(describeElement({ role: 'checkbox', label: 'Option', checked: false, disabled: true })).toBe('checkbox (unchecked, disabled): Option');
   });
 
   it('empty attrs', () => {

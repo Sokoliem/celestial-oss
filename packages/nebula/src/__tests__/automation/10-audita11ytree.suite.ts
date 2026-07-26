@@ -74,6 +74,14 @@ describe('auditA11yTree', () => {
     expect(violation!.severity).toBe('error');
   });
 
+  it('still audits disabled interactive elements for accessible labels', () => {
+    const node = emptyNode();
+    setVNodeMeta(node, { a11y: { role: 'menuitem', disabled: true } });
+
+    const result = auditA11yTree(node);
+    expect(result.violations.some((violation) => violation.rule === 'interactive-elements-have-labels')).toBe(true);
+  });
+
   it('no interactive-labels violation when element has visible text', () => {
     const node = textNode('Click me');
     setVNodeMeta(node, { a11y: { role: 'button' } });
