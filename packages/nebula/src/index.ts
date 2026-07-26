@@ -108,6 +108,19 @@ export {
 } from './clipboard.js';
 export type { Compositor, CompositorOptions, LayoutTransitionConfig } from './compositor.js';
 export { createCompositor } from './compositor.js';
+export {
+  type ConfigDiagnostic,
+  type ConfigDiagnosticCode,
+  type ConfigDiagnosticStage,
+  type ConfigLoadContext,
+  type ConfigLoadFailure,
+  type ConfigLoadOptions,
+  type ConfigLoadResult,
+  type ConfigLoadSuccess,
+  type ConfigSource,
+  type ConfigValidation,
+  loadConfig,
+} from './config-loader.js';
 export type {
   CrashRecoveryGuard,
   CrashRecoveryOptions,
