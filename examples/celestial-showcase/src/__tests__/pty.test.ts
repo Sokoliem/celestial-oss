@@ -23,9 +23,13 @@ describe('Celestial Flight Deck PTY', () => {
       harness.write('\u001b[21~');
       await harness.waitForText('Open Core help');
       harness.write('\u001b');
-      // Sub-page keys and lab shortcuts are both swallowed while a context menu is
-      // open, so the 'Locale scope |' assertion below verifies the Escape behaviorally
-      // rather than asserting on a status-bar receipt that may repaint in chunks.
+      // Sub-page keys are swallowed while a context menu is open, so 'l' must not be
+      // sent until Escape has landed. There is no usable receipt to wait on: the
+      // status bar repaints in non-contiguous chunks, so waitForText('Closed context
+      // menu.') never matches (verified — it times out). This wait is therefore
+      // unanchored by necessity, but it is not a correctness hole: if Escape has not
+      // landed, 'l' is swallowed and the 'Locale scope |' assertion below fails loudly
+      // rather than passing silently.
       await new Promise<void>((resolve) => setTimeout(resolve, 75));
 
       harness.write('l');
@@ -68,8 +72,14 @@ describe('Celestial Flight Deck PTY', () => {
       await harness.waitForText('snap zone and tile layout.');
       harness.write('8');
       await harness.waitForText('Component changed');
+      // 'Live instrument bus' is already in the transcript from the earlier visit to
+      // this lab, so a plain waitForText would resolve instantly and synchronise
+      // nothing. Marking first makes this wait mean "painted again, now", which
+      // proves the lab switch landed before the resize below.
+      const backToWindows = harness.mark();
       harness.write('7');
-      await new Promise<void>((resolve) => setTimeout(resolve, 75));
+      harness.write('[');
+      await harness.waitForText('Live instrument bus', { since: backToWindows });
       harness.resize(70, 32);
       await harness.waitForText('COMPACT / single');
       harness.write('?');
@@ -81,6 +91,12 @@ describe('Celestial Flight Deck PTY', () => {
       await harness.waitForText('Closed contextual help.');
       harness.write('q');
       const exit = await harness.waitForExit();
+
+      // Nebula catches render errors and keeps the app alive, so a broken frame
+      // would otherwise still exit 0. The transcript is ANSI-stripped, so the
+      // runtime's diagnostic row and the demo's stderr both arrive as plain text.
+      expect(harness.output()).not.toContain('render error:');
+      expect(harness.output()).not.toContain(' Error: ');
       expect(exit.exitCode).toBe(0);
     } finally {
       harness.dispose();

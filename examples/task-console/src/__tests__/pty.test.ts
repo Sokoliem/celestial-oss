@@ -1,5 +1,5 @@
-import { createPtyHarness } from '@celestial/test/pty';
 import { fileURLToPath } from 'node:url';
+import { createPtyHarness } from '@celestial/test/pty';
 import { describe, expect, it } from 'vitest';
 
 describe('task console PTY', () => {
@@ -23,6 +23,11 @@ describe('task console PTY', () => {
       await harness.waitForText('test passed');
       harness.write('q');
       const exit = await harness.waitForExit();
+      // Nebula catches render errors and keeps the app alive, so a broken frame
+      // would otherwise still exit 0. The transcript is ANSI-stripped, so the
+      // runtime's diagnostic row and the demo's stderr both arrive as plain text.
+      expect(harness.output()).not.toContain('render error:');
+      expect(harness.output()).not.toContain(' Error: ');
       expect(exit.exitCode).toBe(0);
     } finally {
       harness.dispose();

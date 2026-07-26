@@ -83,6 +83,16 @@ export interface TestAppHandle<Model, M> {
 
   /** Reset collected message coverage */
   resetMessageCoverage(): void;
+
+  /**
+   * Errors the runtime caught from update, view, subscriptions, or lifecycle.
+   * Nebula swallows these to keep the app running, so this is the only way a
+   * test can tell a silently broken app from a working one.
+   */
+  renderErrors(): readonly unknown[];
+
+  /** Drop collected render errors — useful when a test asserts a failure on purpose. */
+  clearRenderErrors(): void;
 }
 
 export interface TestAppOptions extends MockTerminalOptions {
@@ -91,6 +101,26 @@ export interface TestAppOptions extends MockTerminalOptions {
   /** Allow unmatched requests to reach the previously installed fetch implementation. Defaults to false. */
   fetchPassthrough?: boolean;
   subprocessMocks?: readonly SubprocessMockDefinition[];
+  /**
+   * Called when the runtime catches an error thrown from update, view,
+   * subscriptions, or a lifecycle hook. Runs in addition to collection, not
+   * instead of it — `handle.renderErrors()` still records the error.
+   */
+  onRenderError?: (error: unknown) => void;
+  /**
+   * How caught runtime errors surface.
+   *
+   * - `'throw'` (default) — rethrow on a microtask so the test fails
+   * - `'collect'` — record only; read them via `handle.renderErrors()`
+   *
+   * Nebula deliberately catches update/view/subscription errors to keep an app
+   * running, which means a test asserting only on frame content cannot tell a
+   * broken update from a working one. Throwing by default means a test has to
+   * opt in to tolerating a broken app rather than opting in to noticing.
+   *
+   * Use `'collect'` when a test drives a failure on purpose.
+   */
+  renderErrors?: 'collect' | 'throw';
 }
 
 /**
@@ -103,6 +133,9 @@ export function createTestApp<Model, M>(config: AppConfig<Model, M>, options?: T
   let renderFrame = 0;
   let expectedRenderFrame: number | null = null;
   const renderWaiters = new Set<{ target: number; resolve: () => void }>();
+  const renderErrorLog: unknown[] = [];
+  /** Errors awaiting report in 'throw' mode. Drained by waitForUpdate(). */
+  const pendingRenderErrors: unknown[] = [];
   const announcementLog: Announcement[] = [];
   const focusLog: Array<{ description: string; focusedId: string | null }> = [];
   const coverageCounts = new Map<string, number>();
@@ -149,6 +182,11 @@ export function createTestApp<Model, M>(config: AppConfig<Model, M>, options?: T
         onFocusChange(description, focusedId) {
           focusLog.push({ description, focusedId });
         },
+      },
+      onRenderError(error) {
+        renderErrorLog.push(error);
+        if ((options?.renderErrors ?? 'throw') === 'throw') pendingRenderErrors.push(error);
+        options?.onRenderError?.(error);
       },
     }) as AppHandle & { dispatch(message: M): void };
   } catch (error) {
@@ -237,6 +275,27 @@ export function createTestApp<Model, M>(config: AppConfig<Model, M>, options?: T
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
     await Promise.resolve();
+    throwPendingRenderError();
+  }
+
+  /**
+   * Report a caught runtime error as a normal test failure.
+   *
+   * Rethrowing from the runtime's own callback would re-enter its catch and
+   * recurse; rethrowing on a microtask kills the vitest worker and reports
+   * "Worker exited unexpectedly" instead of the real error. Surfacing it here,
+   * at a sync point the test already awaits, keeps the failure attributed to
+   * the test that caused it and preserves the original message and stack.
+   */
+  function throwPendingRenderError(): void {
+    const error = pendingRenderErrors.shift();
+    if (error === undefined) return;
+    pendingRenderErrors.length = 0;
+    if (error instanceof Error) {
+      error.message = `App threw during update/view and the runtime caught it: ${error.message}\n(Pass renderErrors: 'collect' to TestAppOptions if this is intentional.)`;
+      throw error;
+    }
+    throw new Error(`App threw during update/view and the runtime caught it: ${String(error)}`);
   }
 
   function recordMessage(msg: M): void {
@@ -287,6 +346,12 @@ export function createTestApp<Model, M>(config: AppConfig<Model, M>, options?: T
     },
     focusEvents(): readonly { description: string; focusedId: string | null }[] {
       return [...focusLog];
+    },
+    renderErrors(): readonly unknown[] {
+      return [...renderErrorLog];
+    },
+    clearRenderErrors(): void {
+      renderErrorLog.length = 0;
     },
     snapshot(): AutomationSnapshot {
       const { cols, rows } = terminal.getSize();

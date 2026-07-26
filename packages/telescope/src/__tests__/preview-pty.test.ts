@@ -24,4 +24,21 @@ describe('PTY harness', () => {
     harness.write('quit\r');
     await expect(harness.waitForExit()).resolves.toMatchObject({ exitCode: 0 });
   });
+
+  it('waits for output produced after a mark, ignoring identical earlier output', async () => {
+    const program = ["process.stdin.setEncoding('utf8')", "console.log('ready')", "process.stdin.on('data', () => { console.log('tick') })"].join(';');
+    const harness = await createPtyHarness({ command: process.execPath, args: ['-e', program], timeoutMs: 10_000 });
+    activeHarnesses.push(harness);
+
+    await harness.waitForText('ready');
+    harness.write('a\r');
+    await harness.waitForText('tick');
+
+    // 'tick' is already in the transcript, so a plain waitForText would resolve
+    // instantly and synchronise nothing. Marking first makes the wait mean
+    // "a *new* tick", which is what a test driving a repeated action needs.
+    const mark = harness.mark();
+    harness.write('b\r');
+    await expect(harness.waitForText('tick', { since: mark })).resolves.toContain('tick');
+  });
 });
