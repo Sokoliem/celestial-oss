@@ -202,6 +202,10 @@ export type {
 export { measureTooltipBubble, renderTooltipBubble, tooltip, tooltipContract } from './tooltip.js';
 export type { TreeConfig, TreeModel, TreeMsg, TreeNode, TreeNodeInfo, TreeTokens } from './tree.js';
 export { tree, treeContract } from './tree.js';
+// The hardened uniform-windowing kernel. Implemented, guarded and unit-tested,
+// but never re-exported, so no consumer of @celestial/ui could reach it.
+export type { VirtualScrollConfig, VirtualScrollMsg, VirtualScrollState, VisibleRange } from './virtual-scroll.js';
+export { createVirtualScrollState, getVisibleRange, scrollToIndex, virtualScrollUpdate } from './virtual-scroll.js';
 export type {
   ComponentDescriptor,
   FocusState,
