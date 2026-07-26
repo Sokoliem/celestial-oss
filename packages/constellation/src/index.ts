@@ -50,6 +50,18 @@ export type {
   AppShellToastOptions,
   AppShellUpdateResult,
 } from './app-shell.js';
+export type {
+  AppShellControlledViewOptions,
+  AppShellView,
+  AppShellViewConfig,
+} from './app-shell-view.js';
+export {
+  appShellConfirmView,
+  appShellHelpView,
+  appShellPaletteView,
+  appShellToastView,
+  createAppShellView,
+} from './app-shell-view.js';
 export {
   AppShellValidationError,
   createAppShell,
@@ -77,8 +89,19 @@ export type {
 } from './checkbox.js';
 export { checkbox, checkboxContract, checkboxGroup } from './checkbox.js';
 // Inputs
-export type { ButtonConfig, ButtonVariant, ClickableTokens, ClickContext } from './clickable.js';
+export type { ButtonConfig, ButtonVariant } from './clickable.js';
 export { button } from './clickable.js';
+export type {
+  ActionControlOptions,
+  ActionControlVariant,
+  InteractiveRowOptions,
+  SemanticTextOptions,
+  SemanticTextRole,
+  SemanticStyles,
+  SurfaceFrameOptions,
+  ThemedRootOptions,
+} from './primitives.js';
+export { actionControl, interactiveRow, semanticGlyph, semanticStyles, semanticText, surfaceFrame, themedRoot } from './primitives.js';
 export type {
   ColorPickerBounds,
   ColorPickerConfig,
@@ -129,7 +152,7 @@ export type {
   ContextMenuViewTokens,
   MeasureContextMenuItemWidthOptions,
 } from './context-menu-view.js';
-export { contextMenuView, measureContextMenuItemWidth, measureContextMenuLayout } from './context-menu-view.js';
+export { contextMenuView, contextMenuViewContract, measureContextMenuItemWidth, measureContextMenuLayout } from './context-menu-view.js';
 // Data and display
 export type { DataColumn, DataTableConfig, DataTableModel, DataTableMsg, DataTableTokens, SortState } from './data-table.js';
 export { dataTable, dataTableContract } from './data-table.js';

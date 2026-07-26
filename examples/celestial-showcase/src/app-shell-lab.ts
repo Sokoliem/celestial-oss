@@ -8,18 +8,12 @@ import {
   screenStackUpdate,
 } from '@celestial/compass';
 import {
-  border,
-  box,
   Cmd,
   type Cmd as Command,
   column,
-  defaultTheme,
-  event,
   row,
-  runtime,
   Sub,
   type Sub as Subscription,
-  style,
   text,
   type VNode,
 } from '@celestial/core';
@@ -30,16 +24,17 @@ import {
   invokeAction,
   loadConfig,
 } from '@celestial/core/nebula';
-import { createPip, withPip } from '@celestial/horizon';
+import type { ThemeInput } from '@celestial/core/corona';
 import {
   type AppShellModel,
   type AppShellMsg,
   badge,
+  button,
   createAppShell,
+  createAppShellView,
   createNotificationStore,
-  createToastManager,
-  helpView,
   progressBar,
+  semanticStyles,
   statusBar,
   type ToastModel,
 } from '@celestial/ui';
@@ -90,9 +85,7 @@ export type AppShellLabMsg =
     }
   | { readonly type: 'task-cancelled'; readonly generation: number }
   | { readonly type: 'task-failed'; readonly generation: number; readonly message: string }
-  | { readonly type: 'palette-highlight-visible'; readonly index: number; readonly actionId: string }
-  | { readonly type: 'palette-select-visible'; readonly index: number; readonly actionId: string }
-  | { readonly type: 'activate-notification'; readonly notificationId: number; readonly actionId: string };
+  ;
 
 export interface AppShellLabModel {
   readonly shell: AppShellModel;
@@ -211,13 +204,6 @@ const notificationStore = createNotificationStore({
   defaultDurationMs: 8_000,
   maxEntries: 40,
   now: () => 1_000,
-});
-
-const toastViewManager = createToastManager({
-  id: `${SHELL_ID}:toasts`,
-  store: notificationStore,
-  dismissalOwner: 'host',
-  maxVisibleToasts: 1,
 });
 
 function hostState(model: Pick<AppShellLabModel, 'releaseApproved' | 'router' | 'shell'>): AppShellHostState {
@@ -339,14 +325,6 @@ const actionIds: Partial<Record<AppShellLabAction, string>> = {
   cancel: 'demo.task-cancel',
   notify: 'demo.notification-enqueue',
 };
-
-const headingStyle = style({ color: defaultTheme.colors.tones.accent, bold: true });
-const titleStyle = style({ color: defaultTheme.colors.text, bold: true });
-const mutedStyle = style({ color: defaultTheme.colors.muted });
-const actionStyle = style({ color: defaultTheme.colors.interactive, bold: true });
-const successStyle = style({ color: defaultTheme.colors.tones.success });
-const warningStyle = style({ color: defaultTheme.colors.tones.warning });
-const dangerStyle = style({ color: defaultTheme.colors.tones.danger, bold: true });
 
 function viewport(options: Pick<AppShellLabUpdateOptions, 'cols' | 'rows'>): { cols: number; rows: number } {
   return {
@@ -625,81 +603,6 @@ export function createAppShellLabModel(): AppShellLabModel {
 
 export function isAppShellLabAction(value: string): value is AppShellLabAction {
   return labActions.has(value as AppShellLabAction);
-}
-
-export type AppShellLabPointerIntent =
-  | { readonly type: 'message'; readonly msg: AppShellLabMsg }
-  | { readonly type: 'shield' };
-
-function pointerIdentity(
-  handlerTag: string,
-  prefix: string,
-): { readonly index: number; readonly id: string } | null {
-  if (!handlerTag.startsWith(prefix)) return null;
-  const suffix = handlerTag.slice(prefix.length);
-  const separator = suffix.indexOf(':');
-  if (separator <= 0) return null;
-  const indexText = suffix.slice(0, separator);
-  if (!/^(?:0|[1-9][0-9]*)$/u.test(indexText)) return null;
-  const index = Number(indexText);
-  if (!Number.isSafeInteger(index)) return null;
-  try {
-    const id = decodeURIComponent(suffix.slice(separator + 1));
-    return id.length > 0 ? { index, id } : null;
-  } catch {
-    return null;
-  }
-}
-
-export function appShellLabPointerIntent(
-  handlerTag: string,
-): AppShellLabPointerIntent | null {
-  if (handlerTag === 'showcase-app-shell:surface-shield') {
-    return { type: 'shield' };
-  }
-  const highlighted = pointerIdentity(
-    handlerTag,
-    'showcase-app-shell:palette-highlight:',
-  );
-  if (highlighted !== null) {
-    return {
-      type: 'message',
-      msg: {
-        type: 'palette-highlight-visible',
-        index: highlighted.index,
-        actionId: highlighted.id,
-      },
-    };
-  }
-  const selected = pointerIdentity(
-    handlerTag,
-    'showcase-app-shell:palette-select:',
-  );
-  if (selected !== null) {
-    return {
-      type: 'message',
-      msg: {
-        type: 'palette-select-visible',
-        index: selected.index,
-        actionId: selected.id,
-      },
-    };
-  }
-  const notification = pointerIdentity(
-    handlerTag,
-    'showcase-app-shell:notification-action:',
-  );
-  if (notification !== null && notification.index > 0) {
-    return {
-      type: 'message',
-      msg: {
-        type: 'activate-notification',
-        notificationId: notification.index,
-        actionId: notification.id,
-      },
-    };
-  }
-  return null;
 }
 
 export function appShellLabHasBlockingSurface(model: AppShellLabModel): boolean {
@@ -1158,124 +1061,6 @@ export function updateAppShellLab(
         Cmd.none(),
       ];
     }
-    case 'palette-highlight-visible': {
-      if (!model.shell.palette.open) return [model, Cmd.none()];
-      const { start, end } = appShellLabPaletteWindow(model);
-      if (
-        message.index < start
-        || message.index >= end
-        || model.shell.palette.filteredIds[message.index] !== message.actionId
-        || message.index === model.shell.palette.selectedIndex
-      ) {
-        return [model, Cmd.none()];
-      }
-      return [
-        {
-          ...model,
-          shell: {
-            ...model.shell,
-            palette: {
-              ...model.shell.palette,
-              selectedIndex: message.index,
-            },
-          },
-        },
-        Cmd.none(),
-      ];
-    }
-    case 'palette-select-visible': {
-      if (!model.shell.palette.open) return [model, Cmd.none()];
-      const { start, end } = appShellLabPaletteWindow(model);
-      if (
-        message.index < start
-        || message.index >= end
-        || model.shell.palette.filteredIds[message.index] !== message.actionId
-      ) {
-        return [model, Cmd.none()];
-      }
-      const command = shell
-        .project(model.shell, hostState(model))
-        .commands.find((entry) => entry.id === message.actionId);
-      if (command === undefined || command.disabled === true) {
-        return [model, Cmd.none()];
-      }
-      const highlighted: AppShellLabModel =
-        message.index === model.shell.palette.selectedIndex
-          ? model
-          : {
-              ...model,
-              shell: {
-                ...model.shell,
-                palette: {
-                  ...model.shell.palette,
-                  selectedIndex: message.index,
-                },
-              },
-            };
-      return updateAppShellLab(
-        { type: 'shell', msg: { type: 'shell-palette-select' } },
-        highlighted,
-        options,
-      );
-    }
-    case 'activate-notification': {
-      const entry = model.shell.notifications.entries.find(
-        (candidate) => candidate.id === message.notificationId,
-      );
-      if (
-        entry === undefined
-        || !model.shell.notifications.visibleToastIds.includes(entry.id)
-        || !entry.actionIds.includes(message.actionId)
-      ) {
-        return [model, Cmd.none()];
-      }
-      const command = shell
-        .project(model.shell, hostState(model))
-        .commands.find((candidate) => candidate.id === message.actionId);
-      if (command === undefined || command.disabled === true) {
-        return [model, Cmd.none()];
-      }
-      const opened = withShellOutcome(
-        model,
-        {
-          type: 'shell-notification-center',
-          msg: { type: 'open' },
-        },
-        options,
-      );
-      const [activated, actionCommand] = updateAppShellLab(
-        {
-          type: 'shell',
-          msg: {
-            type: 'shell-notification-center',
-            msg: {
-              type: 'activate-action',
-              id: entry.id,
-              actionId: message.actionId,
-            },
-          },
-        },
-        opened,
-        options,
-      );
-      let closed = withShellOutcome(
-        activated,
-        {
-          type: 'shell-notification-center',
-          msg: { type: 'close' },
-        },
-        options,
-      );
-      closed = withShellOutcome(
-        closed,
-        {
-          type: 'shell-toast',
-          msg: { type: 'dismiss', id: entry.id },
-        },
-        options,
-      );
-      return [closed, actionCommand];
-    }
   }
 }
 
@@ -1301,7 +1086,7 @@ export function appShellLabSubscriptions(
   options: Pick<AppShellLabUpdateOptions, 'cols' | 'rows'>,
 ): Subscription<AppShellLabMsg> {
   return Sub.map(
-    shell.subscriptions(model.shell, {
+    createAppShellView(shell, { id: SHELL_ID }).subscriptions(model.shell, {
       hostModel: hostState(model),
       viewport: viewport(options),
     }),
@@ -1317,44 +1102,20 @@ function actionNode(
   disabled = false,
 ): VNode {
   const id = `app-shell-${action}`;
-  if (disabled) {
-    const disabledNode = text(`[${label} disabled]`, mutedStyle);
-    runtime.setVNodeMeta(disabledNode, {
-      a11y: { role: 'button', label, disabled: true },
-    });
-    return disabledNode;
-  }
   const hovered = hoveredRegion === `action:${id}`;
-  const node = event(
-    `showcase-action:${id}`,
-    text(
-      `[${label}]`,
-      hovered
-        ? style({
-            color: defaultTheme.colors.inverse,
-            background: defaultTheme.colors.interactive,
-            bold: true,
-          })
-        : actionStyle,
-    ),
-    {
-      onClick: `showcase-action:${id}`,
-      onRightClick: `showcase-context:action:${id}`,
-      onMouseEnter: `showcase-hover:action:${id}`,
-      onMouseLeave: `showcase-leave:action:${id}`,
-    },
-    {
-      label,
-      intent: id,
-      affordances: ['hover', 'click'],
-      cursor: 'pointer',
-      keyboardHint: shortcut,
-    },
-  );
-  runtime.setVNodeMeta(node, {
-    a11y: { role: 'button', label },
+  return button({
+    id: `showcase-action:${id}`,
+    label,
+    onClick: `showcase-action:${id}`,
+    onRightClick: `showcase-context:action:${id}`,
+    onMouseEnter: `showcase-hover:action:${id}`,
+    onMouseLeave: `showcase-leave:action:${id}`,
+    hovered,
+    disabled,
+    tone: disabled ? 'neutral' : 'accent',
+    keyboardHint: shortcut,
+    intent: id,
   });
-  return node;
 }
 
 function contentWidth(cols: number): number {
@@ -1367,7 +1128,17 @@ export function renderAppShellLab(
   model: AppShellLabModel,
   cols: number,
   hoveredRegion: string | null,
+  theme?: ThemeInput,
 ): VNode {
+  const {
+    heading: headingStyle,
+    title: titleStyle,
+    muted: mutedStyle,
+    action: actionStyle,
+    success: successStyle,
+    warning: warningStyle,
+    danger: dangerStyle,
+  } = semanticStyles({ theme });
   const resolution = router.resolve(model.router);
   const routeId =
     resolution.status === 'matched' ? resolution.match.route.id : 'not-found';
@@ -1509,374 +1280,19 @@ export function renderAppShellLab(
   );
 }
 
-function framedSurface(
-  title: string,
-  content: VNode,
-  width: number,
-  showClose = false,
-  dialog = false,
-): VNode {
-  const titleRow = showClose
-    ? row(
-        text(title, headingStyle),
-        runtime.flex(text(''), { flex: 1, minWidth: 1 }),
-        actionNode('dismiss', 'Close', 'Esc', null),
-      )
-    : text(title, headingStyle);
-  const surface = box(
-    column(titleRow, text(''), content),
-    style({
-      border: border.rounded,
-      color: defaultTheme.colors.border,
-      background: defaultTheme.colors.surfaceRaised,
-      padding: 1,
-      width,
-    }),
-    { width },
-  );
-  if (dialog) {
-    runtime.setVNodeMeta(surface, {
-      a11y: { role: 'dialog', label: title },
-    });
-  }
-  return surface;
-}
-
-function overlaySurface(
-  base: VNode,
-  content: VNode,
-  options: { readonly cols: number; readonly rows: number },
-  preferredWidth: number,
-  zIndex: number,
-  layoutId: string,
-  placement: 'center' | 'toast-right' = 'center',
-  blocking = true,
-): VNode {
-  const width = Math.max(1, Math.min(preferredWidth, options.cols - 2));
-  const measured = runtime.measure(content, width);
-  const height = Math.max(1, Math.min(measured.height, options.rows - 2));
-  const x = placement === 'toast-right'
-    ? Math.max(0, options.cols - width - 1)
-    : Math.max(0, Math.floor((options.cols - width) / 2));
-  const y = placement === 'toast-right'
-    ? Math.max(1, Math.min(12, options.rows - height - 2))
-    : Math.max(0, Math.floor((options.rows - height) / 2));
-  return withPip(
-    base,
-    createPip({
-      content,
-      x,
-      y,
-      width,
-      height,
-      zIndex,
-      surfaceId: layoutId,
-      ...(blocking
-        ? { onClickAway: 'showcase-app-shell:surface-shield' }
-        : {}),
-    }),
-    { cols: options.cols, rows: options.rows },
-  );
-}
-
-function paletteCommandRow(
-  command: ReturnType<typeof shell.project>['commands'][number],
-  absoluteIndex: number,
-  selectedIndex: number,
-): VNode {
-  const selected = absoluteIndex === selectedIndex;
-  const label = `${selected ? '>' : ' '} ${command.label}${command.shortcut ? `  ${command.shortcut}` : ''}${command.disabled ? '  disabled' : ''}`;
-  if (command.disabled) {
-    const disabled = text(label, mutedStyle, { wrap: true });
-    runtime.setVNodeMeta(disabled, {
-      a11y: {
-        role: 'button',
-        label: command.label,
-        disabled: true,
-        selected,
-      },
-    });
-    return disabled;
-  }
-  const encodedId = encodeURIComponent(command.id);
-  const node = event(
-    `showcase-app-shell-palette-row:${command.id}`,
-    text(label, selected ? actionStyle : titleStyle, { wrap: true }),
-    {
-      onClick: `showcase-app-shell:palette-select:${String(absoluteIndex)}:${encodedId}`,
-      onMouseEnter: `showcase-app-shell:palette-highlight:${String(absoluteIndex)}:${encodedId}`,
-    },
-    {
-      label: command.label,
-      intent: 'select',
-      affordances: ['hover', 'click'],
-      cursor: 'pointer',
-      keyboardHint: command.shortcut ?? 'Enter',
-    },
-  );
-  runtime.setVNodeMeta(node, {
-    a11y: {
-      role: 'button',
-      label: command.label,
-      selected,
-    },
-  });
-  return node;
-}
-
-function paletteSurface(model: AppShellLabModel, width: number): VNode {
-  const projection = shell.project(model.shell, hostState(model));
-  const commands = new Map(
-    projection.commands.map((command) => [command.id, command] as const),
-  );
-  const window = appShellLabPaletteWindow(model);
-  const visible = model.shell.palette.filteredIds
-    .slice(window.start, window.end)
-    .map((id, offset) => ({
-      command: commands.get(id),
-      index: window.start + offset,
-    }))
-    .filter(
-      (
-        entry,
-      ): entry is {
-        readonly command: NonNullable<typeof entry.command>;
-        readonly index: number;
-      } => entry.command !== undefined,
-    );
-  const total = model.shell.palette.filteredIds.length;
-  return framedSurface(
-    'ACTION PALETTE',
-    column(
-      text(`Filter: ${model.shell.palette.query || 'all commands'}`, mutedStyle),
-      text('Type to filter; Enter runs the selected action.', mutedStyle, {
-        wrap: true,
-      }),
-      text(
-        total === 0
-          ? 'Showing 0 of 0 commands.'
-          : `Showing ${String(window.start + 1)}-${String(window.end)} of ${String(total)} | selected ${String(model.shell.palette.selectedIndex + 1)}`,
-        mutedStyle,
-      ),
-      text(''),
-      ...(window.start > 0
-        ? [text(`↑ ${String(window.start)} earlier command(s)`, mutedStyle)]
-        : []),
-      ...(visible.length === 0
-        ? [text('No matching actions.', warningStyle)]
-        : visible.map(({ command, index }) =>
-            paletteCommandRow(
-              command,
-              index,
-              model.shell.palette.selectedIndex,
-            ),
-          )),
-      ...(window.end < total
-        ? [text(`↓ ${String(total - window.end)} later command(s)`, mutedStyle)]
-        : []),
-      text(''),
-      text('Esc closes without dispatching an action.', mutedStyle),
-    ),
-    width,
-    true,
-    true,
-  );
-}
-
-function helpSurface(model: AppShellLabModel, width: number): VNode {
-  const projection = shell.project(model.shell, hostState(model));
-  return framedSurface(
-    'CANONICAL KEYBOARD HELP',
-    helpView(projection.helpBindings, {
-      includeInactive: true,
-      width: Math.max(16, width - 4),
-      title: '',
-      groupByCategory: true,
-    }),
-    width,
-    true,
-    true,
-  );
-}
-
-function confirmSurface(model: AppShellLabModel, width: number): VNode {
-  const confirm = model.shell.confirm;
-  if (confirm === null) return text('');
-  return framedSurface(
-    'MODAL CONFIRMATION',
-    column(
-      text(confirm.title, titleStyle, { wrap: true }),
-      text(confirm.description ?? '', mutedStyle, { wrap: true }),
-      text(''),
-      row(
-        actionNode('confirm-approve', confirm.confirmLabel ?? 'Confirm', 'Enter', null),
-        text('  '),
-        actionNode('confirm-cancel', confirm.cancelLabel ?? 'Cancel', 'Esc', null),
-      ),
-      text(''),
-      text('Compass modal screen remains locked until this receipt resolves.', warningStyle, {
-        wrap: true,
-      }),
-    ),
-    width,
-    false,
-    true,
-  );
-}
-
-function notificationActionNode(
-  notificationId: number,
-  command: ReturnType<typeof shell.project>['commands'][number],
-): VNode {
-  if (command.disabled) {
-    const disabled = text(`[${command.label} disabled]`, mutedStyle);
-    runtime.setVNodeMeta(disabled, {
-      a11y: {
-        role: 'button',
-        label: command.label,
-        disabled: true,
-      },
-    });
-    return disabled;
-  }
-  const node = event(
-    `showcase-app-shell-notification-action:${String(notificationId)}:${command.id}`,
-    text(`[${command.label}]`, actionStyle),
-    {
-      onClick: `showcase-app-shell:notification-action:${String(notificationId)}:${encodeURIComponent(command.id)}`,
-    },
-    {
-      label: command.label,
-      intent: 'activate',
-      affordances: ['click'],
-      cursor: 'pointer',
-    },
-  );
-  runtime.setVNodeMeta(node, {
-    a11y: { role: 'button', label: command.label },
-  });
-  return node;
-}
-
-function toastSurface(model: AppShellLabModel, width: number): VNode | null {
-  const projection = projectAppShellLabToasts(model);
-  const latest = projection.toasts.at(-1);
-  if (latest === undefined) return null;
-  const commands = new Map(
-    shell
-      .project(model.shell, hostState(model))
-      .commands.map((command) => [command.id, command] as const),
-  );
-  const actions = latest.actionIds.flatMap((actionId) => {
-    const command = commands.get(actionId);
-    return command === undefined ? [] : [command];
-  });
-  return framedSurface(
-    'SHARED TOAST PROJECTION',
-    column(
-      toastViewManager.view(projection, {
-        width: Math.max(20, width - 4),
-      }),
-      ...(actions.length > 0
-        ? [
-            text(''),
-            row(
-              text('Action  ', mutedStyle),
-              ...actions.flatMap((command, index) => [
-                ...(index === 0 ? [] : [text(' ')]),
-                notificationActionNode(latest.id, command),
-              ]),
-            ),
-          ]
-        : []),
-      text('Mouse [x] or Esc hides only the toast; its inbox entry remains.', mutedStyle, {
-        wrap: true,
-      }),
-    ),
-    width,
-  );
-}
-
 export function composeAppShellLabSurfaces(
   base: VNode,
   model: AppShellLabModel,
-  options: Pick<AppShellLabUpdateOptions, 'cols' | 'rows'>,
+  options: Pick<AppShellLabUpdateOptions, 'cols' | 'rows'> & {
+    readonly theme?: ThemeInput;
+  },
 ): VNode {
   const normalized = viewport(options);
-  let layered = base;
-  const blocking = appShellLabHasBlockingSurface(model);
-  if (!blocking) {
-    const toast = toastSurface(
-      model,
-      Math.min(48, Math.max(28, normalized.cols - 4)),
-    );
-    if (toast !== null) {
-      layered = overlaySurface(
-        layered,
-        toast,
-        normalized,
-        Math.min(48, Math.max(28, normalized.cols - 4)),
-        68,
-        'showcase-app-shell-toast',
-        'toast-right',
-        false,
-      );
-    }
-  }
-  if (blocking) {
-    runtime.setVNodeMeta(layered, { a11y: { hidden: true } });
-  }
-  if (model.shell.notificationCenter.open) {
-    const center = shell.notificationCenter(hostState(model));
-    const inbox = center.view(
-      model.shell.notificationCenter,
-      model.shell.notifications,
-      normalized,
-    );
-    runtime.setVNodeMeta(inbox, {
-      a11y: { role: 'dialog', label: 'Shared notification center' },
-    });
-    layered = overlaySurface(
-      layered,
-      inbox,
-      normalized,
-      Math.min(56, Math.max(32, normalized.cols - 4)),
-      80,
-      'showcase-app-shell-notifications',
-    );
-  }
-  if (model.shell.helpOpen) {
-    const width = Math.min(64, Math.max(34, normalized.cols - 4));
-    layered = overlaySurface(
-      layered,
-      helpSurface(model, width),
-      normalized,
-      width,
-      82,
-      'showcase-app-shell-help',
-    );
-  }
-  if (model.shell.palette.open) {
-    const width = Math.min(68, Math.max(38, normalized.cols - 4));
-    layered = overlaySurface(
-      layered,
-      paletteSurface(model, width),
-      normalized,
-      width,
-      84,
-      'showcase-app-shell-palette',
-    );
-  }
-  if (model.shell.confirm !== null) {
-    const width = Math.min(58, Math.max(34, normalized.cols - 4));
-    layered = overlaySurface(
-      layered,
-      confirmSurface(model, width),
-      normalized,
-      width,
-      86,
-      'showcase-app-shell-confirm',
-    );
-  }
-  return layered;
+  return createAppShellView(shell, {
+    id: SHELL_ID,
+    theme: options.theme,
+  }).layer(base, model.shell, {
+    hostModel: hostState(model),
+    viewport: normalized,
+  });
 }

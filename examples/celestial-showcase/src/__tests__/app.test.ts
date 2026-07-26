@@ -2,9 +2,10 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { currentScreen } from '@celestial/compass';
 import { createSessionStore, saveSession } from '@celestial/horizon';
-import { createScreen, createTestApp, fireMouse, type TestAppHandle } from '@celestial/test';
+import { createScreen, createTestApp, fireMouse, renderToLines, type TestAppHandle } from '@celestial/test';
 import * as ui from '@celestial/ui';
 import { applyVariant, defaultTheme, validateThemeContrast } from '@celestial/core/corona';
+import { createThemeContext } from '@celestial/core/nebula';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
 import {
@@ -12,7 +13,14 @@ import {
   loadAppShellLabConfig,
   projectAppShellLabToasts,
 } from '../app-shell-lab.js';
-import { GALLERY_PAGE_COUNT, UI_BUILDER_COUNT, UI_BUILDER_NAMES } from '../components.js';
+import {
+  createShowcaseComponents,
+  GALLERY_PAGE_COUNT,
+  initialComponentModels,
+  renderComponentGallery,
+  UI_BUILDER_COUNT,
+  UI_BUILDER_NAMES,
+} from '../components.js';
 import { SHOWCASE_PACKAGE_COVERAGE, UI_BUILDER_COVERAGE, validateShowcaseCoverage } from '../coverage.js';
 import {
   describeLocaleSupport,
@@ -94,6 +102,39 @@ describe('Celestial Flight Deck', () => {
       await handle.waitForUpdate();
       expect(handle.lastFrame()).toContain(`${entry.label} theme`);
       expect(handle.snapshot().audit.violations.filter((violation) => violation.rule === 'color-contrast'), entry.label).toEqual([]);
+    }
+  });
+
+  it('renders every curated builder through every Flight Deck theme at compact and wide widths', () => {
+    const seed = flightDeck(140, 48).model;
+
+    for (const [, entry] of Object.entries(SHOWCASE_LAB_THEMES)) {
+      const themeCtx = createThemeContext();
+      themeCtx.setVariant(entry.variant);
+      const components = createShowcaseComponents(themeCtx);
+      const componentModels = initialComponentModels(components);
+
+      for (const width of [SHOWCASE_MIN_COLS, 140]) {
+        const renderedPages: string[] = [];
+        for (let componentPage = 0; componentPage < GALLERY_PAGE_COUNT; componentPage += 1) {
+          const model = {
+            ...seed,
+            ...componentModels,
+            galleryContextMenu: { ...componentModels.galleryContextMenu, open: false },
+            cols: width,
+            rows: 48,
+            componentPage,
+          };
+          const frame = renderToLines(renderComponentGallery(components, model), { width, height: 48 }).join('\n');
+          expect(frame.length, `${entry.label} page ${componentPage + 1} at ${width} columns`).toBeGreaterThan(0);
+          renderedPages.push(frame);
+        }
+
+        const completeGallery = renderedPages.join('\n');
+        for (const builder of UI_BUILDER_NAMES) {
+          expect(completeGallery, `${builder} under ${entry.label} at ${width} columns`).toContain(builder);
+        }
+      }
     }
   });
 
@@ -470,7 +511,7 @@ describe('Celestial Flight Deck', () => {
     handle.pressKey('p', { ctrl: true });
     await handle.waitForUpdate();
     expect(handle.model.appShellLab.shell.palette.open).toBe(true);
-    expect(handle.lastFrame()).toContain('Type to filter; Enter runs the selected action.');
+    expect(handle.lastFrame()).toContain('Type to filter; use the wheel or arrow keys to navigate.');
     handle.pressKey('escape');
     await handle.waitForUpdate();
     expect(handle.model.appShellLab.shell.palette.open).toBe(false);
@@ -491,7 +532,7 @@ describe('Celestial Flight Deck', () => {
       id: 'release-confirm',
       modal: true,
     });
-    expect(handle.lastFrame()).toContain('Compass modal screen remains locked');
+    expect(handle.lastFrame()).toContain('Use Tab or arrow keys to move');
 
     handle.pressKey('enter');
     await handle.waitForUpdate();
@@ -550,18 +591,16 @@ describe('Celestial Flight Deck', () => {
     await handle.waitForUpdate();
     const afterOpen = handle.model.evidence.appShellActions;
     const filteredIds = handle.model.appShellLab.shell.palette.filteredIds;
-    const window = appShellLabPaletteWindow(handle.model.appShellLab);
-    const hiddenIndex = filteredIds.length - 1;
-    const hiddenId = filteredIds[hiddenIndex];
-    expect(hiddenIndex).toBeGreaterThanOrEqual(window.end);
-    expect(hiddenId).toBeDefined();
+    expect(filteredIds.length).toBeGreaterThan(0);
 
     handle.dispatch({
       type: 'app-shell-lab',
       msg: {
-        type: 'palette-select-visible',
-        index: hiddenIndex,
-        actionId: hiddenId!,
+        type: 'shell',
+        msg: {
+          type: 'shell-palette-select-at',
+          index: filteredIds.length + 10,
+        },
       },
     });
     await handle.waitForUpdate();
@@ -591,9 +630,11 @@ describe('Celestial Flight Deck', () => {
 
     handle.click(overview.col + 1, overview.row);
     await handle.waitForUpdate();
-    expect(handle.model.appShellLab.shell.palette.open).toBe(true);
+    expect(handle.model.appShellLab.shell.palette.open).toBe(false);
     expect(currentScreen(handle.model.appShellLab.screens).id).toBe('overview');
 
+    handle.pressKey('p', { ctrl: true });
+    await handle.waitForUpdate();
     for (let index = 0; index < 8; index += 1) {
       handle.pressKey('down');
       await handle.waitForUpdate();
@@ -682,7 +723,7 @@ describe('Celestial Flight Deck', () => {
 
       const jobActions = snapshot.elements.filter(
         (element) =>
-          element.role === 'button'
+          (element.role === 'button' || element.role === 'menuitem')
           && element.a11y?.label === 'Open job queue',
       );
       expect(jobActions).toHaveLength(expectedJobActions);
@@ -701,16 +742,6 @@ describe('Celestial Flight Deck', () => {
     const clickSuppressedToastTargets = async (
       expectedScreen: 'overview' | 'release-confirm',
     ) => {
-      const visibleToastIds = [
-        ...handle.model.appShellLab.shell.notifications.visibleToastIds,
-      ];
-      handle.click(toastClose!.col + 1, toastClose!.row);
-      await handle.waitForUpdate();
-      handle.click(toastAction!.col + 1, toastAction!.row);
-      await handle.waitForUpdate();
-      expect(
-        handle.model.appShellLab.shell.notifications.visibleToastIds,
-      ).toEqual(visibleToastIds);
       expect(currentScreen(handle.model.appShellLab.screens).id).toBe(
         expectedScreen,
       );

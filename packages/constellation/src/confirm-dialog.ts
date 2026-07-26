@@ -7,7 +7,7 @@
  */
 
 import type { Color, SemanticTheme, StateToken, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { border, style } from '@celestial/core/corona';
+import { resolveElevationBorder, style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, component, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { measureTextWidth } from '@celestial/rosetta';
@@ -234,7 +234,7 @@ export function confirmDialog(config: ConfirmDialogConfig): ComponentDescriptor<
       const width = Math.max(1, Math.min(preferredWidth, viewportWidth));
 
       const borderStyle = style({
-        border: border.double,
+        border: resolveElevationBorder(theme, 'modal'),
         color: borderColor,
         background: tokens.bg,
         width,

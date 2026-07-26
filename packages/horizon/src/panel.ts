@@ -5,7 +5,17 @@
  * These components return VNodes ready for use in splitPane(), tabbedPane(), etc.
  */
 
-import { type Border, border, type Color, color, createTheme, defaultTheme, type SemanticTheme, style, type ThemeInput } from '@celestial/core/corona';
+import {
+  type Border,
+  type Color,
+  color,
+  createTheme,
+  defaultTheme,
+  resolveElevationBorder,
+  type SemanticTheme,
+  style,
+  type ThemeInput,
+} from '@celestial/core/corona';
 import { box, column, flex, text, type ThemeContext, type VNode } from '@celestial/core/nebula';
 import { splitPane } from './split.js';
 
@@ -23,7 +33,7 @@ function resolvePanelTheme(config: PanelThemeConfig): SemanticTheme {
 export interface PanelStyle extends PanelThemeConfig {
   /** Optional title displayed in the top */
   title?: string;
-  /** Border style (default: border.rounded) */
+  /** Border style (default: the active theme's raised elevation border) */
   borderStyle?: Border;
   /** Border/text color (default: semantic panel border) */
   borderColor?: Color;
@@ -61,7 +71,7 @@ export function panel(config: PanelConfig): VNode {
   const {
     content,
     title,
-    borderStyle = border.rounded,
+    borderStyle = resolveElevationBorder(theme, 'raised'),
     borderColor = theme.elevation.raised.border ?? theme.colors.border,
     titleColor = theme.typography.title.color,
     focused = false,
@@ -109,7 +119,7 @@ export function titledPane(config: TitledPaneConfig): VNode {
     header,
     footer,
     headerDivider = true,
-    borderStyle = border.rounded,
+    borderStyle = resolveElevationBorder(theme, 'raised'),
     borderColor = theme.elevation.raised.border ?? theme.colors.border,
     titleColor = theme.typography.title.color,
     focused = false,
@@ -183,7 +193,7 @@ export function collapsiblePane(config: CollapsiblePaneConfig): VNode {
     title,
     content,
     collapsed,
-    borderStyle = border.rounded,
+    borderStyle = resolveElevationBorder(theme, 'raised'),
     borderColor = theme.elevation.raised.border ?? theme.colors.border,
     titleColor = theme.typography.title.color,
     expandChar = theme.glyphs.pointer,

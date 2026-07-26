@@ -220,6 +220,8 @@ export interface AppShellModel {
   readonly palette: PaletteState;
   readonly helpOpen: boolean;
   readonly confirm: AppShellConfirmState | null;
+  /** Controlled selection shared by pointer and keyboard confirmation views. */
+  readonly confirmSelection?: 'confirm' | 'cancel';
   readonly notificationCenter: NotificationCenterState;
   /** Canonical shared notification state. */
   readonly notifications: NotificationModel;
@@ -232,6 +234,7 @@ export interface AppShellModelSeed {
   readonly palette?: PaletteState;
   readonly helpOpen?: boolean;
   readonly confirm?: AppShellConfirmState | null;
+  readonly confirmSelection?: 'confirm' | 'cancel';
   readonly notificationCenter?: NotificationCenterState;
   readonly notifications?: NotificationModelSeed;
   readonly toastInteraction?: ToastInteractionState;
@@ -260,17 +263,26 @@ export type AppShellMsg =
   | { readonly type: 'shell-open-confirm'; readonly confirm: AppShellConfirmState }
   | { readonly type: 'shell-confirm'; readonly id: string }
   | { readonly type: 'shell-cancel-confirm'; readonly id: string }
+  | { readonly type: 'shell-confirm-select'; readonly selection: 'confirm' | 'cancel' }
+  | { readonly type: 'shell-confirm-toggle' }
   | { readonly type: 'shell-palette-input'; readonly char: string }
   | { readonly type: 'shell-palette-backspace' }
   | { readonly type: 'shell-palette-up' }
   | { readonly type: 'shell-palette-down' }
   | { readonly type: 'shell-palette-select' }
+  | { readonly type: 'shell-palette-highlight'; readonly index: number }
+  | { readonly type: 'shell-palette-select-at'; readonly index: number }
   | {
       readonly type: 'shell-request-action';
       readonly actionId: string;
       readonly source: Exclude<AppShellActionSource, 'notification'>;
     }
   | { readonly type: 'shell-notification-center'; readonly msg: NotificationCenterMsg }
+  | {
+      readonly type: 'shell-activate-notification-action';
+      readonly id: number;
+      readonly actionId: string;
+    }
   | { readonly type: 'shell-notify'; readonly notification: NotificationEnqueueInput }
   | { readonly type: 'shell-mark-notification-read'; readonly id: number }
   | { readonly type: 'shell-clear-notifications' }
@@ -343,6 +355,7 @@ export interface AppShellConfig<HostModel, HostMsg> {
 export interface AppShell<HostModel, HostMsg> {
   readonly registry: ActionRegistry<HostModel, HostMsg>;
   readonly notificationStore: NotificationStore;
+  readonly toastManager: ReturnType<typeof createToastManager>;
   init(hostModel: HostModel, seed?: AppShellModelSeed): AppShellModel;
   validateModel(model: AppShellModel): readonly AppShellDiagnostic[];
   update(
@@ -693,6 +706,7 @@ function snapshotModel(model: AppShellModel): AppShellModel {
     palette: snapshotPalette(model.palette),
     helpOpen: model.helpOpen,
     confirm: snapshotConfirm(model.confirm),
+    confirmSelection: model.confirmSelection === 'cancel' ? 'cancel' : 'confirm',
     notificationCenter: snapshotCenter(model.notificationCenter),
     notifications: model.notifications,
     toastInteraction: snapshotToastInteraction(model.toastInteraction),
@@ -1489,6 +1503,18 @@ function normalizeAppShellModel(value: unknown, store: NotificationStore, regist
     if (isRecord(boundary.confirm)) {
       boundary.confirm = Object.freeze(snapshotOwnDataRecord(boundary.confirm, 'model.confirm'));
     }
+    if (
+      boundary.confirmSelection !== undefined
+      && boundary.confirmSelection !== 'confirm'
+      && boundary.confirmSelection !== 'cancel'
+    ) {
+      return {
+        ok: false,
+        diagnostics: Object.freeze([
+          diagnostic('invalid-model', 'model.confirmSelection', 'Confirmation selection must be confirm or cancel.'),
+        ]),
+      };
+    }
     if (isRecord(boundary.notificationCenter)) {
       const center = snapshotOwnDataRecord(boundary.notificationCenter, 'model.notificationCenter');
       if (isRecord(center.actionCursor)) {
@@ -1529,6 +1555,7 @@ function normalizeAppShellModel(value: unknown, store: NotificationStore, regist
         palette: snapshot.palette,
         helpOpen: snapshot.helpOpen,
         confirm: snapshot.confirm,
+        confirmSelection: snapshot.confirmSelection,
         notificationCenter: snapshot.notificationCenter,
         notifications: validatedNotifications.value,
         toastInteraction: snapshot.toastInteraction,
@@ -2713,13 +2740,42 @@ export function createAppShell<HostModel, HostMsg>(
 
     const localBindings: KeyBinding<AppShellMsg>[] = [];
     if (model.confirm !== null) {
-      localBindings.push({
-        key: 'enter',
-        msg: { type: 'shell-confirm', id: model.confirm.id },
-        description: 'Confirm',
-        category: 'Confirmation',
-        discoverable: false,
-      });
+      const selectedMessage: AppShellMsg =
+        model.confirmSelection === 'cancel'
+          ? { type: 'shell-cancel-confirm', id: model.confirm.id }
+          : { type: 'shell-confirm', id: model.confirm.id };
+      localBindings.push(
+        {
+          key: 'enter',
+          msg: selectedMessage,
+          description: 'Activate selected confirmation action',
+          category: 'Confirmation',
+          discoverable: false,
+        },
+        {
+          key: 'y',
+          msg: { type: 'shell-confirm', id: model.confirm.id },
+          description: 'Confirm',
+          category: 'Confirmation',
+          discoverable: false,
+        },
+        {
+          key: 'n',
+          msg: { type: 'shell-cancel-confirm', id: model.confirm.id },
+          description: 'Cancel',
+          category: 'Confirmation',
+          discoverable: false,
+        },
+        ...(['tab', 'left', 'right'] as const).map(
+          (key): KeyBinding<AppShellMsg> => ({
+            key,
+            msg: { type: 'shell-confirm-toggle' },
+            description: 'Move between confirmation actions',
+            category: 'Confirmation',
+            discoverable: false,
+          }),
+        ),
+      );
     } else if (model.palette.open) {
       localBindings.push(
         {
@@ -2838,6 +2894,7 @@ export function createAppShell<HostModel, HostMsg>(
           : modelSeed.palette,
       helpOpen: modelSeed.helpOpen === undefined ? false : modelSeed.helpOpen,
       confirm: modelSeed.confirm === undefined ? null : modelSeed.confirm,
+      confirmSelection: modelSeed.confirmSelection ?? 'confirm',
       notificationCenter: centerState,
       notifications: validatedNotifications.value,
       toastInteraction: toastManager.getInteraction(initialToast),
@@ -3210,6 +3267,7 @@ export function createAppShell<HostModel, HostMsg>(
             palette: snapshotPalette(createPaletteState()),
             helpOpen: false,
             confirm: snapshotConfirm(msg.confirm),
+            confirmSelection: 'confirm',
             notificationCenter: snapshotCenter(center.state),
           }),
           base.confirm === null
@@ -3257,6 +3315,21 @@ export function createAppShell<HostModel, HostMsg>(
               confirmed: msg.type === 'shell-confirm',
             },
           ],
+        );
+      }
+      case 'shell-confirm-select': {
+        if (current.confirm === null) return frozenResult(current);
+        return frozenResult(
+          withChanges(current, { confirmSelection: msg.selection }),
+        );
+      }
+      case 'shell-confirm-toggle': {
+        if (current.confirm === null) return frozenResult(current);
+        return frozenResult(
+          withChanges(current, {
+            confirmSelection:
+              current.confirmSelection === 'cancel' ? 'confirm' : 'cancel',
+          }),
         );
       }
       case 'shell-palette-input': {
@@ -3381,6 +3454,41 @@ export function createAppShell<HostModel, HostMsg>(
             )
           : update(selected.msg, closedPalette, context);
         return appendResultDiagnostics(selectedResult, projection.diagnostics);
+      }
+      case 'shell-palette-highlight': {
+        if (
+          !current.palette.open
+          || !Number.isInteger(msg.index)
+          || msg.index < 0
+          || msg.index >= current.palette.filteredIds.length
+        ) {
+          return frozenResult(current);
+        }
+        return frozenResult(
+          withChanges(current, {
+            palette: snapshotPalette({
+              ...current.palette,
+              selectedIndex: msg.index,
+            }),
+          }),
+        );
+      }
+      case 'shell-palette-select-at': {
+        if (
+          !current.palette.open
+          || !Number.isInteger(msg.index)
+          || msg.index < 0
+          || msg.index >= current.palette.filteredIds.length
+        ) {
+          return frozenResult(current);
+        }
+        const pointed = withChanges(current, {
+          palette: snapshotPalette({
+            ...current.palette,
+            selectedIndex: msg.index,
+          }),
+        });
+        return update({ type: 'shell-palette-select' }, pointed, context);
       }
       case 'shell-request-action':
         if (
@@ -3555,6 +3663,67 @@ export function createAppShell<HostModel, HostMsg>(
           return applyCenterMessage(cleared.model, msg.msg, context);
         }
         return applyCenterMessage(current, msg.msg, context);
+      case 'shell-activate-notification-action': {
+        if (
+          !Number.isSafeInteger(msg.id)
+          || msg.id <= 0
+          || typeof msg.actionId !== 'string'
+          || msg.actionId.trim().length === 0
+          || unsafeText(msg.actionId)
+        ) {
+          return frozenResult(current, [], [
+            diagnostic(
+              'invalid-model',
+              'message',
+              'Notification action requires a positive ID and printable action ID.',
+            ),
+          ]);
+        }
+        const entry = current.notifications.entries.find(
+          (candidate) => candidate.id === msg.id,
+        );
+        if (
+          entry === undefined
+          || !current.notifications.visibleToastIds.includes(entry.id)
+          || !entry.actionIds.includes(msg.actionId)
+        ) {
+          return frozenResult(current, [], [
+            diagnostic(
+              'unavailable-action',
+              'message.actionId',
+              'The requested toast action is no longer visible.',
+              { actionId: msg.actionId },
+            ),
+          ]);
+        }
+        const projection = projectActions(current, context.hostModel);
+        const command = projection.commands.find(
+          (candidate) => candidate.id === msg.actionId,
+        );
+        if (command === undefined || command.disabled === true) {
+          return frozenResult(current, [], [
+            ...projection.diagnostics,
+            diagnostic(
+              'unavailable-action',
+              `actions.${msg.actionId}`,
+              'The requested toast action is unavailable.',
+              { actionId: msg.actionId },
+            ),
+          ]);
+        }
+        const hidden = withChanges(current, {
+          notifications: store.hideToast(current.notifications, entry.id),
+        });
+        return appendResultDiagnostics(
+          requestActionResult(
+            hidden,
+            msg.actionId,
+            'notification',
+            context.hostModel,
+          ),
+          projection.diagnostics,
+        );
+      }
       case 'shell-notify': {
         let enqueued: ReturnType<NotificationStore['enqueue']>;
         try {
@@ -3995,6 +4164,7 @@ export function createAppShell<HostModel, HostMsg>(
   return Object.freeze({
     registry: config.registry,
     notificationStore: store,
+    toastManager,
     init: initialize,
     validateModel(model: AppShellModel): readonly AppShellDiagnostic[] {
       const normalized = normalizeAppShellModel(model, store, config.registry.byId);

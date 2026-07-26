@@ -1,5 +1,5 @@
 import type { Color, SemanticTheme, StateToken, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { border, style } from '@celestial/core/corona';
+import { resolveElevationBorder, style } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, divider, event, flex, focus, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { assignFocusGroup, generateFocusGroupId } from './focus-group.js';
@@ -123,7 +123,7 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
       const titleStyle = applyTypography(tokens.titleStyle, { color: tokens.title });
       const hintStyle = applyTypography(tokens.hintStyle, { color: tokens.hint });
       const closeStyle = model.hoveredClose ? applyState(tokens.actionHoverState, { bold: true }) : applyState(tokens.actionState);
-      const borderStyle = style({ border: border.double, color: borderColor, background: tokens.bg, width });
+      const borderStyle = style({ border: resolveElevationBorder(theme, 'modal'), color: borderColor, background: tokens.bg, width });
       const dividerStyle = style({ color: borderColor, background: tokens.bg });
       const groupedContent = assignFocusGroup(config.wrapContent === false ? config.content : enableModalTextWrapping(config.content), groupId);
       const closeControl = event(

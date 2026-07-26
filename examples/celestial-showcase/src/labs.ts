@@ -1,10 +1,7 @@
 import {
   type AtlasCapabilities,
-  border,
-  box,
   column,
   computed,
-  defaultTheme,
   easing,
   event,
   getDragOffset,
@@ -14,7 +11,6 @@ import {
   runtime,
   signal,
   spring,
-  style,
   styling,
   text,
   tween,
@@ -54,13 +50,29 @@ import {
   selectPrompt,
   validateArgSchema,
 } from '@celestial/orbit';
-import { createMarkdownStream, extractFrontmatter, extractToc, findMatches, fromSemanticTheme, parseMarkdown, renderMarkdown } from '@celestial/pulsar';
+import {
+  createMarkdownStream,
+  extractFrontmatter,
+  extractToc,
+  findMatches,
+  fromSemanticTheme as markdownTheme,
+  parseMarkdown,
+  renderMarkdown,
+} from '@celestial/pulsar';
 import { createLocaleContext, detectDirection, formatList, formatRelativeTime, measureTextWidth, segmentGraphemes } from '@celestial/rosetta';
-import { detectLanguage, highlightCode, tokenizeCode } from '@celestial/spectrum';
+import { detectLanguage, fromSemanticTheme as spectrumTheme, highlightCode, tokenizeCode } from '@celestial/spectrum';
 import { areaChart, chart, heatmap, sparkline } from '@celestial/stellar';
-import { badge, button, progressBar } from '@celestial/ui';
+import { badge, button, interactiveRow, progressBar, surfaceFrame } from '@celestial/ui';
 import { type ShowcaseComponents, UI_BUILDER_COUNT } from './components.js';
 import { SHOWCASE_PACKAGE_COVERAGE } from './coverage.js';
+import {
+  actionStyle,
+  headingStyle,
+  mutedStyle,
+  successStyle,
+  titleStyle,
+  warningStyle,
+} from './presentation.js';
 import type { CelestialShowcaseModel, LabId, SmokeId, SurfaceId, ViewportTier } from './types.js';
 
 export const LABS: Array<{ id: LabId; label: string; key: string; summary: string }> = [
@@ -96,13 +108,6 @@ export const SMOKE_STEPS: Array<{ id: SmokeId; label: string; lab: LabId; instru
   { id: 'help', label: 'Context help opened', lab: 'smoke', instruction: 'Open help with ? or the Help button.' },
 ];
 
-const headingStyle = style({ color: defaultTheme.colors.tones.accent, bold: true });
-const titleStyle = style({ color: defaultTheme.colors.text, bold: true });
-const mutedStyle = style({ color: defaultTheme.colors.muted });
-const successStyle = style({ color: defaultTheme.colors.tones.success });
-const warningStyle = style({ color: defaultTheme.colors.tones.warning });
-const actionStyle = style({ color: defaultTheme.colors.interactive, bold: true });
-
 const [reactiveTick, setReactiveTickValue] = signal(0);
 const reactiveChecksum = computed(() => (reactiveTick() * 17 + 11) % 97);
 
@@ -121,20 +126,18 @@ function action(
   tone: 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info' = 'accent',
 ): VNode {
   const region = `action:${id}`;
-  const visual = button({ label, onClick: id, x: 0, y: 0, buttonVariant: 'outline', tone, hovered: model.hoveredRegion === region }).view();
-  const node = event(
-    `showcase-action:${id}`,
-    visual,
-    {
-      onClick: `showcase-action:${id}`,
-      onRightClick: `showcase-context:action:${id}`,
-      onMouseEnter: `showcase-hover:${region}`,
-      onMouseLeave: `showcase-leave:${region}`,
-    },
-    { label, intent: id, affordances: ['hover', 'click'], cursor: 'pointer' },
-  );
-  runtime.setVNodeMeta(node, { a11y: { role: 'button', label } });
-  return node;
+  return button({
+    id: `showcase-action:${id}`,
+    label,
+    onClick: `showcase-action:${id}`,
+    onRightClick: `showcase-context:action:${id}`,
+    onMouseEnter: `showcase-hover:${region}`,
+    onMouseLeave: `showcase-leave:${region}`,
+    buttonVariant: 'outline',
+    tone,
+    hovered: model.hoveredRegion === region,
+    intent: id,
+  });
 }
 
 /**
@@ -155,15 +158,20 @@ function capabilityInfo(label: string, value: string): VNode {
   return row(text(`${label.padEnd(18)} `, mutedStyle), text(value, actionStyle));
 }
 
-function coreCard(title: string, content: VNode, width = 34, height = 14): VNode {
-  return box(column(text(title, titleStyle), content), style({ border: border.rounded, color: defaultTheme.colors.border, padding: 1, width }), {
+function coreCard(title: string, content: VNode, theme: SemanticTheme, width = 34, height = 14): VNode {
+  return surfaceFrame({
+    title,
+    content,
+    elevation: 'raised',
+    padding: 1,
     width,
     height,
+    theme,
   });
 }
 
-function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
-  const contrast = validateThemeContrast(defaultTheme);
+function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabilities, theme: SemanticTheme): VNode {
+  const contrast = validateThemeContrast(theme);
   const motionProgress = caps.reducedMotion ? 1 : (model.tick % 20) / 19;
   const animation = tween({ from: 0, to: 1, duration: 1000, easing: easing.easeInOut });
   animation.seek(motionProgress);
@@ -191,6 +199,7 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
           capabilityStatus('WCAG AA pairs', `${contrast.pairsChecked - contrast.violations.length}/${contrast.pairsChecked}`, contrast.pass),
           capabilityStatus('semantic glyph', glyph ? `${glyph} resolved` : 'unresolved', glyph.length > 0),
         ),
+        theme,
         width,
         8,
       ),
@@ -203,6 +212,7 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
           capabilityInfo('motion', caps.reducedMotion ? 'static' : `spring ${springValue.toFixed(2)}`),
           text('Cmd + Sub + VDOM + signals', mutedStyle),
         ),
+        theme,
         width,
         8,
       ),
@@ -215,6 +225,7 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
           capabilityStatus('HitMap probe', nexusProbe, nexusProbe !== 'miss'),
           capabilityInfo('last pointer', `${model.pointer.x},${model.pointer.y}`),
         ),
+        theme,
         width,
         8,
       ),
@@ -232,8 +243,9 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
         text(''),
         capabilityStatus('WCAG AA pairs', `${contrast.pairsChecked - contrast.violations.length}/${contrast.pairsChecked}`, contrast.pass),
         capabilityStatus('semantic glyph', glyph ? `${glyph} resolved` : 'unresolved', glyph.length > 0),
-        capabilityInfo('reduced motion', defaultTheme.motion.reduceMotion ? 'enabled' : 'disabled'),
+        capabilityInfo('reduced motion', theme.motion.reduceMotion ? 'enabled' : 'disabled'),
       ),
+      theme,
     ),
     coreCard(
       'Aurora + Nebula',
@@ -246,6 +258,7 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
         capabilityInfo('signal checksum', String(reactiveChecksum())),
         text('Cmd + Sub + VDOM + signals', mutedStyle),
       ),
+      theme,
     ),
     coreCard(
       'Gravity + Nexus',
@@ -258,6 +271,7 @@ function renderFoundationsLab(model: CelestialShowcaseModel, caps: AtlasCapabili
         capabilityInfo('last pointer', `${model.pointer.x},${model.pointer.y}`),
         text('Hit regions + raw mouse', mutedStyle),
       ),
+      theme,
     ),
   ];
 
@@ -403,7 +417,7 @@ function renderCapabilityLedger(model: CelestialShowcaseModel): VNode {
   );
 }
 
-export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabilities, theme: SemanticTheme): VNode {
   const navigation = row(
     action(
       model,
@@ -417,7 +431,7 @@ export function renderCoreLab(model: CelestialShowcaseModel, caps: AtlasCapabili
     action(model, 'core-ledger', model.corePage === 'ledger' ? 'Ledger [active]' : 'Ledger', model.corePage === 'ledger' ? 'success' : 'neutral'),
   );
   const content =
-    model.corePage === 'locale' ? renderLocaleLab(model) : model.corePage === 'ledger' ? renderCapabilityLedger(model) : renderFoundationsLab(model, caps);
+    model.corePage === 'locale' ? renderLocaleLab(model) : model.corePage === 'ledger' ? renderCapabilityLedger(model) : renderFoundationsLab(model, caps, theme);
   return column(navigation, text(''), content);
 }
 
@@ -592,14 +606,17 @@ export function renderWorkflowsLab(components: ShowcaseComponents, model: Celest
 function renderVisualOverview(model: CelestialShowcaseModel, caps: AtlasCapabilities, theme: SemanticTheme): VNode {
   const width = Math.max(12, Math.min(46, model.cols - 18));
   const motionTick = caps.reducedMotion ? 0 : model.tick;
-  const highlighted = highlightCode('const release = validate({ unicode: true });', { language: 'typescript', theme: 'dracula' });
+  const highlighted = highlightCode('const release = validate({ unicode: true });', {
+    language: 'typescript',
+    theme: spectrumTheme(theme),
+  });
   const gradientText = gradient('Mirage preserves grapheme clusters: 👩‍🚀 e\u0301', {
-    colors: [defaultTheme.colors.tones.accent, defaultTheme.colors.tones.success],
+    colors: [theme.colors.tones.accent, theme.colors.tones.success],
   });
   const shimmerText = shimmer('Motion follows terminal preference', {
     tick: motionTick,
-    color: defaultTheme.colors.tones.accent,
-    baseColor: defaultTheme.colors.muted,
+    color: theme.colors.tones.accent,
+    baseColor: theme.colors.muted,
     reduceMotion: caps.reducedMotion,
   });
   const transition = fadeTransition({ duration: 20, reduceMotion: caps.reducedMotion });
@@ -609,7 +626,7 @@ function renderVisualOverview(model: CelestialShowcaseModel, caps: AtlasCapabili
   const markdown = renderMarkdown('**Pulsar** renders safely\n\n- CRLF normalized\n- Unicode width aware\n- Spectrum highlighted', {
     width,
     reduceMotion: caps.reducedMotion,
-    theme: fromSemanticTheme(theme),
+    theme: markdownTheme(theme),
   });
   const textPanel = panel({
     title: 'Spectrum + Mirage + Nova',
@@ -638,11 +655,14 @@ function renderVisualOverview(model: CelestialShowcaseModel, caps: AtlasCapabili
   );
 }
 
-function renderTextMotionLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+function renderTextMotionLab(model: CelestialShowcaseModel, caps: AtlasCapabilities, theme: SemanticTheme): VNode {
   const source = 'const deck = release({ packages: 18, safe: true });';
   const language = detectLanguage('flight-deck.ts') ?? 'plaintext';
   const tokens = tokenizeCode(source, language) ?? [];
-  const highlighted = highlightCode(source, { language, theme: 'dracula' });
+  const highlighted = highlightCode(source, {
+    language,
+    theme: spectrumTheme(theme),
+  });
   const controllers = [fadeTransition, slideTransition, morphTransition] as const;
   const names = ['fade', 'slide', 'morph'] as const;
   const variant = ((model.visualVariant % controllers.length) + controllers.length) % controllers.length;
@@ -650,11 +670,11 @@ function renderTextMotionLab(model: CelestialShowcaseModel, caps: AtlasCapabilit
   const state = controller.tick(controller.start(0), caps.reducedMotion ? 20 : model.tick % 21);
   const transitioned = controller.render('private surface', 'public flight deck', state);
   const wave = underlineWave('Width-safe motion instrument', {
-    color: defaultTheme.colors.tones.accent,
+    color: theme.colors.tones.accent,
     tick: caps.reducedMotion ? 0 : model.tick,
     reduceMotion: caps.reducedMotion,
   });
-  const glowText = glow('semantic terminal light', { color: defaultTheme.colors.tones.success, intensity: 1 });
+  const glowText = glow('semantic terminal light', { color: theme.colors.tones.success, intensity: 1 });
 
   return column(
     row(text('TEXT + MOTION INSTRUMENT', headingStyle), text(`  ${names[variant]} transition`, successStyle)),
@@ -708,7 +728,7 @@ function renderMarkdownLab(model: CelestialShowcaseModel, caps: AtlasCapabilitie
   stream.append('# Streaming receipt\n\n');
   const pending = stream.append('A partial **release');
   const committed = stream.append('** update.\n\n- deterministic\n');
-  const rendered = renderMarkdown(frontmatter.body, { width, reduceMotion: caps.reducedMotion, theme: fromSemanticTheme(theme) });
+  const rendered = renderMarkdown(frontmatter.body, { width, reduceMotion: caps.reducedMotion, theme: markdownTheme(theme) });
 
   return column(
     row(text('PULSAR DOCUMENT INSTRUMENT', headingStyle), text('  parser, search, TOC, stream', mutedStyle)),
@@ -734,7 +754,7 @@ export function renderVisualsLab(model: CelestialShowcaseModel, caps: AtlasCapab
   const labels = VISUAL_PAGE_LABELS;
   const content =
     page === 1
-      ? renderTextMotionLab(model, caps)
+      ? renderTextMotionLab(model, caps, theme)
       : page === 2
         ? renderChartLab(model)
         : page === 3
@@ -751,20 +771,24 @@ export function renderVisualsLab(model: CelestialShowcaseModel, caps: AtlasCapab
   );
 }
 
-export function renderMouseLab(model: CelestialShowcaseModel): VNode {
+export function renderMouseLab(model: CelestialShowcaseModel, theme: SemanticTheme): VNode {
   const target = event(
     'showcase-mouse-target',
-    box(
-      column(
+    surfaceFrame({
+      content: column(
         text('MOUSE TARGET', headingStyle),
         text('Move, click, wheel, or press here.'),
         text(`pointer ${String(model.pointer.x).padStart(3)},${String(model.pointer.y).padStart(3)}  event ${model.pointer.type}`, actionStyle),
         text(`target ${model.pointer.target}  clicks ${model.pointer.clicks}`, mutedStyle),
         text(model.pointer.hovering ? 'hover region active' : 'move the pointer into this region', model.pointer.hovering ? successStyle : mutedStyle),
       ),
-      style({ border: border.rounded, color: model.pointer.hovering ? defaultTheme.colors.borderActive : defaultTheme.colors.border, padding: 1, width: 48 }),
-      { width: 48, height: 7 },
-    ),
+      elevation: 'raised',
+      hovered: model.pointer.hovering,
+      padding: 1,
+      width: 48,
+      height: 7,
+      theme,
+    }),
     {
       onClick: 'showcase-mouse:click',
       onMouseEnter: 'showcase-mouse:enter',
@@ -796,20 +820,19 @@ export function renderMouseLab(model: CelestialShowcaseModel): VNode {
   const targetHovered = model.hoveredRegion === 'drag-target';
   const source = event(
     'showcase-drag-source',
-    box(
-      column(
+    surfaceFrame({
+      content: column(
         text('DRAG SOURCE', headingStyle),
         text('verification receipt', dragging ? successStyle : titleStyle),
         text(dragOffset ? `offset ${dragOffset.dx}, ${dragOffset.dy}` : 'hold and drag the full card', mutedStyle),
       ),
-      style({
-        border: border.rounded,
-        color: dragging || sourceHovered ? defaultTheme.colors.borderActive : defaultTheme.colors.border,
-        background: dragging ? defaultTheme.states.active.bg : defaultTheme.elevation.raised.surface,
-        padding: 1,
-      }),
-      { height: 7 },
-    ),
+      elevation: 'raised',
+      focused: dragging,
+      hovered: sourceHovered,
+      padding: 1,
+      height: 7,
+      theme,
+    }),
     {
       onMouseDown: 'showcase-drag:start',
       onMouseEnter: 'showcase-drag:source-enter',
@@ -821,20 +844,19 @@ export function renderMouseLab(model: CelestialShowcaseModel): VNode {
 
   const dropBay = event(
     'showcase-drag-target',
-    box(
-      column(
+    surfaceFrame({
+      content: column(
         text(overDropBay ? 'DROP BAY - RELEASE' : 'DROP BAY', headingStyle),
         text(model.lastDroppedReceipt ?? 'Drag the receipt here.'),
         text(`${model.droppedReceipts} payload${model.droppedReceipts === 1 ? '' : 's'} accepted`, model.droppedReceipts > 0 ? successStyle : mutedStyle),
       ),
-      style({
-        border: border.rounded,
-        color: overDropBay || targetHovered ? defaultTheme.colors.borderActive : defaultTheme.colors.border,
-        background: overDropBay ? defaultTheme.states.active.bg : targetHovered ? defaultTheme.states.hover.bg : defaultTheme.elevation.raised.surface,
-        padding: 1,
-      }),
-      { height: 7 },
-    ),
+      elevation: 'raised',
+      focused: overDropBay,
+      hovered: targetHovered,
+      padding: 1,
+      height: 7,
+      theme,
+    }),
     {
       onMouseEnter: 'showcase-drag:over',
       onMouseLeave: 'showcase-drag:leave',
@@ -1055,17 +1077,9 @@ export function renderWindowsLab(model: CelestialShowcaseModel): VNode {
 function smokeNode(model: CelestialShowcaseModel, step: (typeof SMOKE_STEPS)[number], complete: boolean): VNode {
   const region = `smoke:${step.id}`;
   const hovered = model.hoveredRegion === region;
-  const checkStyle = hovered
-    ? style({ color: defaultTheme.colors.tones.success, background: defaultTheme.states.hover.bg, bold: true })
-    : complete
-      ? successStyle
-      : mutedStyle;
-  const labelStyle = hovered
-    ? style({ color: defaultTheme.colors.text, background: defaultTheme.states.hover.bg, bold: true })
-    : complete
-      ? successStyle
-      : titleStyle;
-  const detailStyle = hovered ? style({ color: defaultTheme.colors.textSoft, background: defaultTheme.states.hover.bg }) : complete ? successStyle : mutedStyle;
+  const checkStyle = complete ? successStyle : mutedStyle;
+  const labelStyle = complete ? successStyle : titleStyle;
+  const detailStyle = complete ? successStyle : mutedStyle;
   const detail = complete ? 'verified' : step.instruction;
   const labelWidth = model.cols < 120 ? 21 : 24;
   const content = row(
@@ -1073,12 +1087,16 @@ function smokeNode(model: CelestialShowcaseModel, step: (typeof SMOKE_STEPS)[num
     text(step.label.padEnd(labelWidth), labelStyle),
     runtime.flex(text(detail, detailStyle, { wrap: true }), { flex: 1, minWidth: 1 }),
   );
-  const node = event(
-    `showcase-smoke:${step.id}`,
+  const node = interactiveRow({
+    id: `showcase-smoke:${step.id}`,
+    label: `${step.label}: ${complete ? 'verified' : step.instruction}`,
     content,
-    { onClick: `showcase-smoke:${step.id}`, onMouseEnter: `showcase-hover:${region}`, onMouseLeave: `showcase-leave:${region}` },
-    { label: `${step.label}: ${complete ? 'verified' : step.instruction}`, intent: 'navigate', affordances: ['hover', 'click'], cursor: 'pointer' },
-  );
+    onClick: `showcase-smoke:${step.id}`,
+    onMouseEnter: `showcase-hover:${region}`,
+    onMouseLeave: `showcase-leave:${region}`,
+    hovered,
+    intent: 'navigate',
+  });
   runtime.setVNodeMeta(node, { a11y: { role: 'button', label: step.label, checked: complete } });
   return node;
 }

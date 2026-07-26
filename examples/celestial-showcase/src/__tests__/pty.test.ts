@@ -86,7 +86,7 @@ describe('Celestial Flight Deck PTY', () => {
       await harness.waitForText('[Close]', { since: appShellPalette });
       const appShellPaletteClosed = harness.mark();
       harness.write('\u001b');
-      await harness.waitForText(/SHARED\s*TOAST\s*PROJECTION/u, {
+      await harness.waitForText('Diagnostics: none', {
         since: appShellPaletteClosed,
       });
       const appShellHelp = harness.mark();
@@ -94,12 +94,12 @@ describe('Celestial Flight Deck PTY', () => {
       await harness.waitForText('[Close]', { since: appShellHelp });
       const appShellHelpClosed = harness.mark();
       harness.write('\u001b');
-      await harness.waitForText(/SHARED\s*TOAST\s*PROJECTION/u, {
+      await harness.waitForText('Diagnostics: none', {
         since: appShellHelpClosed,
       });
       const appShellConfirm = harness.mark();
       harness.write('x');
-      await harness.waitForText('Compass modal screen remains locked', { since: appShellConfirm });
+      await harness.waitForText('The host will dismiss the Compass modal screen only', { since: appShellConfirm });
       const appShellApproved = harness.mark();
       harness.write('\r');
       await harness.waitForText(
@@ -133,7 +133,7 @@ describe('Celestial Flight Deck PTY', () => {
       await harness.waitForText('Release approved from the modal receipt.', { since: appShellInbox });
       const appShellInboxClosed = harness.mark();
       harness.write('\u001b');
-      await harness.waitForText(/SHARED\s*TOAST\s*PROJECTION/u, {
+      await harness.waitForText('Diagnostics: none', {
         since: appShellInboxClosed,
       });
       // 'Live instrument bus' is already in the transcript from the earlier visit to
@@ -154,7 +154,7 @@ describe('Celestial Flight Deck PTY', () => {
       await harness.waitForText('[Close]', { since: narrowAppShellHelp });
       const narrowAppShellHelpClosed = harness.mark();
       harness.write('\u001b');
-      await harness.waitForText(/SHARED\s*TOAST\s*PROJECTION/u, {
+      await harness.waitForText('Diagnostics: none', {
         since: narrowAppShellHelpClosed,
       });
       const narrowWindows = harness.mark();

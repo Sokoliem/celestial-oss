@@ -19,7 +19,7 @@
     "clean": "pnpm run preview:clean",
     "preview:boundary": "node scripts/check-preview-boundary.mjs",
     "preview:licenses": "node scripts/check-preview-licenses.mjs",
-    "preview:lint": "node scripts/run-preview.mjs lint",
+    "preview:lint": "node scripts/check-showcase-conformance.mjs && node scripts/run-preview.mjs lint",
     "preview:build": "node scripts/run-preview.mjs build",
     "preview:test": "node scripts/run-preview.mjs test",
     "preview:test:framework": "node scripts/run-preview.mjs test --exclude=@celestial/nebula",

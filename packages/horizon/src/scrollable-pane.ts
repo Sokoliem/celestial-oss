@@ -31,7 +31,16 @@
  *     }
  */
 
-import { type Border, border, type Color, color, createTheme, defaultTheme, style, type ThemeInput } from '@celestial/core/corona';
+import {
+  type Border,
+  type Color,
+  color,
+  createTheme,
+  defaultTheme,
+  resolveElevationBorder,
+  style,
+  type ThemeInput,
+} from '@celestial/core/corona';
 import { box, column, Sub, scroll, text, type ThemeContext, type VNode } from '@celestial/core/nebula';
 import { clampFinite, nonNegativeInteger, positiveInteger } from './internal.js';
 import { getScrollProgress, type ScrollRegionModel, type ScrollRegionMsg } from './scroll.js';
@@ -77,7 +86,7 @@ export interface ScrollablePaneConfig {
    * `title` prop on {@link titledPane}.
    */
   title?: string;
-  /** Border style (default: {@link border.rounded}). */
+  /** Border style (default: the active theme's raised elevation border). */
   borderStyle?: Border;
   /** Border color (default: semantic panel border). */
   borderColor?: Color;
@@ -112,7 +121,7 @@ export function scrollablePane(config: ScrollablePaneConfig): VNode {
     footer,
     showIndicator = contentHeight !== undefined,
     title,
-    borderStyle = border.rounded,
+    borderStyle = resolveElevationBorder(theme, 'raised'),
     borderColor = panelBorderColor,
     titleColor = theme.typography.title.color,
     focused = false,

@@ -11,7 +11,7 @@
  */
 
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { border, style } from '@celestial/core/corona';
+import { resolveElevationBorder, style } from '@celestial/core/corona';
 import type { KeyEvent, Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import {
   box,
@@ -33,7 +33,7 @@ import {
 import { generateFocusGroupId } from './focus-group.js';
 import { positiveInteger, wheelDirection } from './internal.js';
 import { type Command, createPaletteState, getSelectedCommand, type PaletteMsg, type PaletteState, paletteUpdate } from './palette.js';
-import { useTokens } from './theme.js';
+import { resolveTheme, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
@@ -316,6 +316,7 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
       if (!model.palette.open) return text('');
 
       const tokens = useTokens(commandPaletteContract, config, 'CommandPalette');
+      const theme = resolveTheme(config);
 
       const titleStyle = style({ bold: true, color: tokens.highlight });
       const inputStyle = style({ color: tokens.text });
@@ -323,7 +324,11 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
       // secondary, but terminal `dim` can push otherwise-safe tokens below
       // the contrast floor on real terminals.
       const secondaryStyle = style({ color: tokens.muted });
-      const borderStyle = style({ border: border.rounded, color: model.hoveredIndex == null ? tokens.border : tokens.borderHover, background: tokens.bg });
+      const borderStyle = style({
+        border: resolveElevationBorder(theme, 'floating'),
+        color: model.hoveredIndex == null ? tokens.border : tokens.borderHover,
+        background: tokens.bg,
+      });
       const categoryStyle = style({ color: tokens.highlight });
 
       const dividerStyle = style({ color: tokens.divider });

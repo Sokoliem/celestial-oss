@@ -22,6 +22,7 @@ export {
   validateThemeContrast,
 } from './a11y.js';
 export { type Border, type BorderChars, border, type FocusBorderOptions, type GradientBorderOpts, renderGradientBorder, type TitleAlign } from './border.js';
+export { resolveElevationBorder } from './elevation-border.js';
 export { accentMix, type Color, type ColorLevel, color, colorToHex, HUE_ANCHORS, type HueName, hslToRgb, isColorLike } from './color.js';
 // resetColorLevelCache intentionally NOT re-exported — test-only escape hatch.
 // Widget color bridge

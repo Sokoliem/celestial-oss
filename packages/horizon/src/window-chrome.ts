@@ -1,9 +1,9 @@
 import {
-  border,
   type Color,
   color,
   createTheme,
   resolveComponentTokens,
+  resolveElevationBorder,
   type SemanticTheme,
   style,
   type ThemeInput,
@@ -276,7 +276,7 @@ export function renderWindowChrome<M = unknown>(window: DesktopWindowState<M>, o
   });
   const frame = box(
     column(titleBar, flex(bodySurface, { flex: 1 })),
-    style({ border: border.rounded, color: borderColor, background: tokens.bodyBackground }),
+    style({ border: resolveElevationBorder(theme, 'floating'), color: borderColor, background: tokens.bodyBackground }),
     { width: window.width, height: window.height, overflow: 'hidden' },
   );
 

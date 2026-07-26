@@ -1,5 +1,5 @@
 import type { Color, SemanticTheme, StatusKind, ThemeInput, TokenContract } from '@celestial/core/corona';
-import { border, style } from '@celestial/core/corona';
+import { resolveElevationBorder, style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, event, flex, focus, layerStack, overlay, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { measureTextWidth, wrapCellText } from '@celestial/rosetta';
@@ -16,7 +16,7 @@ import {
 } from './notification-store.js';
 import { statusGlyph } from './status-icon.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
-import { useTokens } from './theme.js';
+import { resolveTheme, useTokens } from './theme.js';
 
 export interface ToastTokens {
   text: Color;
@@ -603,6 +603,7 @@ export function createToastManager(config: ToastManagerConfig = {}) {
   ): VNode => {
     if (toasts.length === 0) return text('');
     const tokens = useTokens(toastContract, config, 'Toast');
+    const theme = resolveTheme(config);
     const levelColors: Record<ToastLevel, Color> = {
       info: tokens.info,
       success: tokens.success,
@@ -657,7 +658,7 @@ export function createToastManager(config: ToastManagerConfig = {}) {
         const toastSurface = box(
           toastContent,
           style({
-            border: border.rounded,
+            border: resolveElevationBorder(theme, 'floating'),
             color: hovered ? tokens.borderHover : levelColors[entry.level],
             background: tokens.bg,
             padding: [0, 1],

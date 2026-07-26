@@ -7,10 +7,12 @@
  * — a help screen cannot drift from the bindings it documents.
  */
 
-import type { KeyEvent, KeyModifiers, VNode } from '@celestial/core/nebula';
+import { style, type ThemeInput } from '@celestial/core/corona';
+import type { KeyEvent, KeyModifiers, ThemeContext, VNode } from '@celestial/core/nebula';
 import { column, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { measureTextWidth, segmentGraphemes, truncateText, wrapCellText } from '@celestial/rosetta';
 import { positiveInteger } from './internal.js';
+import { resolveTheme } from './theme.js';
 
 /** Upper bound on the key column so one pathological label cannot blow up the layout. */
 const MAX_KEY_COLUMN_CELLS = 32;
@@ -461,6 +463,10 @@ export interface HelpViewOptions {
   readonly title?: string;
   /** Group bindings under their category labels. Defaults to true when any binding has a category. */
   readonly groupByCategory?: boolean;
+  /** Static theme input used when no live theme context is supplied. */
+  readonly theme?: ThemeInput;
+  /** Live theme context for reactive help surfaces. */
+  readonly themeCtx?: ThemeContext;
 }
 
 function snapshotHelpOptions(value: HelpViewOptions): HelpViewOptions {
@@ -472,12 +478,16 @@ function snapshotHelpOptions(value: HelpViewOptions): HelpViewOptions {
   const width = ownDataValue(value, 'width', 'Key binding help options');
   const title = ownDataValue(value, 'title', 'Key binding help options');
   const groupByCategory = ownDataValue(value, 'groupByCategory', 'Key binding help options');
+  const theme = ownDataValue(value, 'theme', 'Key binding help options');
+  const themeCtx = ownDataValue(value, 'themeCtx', 'Key binding help options');
   return Object.freeze({
     ...(includeInactive === undefined ? {} : { includeInactive: includeInactive as boolean }),
     ...(includeUndiscoverable === undefined ? {} : { includeUndiscoverable: includeUndiscoverable as boolean }),
     ...(width === undefined ? {} : { width: width as number }),
     ...(title === undefined ? {} : { title: title as string }),
     ...(groupByCategory === undefined ? {} : { groupByCategory: groupByCategory as boolean }),
+    ...(theme === undefined ? {} : { theme: theme as ThemeInput }),
+    ...(themeCtx === undefined ? {} : { themeCtx: themeCtx as ThemeContext }),
   });
 }
 
@@ -489,6 +499,12 @@ export function helpView<M>(bindings: readonly KeyBinding<M>[], options: HelpVie
     }
   }
   const width = positiveInteger(options.width, DEFAULT_HELP_WIDTH);
+  const theme = resolveTheme(options);
+  const bodyStyle = style({ color: theme.colors.text });
+  const mutedStyle = style({ color: theme.colors.muted });
+  const keyStyle = style({ color: theme.colors.interactive, bold: true });
+  const headingStyle = style({ color: theme.colors.tones.accent, bold: true });
+  const categoryStyle = style({ color: theme.colors.textSoft, bold: true });
   const title = options.title ?? 'Key Bindings:';
   if (typeof title !== 'string' || UNSAFE_SINGLE_LINE_TEXT.test(title)) {
     throw new TypeError('Key binding help titles must be single-line printable text.');
@@ -514,7 +530,7 @@ export function helpView<M>(bindings: readonly KeyBinding<M>[], options: HelpVie
   });
 
   if (visible.length === 0) {
-    const empty = text(truncateText('No key bindings defined.', width));
+    const empty = text(truncateText('No key bindings defined.', width), mutedStyle);
     setVNodeMeta(empty, { a11y: { role: 'region', label: 'Key bindings, none defined' } });
     return empty;
   }
@@ -549,21 +565,21 @@ export function helpView<M>(bindings: readonly KeyBinding<M>[], options: HelpVie
     const labelWidth = measureTextWidth(label);
     const inlineDescriptionWidth = width - 2 - columnWidth - 2;
     if (inlineDescriptionWidth < 1) {
-      rows.push(text(truncateText(`  ${label}`, width)));
+      rows.push(text(truncateText(`  ${label}`, width), keyStyle));
       const descriptionIndent = width > 2 ? '  ' : '';
       const descriptionWidth = Math.max(1, width - measureTextWidth(descriptionIndent));
       for (const line of wrapCellText(entry.description, descriptionWidth)) {
-        rows.push(text(`${descriptionIndent}${line}`));
+        rows.push(text(`${descriptionIndent}${line}`, bodyStyle));
       }
       return;
     }
 
     const descriptionLines = wrapCellText(entry.description, inlineDescriptionWidth);
     const firstDescription = descriptionLines[0] ?? '';
-    rows.push(text(`  ${label}${' '.repeat(columnWidth - labelWidth + 2)}${firstDescription}`));
+    rows.push(text(`  ${label}${' '.repeat(columnWidth - labelWidth + 2)}${firstDescription}`, bodyStyle));
     const continuationPrefix = ' '.repeat(2 + columnWidth + 2);
     for (const line of descriptionLines.slice(1)) {
-      rows.push(text(`${continuationPrefix}${line}`));
+      rows.push(text(`${continuationPrefix}${line}`, bodyStyle));
     }
   };
 
@@ -571,7 +587,7 @@ export function helpView<M>(bindings: readonly KeyBinding<M>[], options: HelpVie
     let groupIndex = 0;
     for (const [category, entries] of groups) {
       if (groupIndex > 0) rows.push(text(''));
-      rows.push(text(truncateText(`${category}:`, width)));
+      rows.push(text(truncateText(`${category}:`, width), categoryStyle));
       entries.forEach(renderEntry);
       groupIndex += 1;
     }
@@ -579,7 +595,7 @@ export function helpView<M>(bindings: readonly KeyBinding<M>[], options: HelpVie
     formatted.forEach(renderEntry);
   }
 
-  const heading = title.length > 0 ? [text(truncateText(title, width)), text('')] : [];
+  const heading = title.length > 0 ? [text(truncateText(title, width), headingStyle), text('')] : [];
   const view = column(...heading, ...rows);
   setVNodeMeta(view, { a11y: { role: 'region', label: `Key bindings, ${visible.length} entries` } });
   return view;

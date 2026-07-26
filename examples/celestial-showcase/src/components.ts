@@ -1,4 +1,4 @@
-import { Cmd, type Cmd as Command, column, defaultTheme, event, row, runtime, style, text, type VNode } from '@celestial/core';
+import { Cmd, type Cmd as Command, column, event, row, text, type VNode } from '@celestial/core';
 import type { ThemeContext } from '@celestial/core/nebula';
 import { schemaForm, wizard } from '@celestial/orbit';
 import {
@@ -40,6 +40,7 @@ import {
   rangeSlider,
   rating,
   segmentedControl,
+  semanticGlyph,
   select,
   slider,
   spinner,
@@ -54,6 +55,7 @@ import {
   tree,
 } from '@celestial/ui';
 import { UI_BUILDER_COUNT } from './coverage.js';
+import { headingStyle, labelStyle, mutedStyle } from './presentation.js';
 import type { CelestialShowcaseModel, CelestialShowcaseMsg, LabId, ShowcaseGalleryModels } from './types.js';
 
 export { UI_BUILDER_COUNT, UI_BUILDER_NAMES } from './coverage.js';
@@ -64,10 +66,6 @@ interface CapabilityRow {
   package: string;
   state: string;
 }
-
-const headingStyle = style({ color: defaultTheme.colors.tones.accent, bold: true });
-const labelStyle = style({ color: defaultTheme.colors.textSoft, bold: true });
-const mutedStyle = style({ color: defaultTheme.colors.muted });
 
 export const GALLERY_PAGE_COUNT = 8;
 
@@ -379,10 +377,10 @@ export function createShowcaseComponents(themeCtx: ThemeContext) {
     title: 'Layer stack',
     content: column(
       text('Current stack', labelStyle),
-      text(`${defaultTheme.glyphs.bullet} Base application remains mounted.`),
-      text(`${defaultTheme.glyphs.bullet} Transparent backdrop shields click-through.`),
-      text(`${defaultTheme.glyphs.bullet} Right edge anchors this drawer.`),
-      text(`${defaultTheme.glyphs.bullet} Escape, [x], and click-away dismissal remain active.`, mutedStyle, { wrap: true }),
+      text(`${semanticGlyph('bullet', { themeCtx })} Base application remains mounted.`),
+      text(`${semanticGlyph('bullet', { themeCtx })} Transparent backdrop shields click-through.`),
+      text(`${semanticGlyph('bullet', { themeCtx })} Right edge anchors this drawer.`),
+      text(`${semanticGlyph('bullet', { themeCtx })} Escape, [x], and click-away dismissal remain active.`, mutedStyle, { wrap: true }),
       text(''),
       text('Interactive layer actions', labelStyle),
       text('Each control below updates the same Elm model used by the underlying lab.', mutedStyle, { wrap: true }),
@@ -455,6 +453,7 @@ export function createShowcaseComponents(themeCtx: ThemeContext) {
   ) as Record<LabId, ReturnType<typeof drawer>>;
 
   return {
+    themeCtx,
     textInputComponent,
     textareaComponent,
     checkboxComponent,
@@ -569,20 +568,18 @@ function action(
   label: string,
   tone: 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info' = 'accent',
 ): VNode {
-  const visual = button({ label, onClick: id, x: 0, y: 0, buttonVariant: 'outline', tone, hovered: model.hoveredRegion === `action:${id}` }).view();
-  const node = event(
-    `showcase-action:${id}`,
-    visual,
-    {
-      onClick: `showcase-action:${id}`,
-      onRightClick: `showcase-context:action:${id}`,
-      onMouseEnter: `showcase-hover:action:${id}`,
-      onMouseLeave: `showcase-leave:action:${id}`,
-    },
-    { label, intent: id, affordances: ['hover', 'click'], cursor: 'pointer' },
-  );
-  runtime.setVNodeMeta(node, { a11y: { role: 'button', label } });
-  return node;
+  return button({
+    id: `showcase-action:${id}`,
+    label,
+    onClick: `showcase-action:${id}`,
+    onRightClick: `showcase-context:action:${id}`,
+    onMouseEnter: `showcase-hover:action:${id}`,
+    onMouseLeave: `showcase-leave:action:${id}`,
+    buttonVariant: 'outline',
+    tone,
+    hovered: model.hoveredRegion === `action:${id}`,
+    intent: id,
+  });
 }
 
 function focusable(id: string, label: string, child: VNode, direct = false): VNode {
@@ -763,16 +760,7 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
         state: model.galleryContextMenu,
         width: 22,
         viewport: { cols: Math.max(24, model.cols - 8), rows: Math.max(8, model.rows - 8) },
-        tokens: {
-          background: defaultTheme.colors.surface,
-          border: defaultTheme.colors.border,
-          text: defaultTheme.colors.text,
-          textMuted: defaultTheme.colors.muted,
-          selectedBackground: defaultTheme.states.active.bg ?? defaultTheme.colors.interactive,
-          selectedText: defaultTheme.colors.text,
-          separator: defaultTheme.colors.border,
-          shortcut: defaultTheme.colors.textSoft,
-        },
+        themeCtx: components.themeCtx,
       });
       const popoverNode = named('popover()', galleryView(model, 'popover', components.popoverComponent, { viewportCols: Math.max(36, model.cols - 8) }));
       const hovercardNode = named(
