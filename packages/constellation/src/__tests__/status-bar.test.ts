@@ -66,6 +66,55 @@ describe('statusBar', () => {
     }
   });
 
+  it('rejects non-printing Unicode and non-boolean presentation flags', () => {
+    for (const unsafe of ['\u2028', '\u2029', '\u2066', '\ud800']) {
+      expect(() => statusBar({ left: [{ text: `ready${unsafe}` }] })).toThrow(/printable/i);
+    }
+    expect(() => statusBar({ left: [{ text: 'ready', bold: 1 as never }] })).toThrow(/bold.*boolean/i);
+    expect(() => statusBar({ left: [{ text: 'ready', mode: 'yes' as never }] })).toThrow(/mode.*boolean/i);
+  });
+
+  it('rejects accessor sections and oversized sparse arrays without reading them', () => {
+    let textReads = 0;
+    const accessor = Object.defineProperty({}, 'text', {
+      enumerable: true,
+      get: () => {
+        textReads += 1;
+        return 'ready';
+      },
+    });
+    expect(() => statusBar({ left: [accessor as never] })).toThrow(/text.*own data property/i);
+    expect(textReads).toBe(0);
+
+    const huge = new Array<never>(4_294_967_295);
+    expect(() => statusBar({ left: huge })).toThrow(/at most 10000/i);
+  });
+
+  it('quotes unknown message types without leaking terminal or directionality controls', () => {
+    const component = statusBar({});
+    const [model] = component.init();
+
+    for (const unsafe of ['\n', '\u001b', '\u202e', '\u2066', '\ud800']) {
+      let message = '';
+      try {
+        component.update({ type: `unknown${unsafe}type` } as never, model);
+      } catch (error) {
+        message = error instanceof Error ? error.message : '';
+      }
+      expect(message).toContain('Unknown status bar message type');
+      expect(message).not.toContain(unsafe);
+    }
+
+    let boundedMessage = '';
+    try {
+      component.update({ type: 'x'.repeat(10_000) } as never, model);
+    } catch (error) {
+      boundedMessage = error instanceof Error ? error.message : '';
+    }
+    expect(boundedMessage.length).toBeLessThan(1_100);
+    expect(boundedMessage).toContain('…');
+  });
+
   it('preserves the exact cell-width contract through rasterization', () => {
     const component = statusBar({
       width: 18,
@@ -113,5 +162,28 @@ describe('statusBar', () => {
     } satisfies StatusBarModel;
 
     expect(measureTextWidth(textContent(component.view(hostile)))).toBe(80);
+  });
+
+  it('rejects accessor-backed external models before rendering or deriving accessibility text', () => {
+    const component = statusBar({});
+    let leftReads = 0;
+    const hostile = Object.defineProperties(
+      {},
+      {
+        left: {
+          enumerable: true,
+          get: () => {
+            leftReads += 1;
+            return leftReads === 1 ? [{ text: 'safe' }] : [{ text: '\u001b[31munsafe' }];
+          },
+        },
+        center: { enumerable: true, value: [] },
+        right: { enumerable: true, value: [] },
+        width: { enumerable: true, value: 80 },
+      },
+    ) as StatusBarModel;
+
+    expect(() => component.view(hostile)).toThrow(/left.*own data property/i);
+    expect(leftReads).toBe(0);
   });
 });

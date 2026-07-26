@@ -8,12 +8,18 @@
  */
 
 import type { ActionRegistry, ActionScope, KeyModifiers, ResolvedAction } from '@celestial/core/nebula';
-import { getAvailableActions } from '@celestial/core/nebula';
-import { formatKeyBinding, isKeyBindingRepresentable, normalizeKeyBindingKey, type KeyBinding } from './keyboard.js';
+import { getAvailableActions, isActionRegistry } from '@celestial/core/nebula';
+import { formatKeyBinding, isKeyBindingRepresentable, type KeyBinding, normalizeKeyBindingKey } from './keyboard.js';
 import type { Command } from './palette.js';
 
 interface ActionSurfaceOptions<Model, Msg> {
   readonly includeDisabled?: boolean;
+  /**
+   * Optional nominal availability snapshot shared across several derived
+   * surfaces. Create it with `createActionResolutionSnapshot`; forged arrays
+   * and snapshots from another registry are rejected.
+   */
+  readonly resolution?: ActionResolutionSnapshot<Model, Msg>;
   /**
    * Resolve non-application scopes for this projection.
    *
@@ -60,26 +66,188 @@ interface ParsedShortcutChord {
 
 type ShortcutParseResult =
   | { readonly ok: true; readonly chord: ParsedShortcutChord }
-  | { readonly ok: false; readonly reason: Exclude<UnbindableShortcutReason, 'multi-chord-sequence' | 'empty' | 'conflicting-shortcut'>; readonly detail: string };
+  | { readonly ok: false; readonly reason: Exclude<UnbindableShortcutReason, 'multi-chord-sequence' | 'empty' | 'conflicting-shortcut'>;
+      readonly detail: string;
+    };
 
 const MODIFIER_NAMES = new Set(['ctrl', 'alt', 'shift']);
+const UNSAFE_SINGLE_LINE_TEXT = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\uD800-\uDFFF]/u;
+const MAX_ACTION_SURFACE_SUFFIX_LENGTH = 256;
+const MAX_FORMATTED_SHORTCUT_LENGTH = 4_096;
+const ACTION_RESOLUTION_SNAPSHOTS = new WeakMap<object, ActionRegistry<unknown, unknown>>();
+
+export interface ActionResolutionSnapshot<Model, Msg> {
+  readonly actions: readonly ResolvedAction<Model, Msg>[];
+}
+
+function ownOptionData(value: object, field: string, label: string, required = false): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, field);
+  if (descriptor === undefined) {
+    if (required) {
+      throw new TypeError(`${label} requires own data property ${field}.`);
+    }
+    return undefined;
+  }
+  if (!('value' in descriptor)) {
+    throw new TypeError(`${label} ${field} must be an own data property.`);
+  }
+  return descriptor.value;
+}
+
+function requireOptionsRecord(value: unknown, label: string): object {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`${label} must be an object.`);
+  }
+  return value;
+}
+
+function snapshotSurfaceOptions<Model, Msg>(value: ActionSurfaceOptions<Model, Msg> | undefined, label: string): ActionSurfaceOptions<Model, Msg> {
+  if (value === undefined) return Object.freeze({});
+  const record = requireOptionsRecord(value, label);
+  const includeDisabled = ownOptionData(record, 'includeDisabled', label);
+  const resolution = ownOptionData(record, 'resolution', label);
+  const isScopeActive = ownOptionData(record, 'isScopeActive', label);
+  if (includeDisabled !== undefined && typeof includeDisabled !== 'boolean') {
+    throw new TypeError(`${label} includeDisabled must be boolean when supplied.`);
+  }
+  if (resolution !== undefined && (resolution === null || typeof resolution !== 'object' || Array.isArray(resolution))) {
+    throw new TypeError(`${label} resolution must be a nominal action resolution snapshot.`);
+  }
+  if (isScopeActive !== undefined && typeof isScopeActive !== 'function') {
+    throw new TypeError(`${label} isScopeActive must be a function when supplied.`);
+  }
+  return Object.freeze({
+    ...(includeDisabled === undefined ? {} : { includeDisabled: includeDisabled as boolean }),
+    ...(resolution === undefined
+      ? {}
+      : {
+          resolution: resolution as ActionResolutionSnapshot<Model, Msg>,
+        }),
+    ...(isScopeActive === undefined
+      ? {}
+      : {
+          isScopeActive: isScopeActive as (scope: ActionScope, action: ResolvedAction<Model, Msg>) => boolean,
+        }),
+  });
+}
+
+function validateSuffix(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.length > MAX_ACTION_SURFACE_SUFFIX_LENGTH || UNSAFE_SINGLE_LINE_TEXT.test(value)) {
+    throw new TypeError(`${label} must be at most ${String(MAX_ACTION_SURFACE_SUFFIX_LENGTH)} characters of single-line printable text.`);
+  }
+  return value;
+}
+
+function snapshotCommandOptions<Model, Msg, M>(value: ActionCommandOptions<Model, Msg, M>): ActionCommandOptions<Model, Msg, M> {
+  const label = 'Action command options';
+  const record = requireOptionsRecord(value, label);
+  const surface = snapshotSurfaceOptions(value, label);
+  const toMsg = ownOptionData(record, 'toMsg', label, true);
+  const disabledLabelSuffix = validateSuffix(ownOptionData(record, 'disabledLabelSuffix', label), `${label} disabledLabelSuffix`);
+  const includeUndiscoverable = ownOptionData(record, 'includeUndiscoverable', label);
+  if (typeof toMsg !== 'function') {
+    throw new TypeError(`${label} toMsg must be a function.`);
+  }
+  if (includeUndiscoverable !== undefined && typeof includeUndiscoverable !== 'boolean') {
+    throw new TypeError(`${label} includeUndiscoverable must be boolean when supplied.`);
+  }
+  return Object.freeze({
+    ...surface,
+    toMsg: toMsg as (actionId: string, action: ResolvedAction<Model, Msg>) => M,
+    ...(disabledLabelSuffix === undefined ? {} : { disabledLabelSuffix }),
+    ...(includeUndiscoverable === undefined ? {} : { includeUndiscoverable: includeUndiscoverable as boolean }),
+  });
+}
+
+function snapshotKeyBindingOptions<Model, Msg, M>(value: ActionKeyBindingOptions<Model, Msg, M>): ActionKeyBindingOptions<Model, Msg, M> {
+  const label = 'Action key-binding options';
+  const record = requireOptionsRecord(value, label);
+  const surface = snapshotSurfaceOptions(value, label);
+  const toMsg = ownOptionData(record, 'toMsg', label, true);
+  const disabledDescriptionSuffix = validateSuffix(ownOptionData(record, 'disabledDescriptionSuffix', label), `${label} disabledDescriptionSuffix`);
+  if (typeof toMsg !== 'function') {
+    throw new TypeError(`${label} toMsg must be a function.`);
+  }
+  return Object.freeze({
+    ...surface,
+    toMsg: toMsg as (actionId: string, action: ResolvedAction<Model, Msg>) => M,
+    ...(disabledDescriptionSuffix === undefined ? {} : { disabledDescriptionSuffix }),
+  });
+}
+
+function assertActionRegistry<Model, Msg>(registry: ActionRegistry<Model, Msg>): void {
+  if (!isActionRegistry(registry)) {
+    throw new TypeError('Action surfaces require a canonical registry created by createActionRegistry.');
+  }
+}
+
+/**
+ * Evaluate each registry action exactly once for a coordinated surface
+ * projection. The nominal snapshot cannot be forged or reused with another
+ * registry.
+ */
+export function createActionResolutionSnapshot<Model, Msg>(registry: ActionRegistry<Model, Msg>, model: Model): ActionResolutionSnapshot<Model, Msg> {
+  assertActionRegistry(registry);
+  const snapshot = Object.freeze({
+    actions: Object.freeze(
+      getAvailableActions(registry, model).map((action) =>
+        Object.freeze({
+          descriptor: action.descriptor,
+          availability: action.availability,
+        }),
+      ),
+    ),
+  });
+  ACTION_RESOLUTION_SNAPSHOTS.set(snapshot, registry as ActionRegistry<unknown, unknown>);
+  return snapshot;
+}
 
 function isDiscoverable<Model, Msg>(action: ResolvedAction<Model, Msg>): boolean {
   return action.descriptor.discoverable !== false;
 }
 
-function isScopeActive<Model, Msg>(action: ResolvedAction<Model, Msg>, options?: ActionSurfaceOptions<Model, Msg>): boolean {
-  const scope = action.descriptor.scope ?? 'app';
-  return scope === 'app' || options?.isScopeActive?.(scope, action) === true;
+type ScopeResolver<Model, Msg> = (action: ResolvedAction<Model, Msg>) => boolean;
+
+function createScopeResolver<Model, Msg>(options?: ActionSurfaceOptions<Model, Msg>): ScopeResolver<Model, Msg> {
+  const decisions = new Map<string, boolean>();
+  return (action) => {
+    const scope = action.descriptor.scope ?? 'app';
+    if (scope === 'app') return true;
+    const cached = decisions.get(action.descriptor.id);
+    if (cached !== undefined) return cached;
+    if (options?.isScopeActive === undefined) {
+      decisions.set(action.descriptor.id, false);
+      return false;
+    }
+    const active = options.isScopeActive(scope, action);
+    if (typeof active !== 'boolean') {
+      throw new TypeError(`Action scope resolver for ${JSON.stringify(action.descriptor.id)} must return boolean.`);
+    }
+    decisions.set(action.descriptor.id, active);
+    return active;
+  };
 }
 
 function getSurfaceActions<Model, Msg>(
   registry: ActionRegistry<Model, Msg>,
   model: Model,
   options?: ActionSurfaceOptions<Model, Msg> & { readonly includeUndiscoverable?: boolean },
+  resolveScope: ScopeResolver<Model, Msg> = createScopeResolver(options),
 ): readonly ResolvedAction<Model, Msg>[] {
-  return getAvailableActions(registry, model).filter((action) => {
-    if (!isScopeActive(action, options)) return false;
+  assertActionRegistry(registry);
+  let resolved: readonly ResolvedAction<Model, Msg>[];
+  if (options?.resolution === undefined) {
+    resolved = getAvailableActions(registry, model);
+  } else {
+    const owner = ACTION_RESOLUTION_SNAPSHOTS.get(options.resolution);
+    if (owner !== registry) {
+      throw new TypeError('Action resolution snapshot must be created from the exact registry being projected.');
+    }
+    resolved = options.resolution.actions;
+  }
+  return resolved.filter((action) => {
+    if (!resolveScope(action)) return false;
     if (!options?.includeUndiscoverable && !isDiscoverable(action)) return false;
     if (!options?.includeDisabled && action.availability === 'disabled') return false;
     return true;
@@ -143,6 +311,9 @@ function chordId(chord: ParsedShortcutChord): string {
  * @example `ctrl+k s` becomes `Ctrl+K S`.
  */
 export function formatActionShortcut(shortcut: string): string {
+  if (typeof shortcut !== 'string' || shortcut.length > MAX_FORMATTED_SHORTCUT_LENGTH || UNSAFE_SINGLE_LINE_TEXT.test(shortcut)) {
+    throw new TypeError(`Action shortcuts must be at most ${String(MAX_FORMATTED_SHORTCUT_LENGTH)} characters of single-line printable text.`);
+  }
   return shortcutSegments(shortcut)
     .map((segment) => {
       const parsed = parseShortcutChord(segment);
@@ -170,16 +341,25 @@ function toCommandKeywords<Model, Msg>(action: ResolvedAction<Model, Msg>): stri
 
 export function actionCommands<Model, Msg, M>(
   registry: ActionRegistry<Model, Msg>,
-  model: Model,
-  options: ActionCommandOptions<Model, Msg, M>,
-): Command<M>[] {
+  model: Model, options: ActionCommandOptions<Model, Msg, M>): Command<M>[] {
+  options = snapshotCommandOptions(options);
   const disabledLabelSuffix = options.disabledLabelSuffix ?? '(disabled)';
+  const resolution = options.resolution ?? createActionResolutionSnapshot(registry, model);
+  const projectionOptions = Object.freeze({ ...options, resolution });
+  const resolveScope = createScopeResolver(projectionOptions);
   const activeChordOwners = new Map<string, string>();
-  for (const action of getSurfaceActions(registry, model, {
-    ...options,
-    includeDisabled: false,
-    includeUndiscoverable: true,
-  })) {
+  for (
+    const action of getSurfaceActions(
+      registry,
+      model,
+      {
+        ...projectionOptions,
+        includeDisabled: false,
+        includeUndiscoverable: true,
+      },
+      resolveScope,
+    )
+  ) {
     for (const shortcut of action.descriptor.shortcuts ?? []) {
       const chord = toKeyBindingShortcut(shortcut);
       if (chord) {
@@ -189,7 +369,7 @@ export function actionCommands<Model, Msg, M>(
     }
   }
 
-  return getSurfaceActions(registry, model, options).map((action) => {
+  return getSurfaceActions(registry, model, projectionOptions, resolveScope).map((action) => {
     const disabled = action.availability === 'disabled';
     const shortcuts: string[] = [];
     const seenShortcuts = new Set<string>();
@@ -239,6 +419,9 @@ export function unbindableActionShortcuts<Model, Msg>(
   model: Model,
   options?: ActionSurfaceOptions<Model, Msg>,
 ): UnbindableShortcut[] {
+  assertActionRegistry(registry);
+  options = snapshotSurfaceOptions(options, 'Unbindable shortcut options');
+  const resolveScope = createScopeResolver(options);
   const unbindable: UnbindableShortcut[] = [];
   const bindableByAction = new Map<string, Array<{ readonly shortcut: string; readonly chord: ParsedShortcutChord }>>();
 
@@ -275,7 +458,14 @@ export function unbindableActionShortcuts<Model, Msg>(
   }
 
   const activeActionIds = new Set(
-    getSurfaceActions(registry, model, { ...options, includeDisabled: false, includeUndiscoverable: true }).map((action) => action.descriptor.id),
+    getSurfaceActions(registry, model,
+      {
+        ...options,
+        includeDisabled: false,
+        includeUndiscoverable: true,
+      },
+      resolveScope,
+    ).map((action) => action.descriptor.id),
   );
   const claimedChords = new Map<string, string>();
   for (const descriptor of registry.actions) {
@@ -305,15 +495,22 @@ export function actionKeyBindings<Model, Msg, M>(
   model: Model,
   options: ActionKeyBindingOptions<Model, Msg, M>,
 ): KeyBinding<M>[] {
+  options = snapshotKeyBindingOptions(options);
   const disabledDescriptionSuffix = options.disabledDescriptionSuffix ?? '(disabled)';
   const bindings: KeyBinding<M>[] = [];
+  const resolveScope = createScopeResolver(options);
 
   // Keyboard execution is independent of command/help discoverability.
-  const actions = getSurfaceActions(registry, model, {
-    ...options,
+  const actions = getSurfaceActions(
+    registry,
+    model,
+    {
+      ...options,
     includeDisabled: options.includeDisabled ?? true,
-    includeUndiscoverable: true,
-  });
+      includeUndiscoverable: true,
+    },
+    resolveScope,
+  );
 
   for (const action of actions) {
     for (const shortcut of action.descriptor.shortcuts ?? []) {

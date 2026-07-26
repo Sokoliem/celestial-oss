@@ -8,8 +8,20 @@
 
 // Command spine: one action registry drives palette entries and key bindings,
 // so a shortcut and the command that advertises it cannot disagree.
-export type { ActionCommandOptions, ActionKeyBindingOptions, UnbindableShortcut, UnbindableShortcutReason } from './actions.js';
-export { actionCommands, actionKeyBindings, formatActionShortcut, unbindableActionShortcuts } from './actions.js';
+export type {
+  ActionCommandOptions,
+  ActionKeyBindingOptions,
+  ActionResolutionSnapshot,
+  UnbindableShortcut,
+  UnbindableShortcutReason,
+} from './actions.js';
+export {
+  actionCommands,
+  actionKeyBindings,
+  createActionResolutionSnapshot,
+  formatActionShortcut,
+  unbindableActionShortcuts,
+} from './actions.js';
 export type { AlertConfig, AlertModel, AlertMsg, AlertSize, AlertTokens, AlertVariant } from './alert.js';
 export { alert, alertContract } from './alert.js';
 export type {

@@ -12,6 +12,7 @@ import {
   type AppShellModel,
   AppShellValidationError,
   createAppShell,
+  getAppShellTaskMessage,
   summarizeAppShellTasks,
 } from '../app-shell.js';
 import {
@@ -187,14 +188,18 @@ describe('createAppShell action projection', () => {
     expect(
       projection.commands.map((candidate) => candidate.id),
     ).toEqual(
-      expect.arrayContaining(['app-shell.help', 'app-shell.notifications']),
-    );
+      expect.arrayContaining(['app-shell.help', 'app-shell.notifications']));
 
+    const paletteOpen = harness.shell.init(host, {
+      palette: {
+        open: true,
+        query: '',
+        selectedIndex: 0,
+        filteredIds: ['file.save'],
+      },
+    });
     const paletteReceipt = update(
-      harness.shell,
-      model,
-      command!.msg,
-    );
+      harness.shell, paletteOpen, command!.msg);
     expect(paletteReceipt.receipts).toEqual([
       {
         type: 'action-requested',
@@ -204,6 +209,7 @@ describe('createAppShell action projection', () => {
     ]);
     expect(Object.isFrozen(paletteReceipt.receipts)).toBe(true);
     expect(Object.isFrozen(paletteReceipt.receipts[0])).toBe(true);
+    expect(paletteReceipt.model.palette.open).toBe(false);
 
     const helpFromPalette = update(
       harness.shell,
@@ -329,6 +335,44 @@ describe('createAppShell action projection', () => {
           && binding.msg.actionId === 'shell.collision',
       ),
     ).toBe(false);
+    const collidingCommand = projection.commands.find((command) => command.id === 'shell.collision');
+    expect(collidingCommand?.shortcut).toBeUndefined();
+    expect(collidingCommand?.keywords).not.toContain('ctrl+p');
+  });
+
+  it('reconciles and reports a palette selection that disappears from the current projection', () => {
+    const harness = createHarness({
+      extraActions: [
+        {
+          id: 'dynamic.action',
+          title: 'Dynamic action',
+          when: (model) => model.canSave,
+          run: () => null,
+        },
+      ],
+    });
+    const open = harness.shell.init(host, {
+      palette: {
+        open: true,
+        query: 'dynamic',
+        selectedIndex: 0,
+        filteredIds: ['dynamic.action'],
+      },
+    });
+    const hiddenHost = { ...host, canSave: false };
+    const selected = update(harness.shell, open, { type: 'shell-palette-select' }, hiddenHost);
+
+    expect(selected.receipts).toEqual([]);
+    expect(selected.model.palette.open).toBe(true);
+    expect(selected.model.palette.filteredIds).not.toContain('dynamic.action');
+    expect(selected.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'unavailable-action',
+          actionId: 'dynamic.action',
+        }),
+      ]),
+    );
   });
 });
 
@@ -367,6 +411,15 @@ describe('createAppShell dismissal and shared notifications', () => {
     expect(
       flattened.filter((kind) => isChord(kind, 'escape')),
     ).toHaveLength(1);
+    expect(flattened.filter((kind) => isChord(kind, 'enter'))).toHaveLength(1);
+    expect(flattened.some((kind) => isChord(kind, 'space'))).toBe(false);
+    expect(flattened.some((kind) => isChord(kind, 'delete'))).toBe(false);
+    expect(flattened.some((kind) => isChord(kind, 'down'))).toBe(false);
+    expect(flattened.some((kind) => kind.kind === 'keyEvent')).toBe(false);
+    expect(flattened.some((kind) => isChord(kind, 'f1'))).toBe(false);
+    expect(
+      flattened.some((kind) => isChord(kind, 'n', { alt: true })),
+    ).toBe(false);
     const enterBindings = harness.shell
       .project(model, host)
       .keyBindings.filter((binding) => binding.key === 'enter');
@@ -388,6 +441,20 @@ describe('createAppShell dismissal and shared notifications', () => {
     expect(blockedNotification.diagnostics).toMatchObject([
       { code: 'unavailable-action', field: 'message.type' },
     ]);
+    for (const hiddenMessage of [
+      { type: 'shell-palette-input', char: 'x' },
+      { type: 'shell-palette-backspace' },
+      { type: 'shell-palette-up' },
+      { type: 'shell-palette-down' },
+      { type: 'shell-toggle-help' },
+      { type: 'shell-toggle-notifications' },
+    ] as const) {
+      const blocked = update(harness.shell, model, hiddenMessage);
+      expect(blocked.model).toEqual(model);
+      expect(blocked.diagnostics).toMatchObject([
+        { code: 'unavailable-action', field: 'message.type' },
+      ]);
+    }
     expect(harness.shell.status(model).left[0]?.text).toBe('CONFIRM');
 
     const result = update(harness.shell, model, { type: 'shell-dismiss' });
@@ -395,11 +462,47 @@ describe('createAppShell dismissal and shared notifications', () => {
       { type: 'confirm-resolved', id: 'delete', confirmed: false },
     ]);
     expect(result.model.palette.open).toBe(true);
+    const blockedBelowPalette = update(harness.shell, result.model, {
+      type: 'shell-notification-center',
+      msg: { type: 'activate-action', id, actionId: 'file.save' },
+    });
+    expect(blockedBelowPalette.receipts).toEqual([]);
+    expect(blockedBelowPalette.diagnostics).toMatchObject([
+      { code: 'unavailable-action', field: 'message.type' },
+    ]);
+    for (const hiddenToggle of [
+      { type: 'shell-toggle-help' },
+      { type: 'shell-toggle-notifications' },
+    ] as const) {
+      const blocked = update(harness.shell, result.model, hiddenToggle);
+      expect(blocked.model).toEqual(result.model);
+      expect(blocked.diagnostics).toMatchObject([
+        { code: 'unavailable-action', field: 'message.type' },
+      ]);
+    }
+    const paletteTopSubscriptions = flattenSubscriptions(
+      harness.shell.subscriptions(result.model, { hostModel: host, viewport }),
+    );
+    expect(
+      paletteTopSubscriptions.some((kind) => isChord(kind, 'f1')),
+    ).toBe(false);
+    expect(
+      paletteTopSubscriptions.some((kind) =>
+        isChord(kind, 'n', { alt: true }),
+      ),
+    ).toBe(false);
     model = result.model;
 
     model = update(harness.shell, model, { type: 'shell-dismiss' }).model;
     expect(model.palette.open).toBe(false);
     expect(model.helpOpen).toBe(true);
+    const blockedBelowHelp = update(harness.shell, model, {
+      type: 'shell-toggle-notifications',
+    });
+    expect(blockedBelowHelp.model).toEqual(model);
+    expect(blockedBelowHelp.diagnostics).toMatchObject([
+      { code: 'unavailable-action', field: 'message.type' },
+    ]);
 
     model = update(harness.shell, model, { type: 'shell-dismiss' }).model;
     expect(model.helpOpen).toBe(false);
@@ -499,6 +602,10 @@ describe('createAppShell dismissal and shared notifications', () => {
     }).model;
     expect(model.notifications.entries[0]?.read).toBe(true);
     expect(harness.shell.projectToasts(model).entries[0]?.read).toBe(true);
+    model = update(harness.shell, model, {
+      type: 'shell-notification-center',
+      msg: { type: 'close' },
+    }).model;
 
     model = update(harness.shell, model, {
       type: 'shell-toast',
@@ -514,6 +621,55 @@ describe('createAppShell dismissal and shared notifications', () => {
     expect(model.notifications.visibleToastIds).toEqual([]);
     expect(model.notifications.entries).toHaveLength(1);
     expect(model.toastInteraction.mouseHoveredToastId).toBeNull();
+  });
+
+  it('rejects unknown notification actions before commit and preserves hydrated diagnostics', () => {
+    const harness = createHarness();
+    const initial = harness.shell.init(host);
+    const rejected = update(harness.shell, initial, {
+      type: 'shell-notify',
+      notification: {
+        message: 'Unknown action',
+        level: 'info',
+        delivery: 'inbox',
+        actionIds: ['missing.action'],
+      },
+    });
+    expect(rejected.model).toEqual(initial);
+    expect(rejected.model.notifications.entries).toEqual([]);
+    expect(rejected.diagnostics).toMatchObject([
+      {
+        code: 'unknown-action',
+        actionId: 'missing.action',
+        field: 'notification.actionIds[0]',
+      },
+    ]);
+
+    const hiddenAccepted = update(harness.shell, initial, {
+      type: 'shell-notify',
+      notification: {
+        message: 'Hidden action may become available',
+        level: 'info',
+        delivery: 'inbox',
+        actionIds: ['hidden.action'],
+      },
+    });
+    expect(hiddenAccepted.diagnostics).toEqual([]);
+    expect(hiddenAccepted.model.notifications.entries[0]?.actionIds).toEqual(['hidden.action']);
+
+    const hydrated = enqueue(harness.store, harness.store.init(), ['missing.action']);
+    const malformed = { ...initial, notifications: hydrated };
+    const hydratedResult = update(harness.shell, malformed, { type: 'shell-noop' });
+    expect(hydratedResult.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'unknown-action',
+          actionId: 'missing.action',
+          field: 'notifications.entries[0].actionIds[0]',
+        }),
+      ]),
+    );
+    expect(hydratedResult.diagnostics.some((entry) => entry.field === 'notificationCenter.message')).toBe(false);
   });
 });
 
@@ -566,6 +722,40 @@ describe('createAppShell validation and focus ownership', () => {
     expect(() =>
       createHarness({ shortcuts: { help: 'escape', close: 'ctrl+w' } }),
     ).toThrow(/Escape is reserved/u);
+
+    expect(() =>
+      createAppShell({
+        registry: defaults.registry,
+        notificationStore: defaults.store,
+        formatTimestamp: (timestamp) => String(timestamp),
+        canUseGlobalShortcuts: () => true,
+        shortcuts: { palette: undefined } as never,
+      }),
+    ).toThrow(/shortcuts\.palette/u);
+
+    const shortcutDiagnostics = (declaration: string) => {
+      try {
+        createHarness({ shortcuts: { palette: declaration } });
+      } catch (error) {
+        expect(error).toBeInstanceOf(AppShellValidationError);
+        return (error as AppShellValidationError).diagnostics;
+      }
+      throw new Error('Expected invalid shortcut configuration');
+    };
+    expect(
+      shortcutDiagnostics('x'.repeat(4_096)).some((entry) =>
+        entry.message.includes('no longer than 4096'),
+      ),
+    ).toBe(false);
+    expect(
+      shortcutDiagnostics('x'.repeat(4_097)),
+    ).toMatchObject([
+      {
+        code: 'invalid-shortcut',
+        field: 'shortcuts.palette',
+        message: expect.stringContaining('no longer than 4096'),
+      },
+    ]);
   });
 
   it('rejects malformed registry/store/config and reports malformed model/context without mutation', () => {
@@ -588,7 +778,7 @@ describe('createAppShell validation and focus ownership', () => {
         formatTimestamp: (timestamp) => `T${String(timestamp)}`,
         canUseGlobalShortcuts: () => true,
       }),
-    ).toThrow(/no extras/u);
+    ).toThrow(/canonical ActionRegistry/u);
     expect(() =>
       createHarness({
         extraActions: [
@@ -640,6 +830,40 @@ describe('createAppShell validation and focus ownership', () => {
     );
   });
 
+  it('enforces canonical notification-center cursor and hover bounds at every shell boundary', () => {
+    const harness = createHarness();
+    const model = harness.shell.init(host);
+    const oversizedActionId = 'a'.repeat(257);
+    const invalidCenters = [
+      {
+        ...model.notificationCenter,
+        actionCursor: {
+          notificationId: 1,
+          actionId: oversizedActionId,
+        },
+      },
+      {
+        ...model.notificationCenter,
+        hoveredTarget: `action:1:${encodeURIComponent(oversizedActionId)}`,
+      },
+      {
+        ...model.notificationCenter,
+        hoveredTarget: `row:${'1'.repeat(4_097)}`,
+      },
+    ];
+
+    for (const notificationCenter of invalidCenters) {
+      expect(() =>
+        harness.shell.init(host, { notificationCenter }),
+      ).toThrow(AppShellValidationError);
+      const forged = { ...model, notificationCenter } as AppShellModel;
+      expect(harness.shell.validateModel(forged)).not.toEqual([]);
+      expect(() =>
+        harness.shell.subscriptions(forged, { hostModel: host, viewport }),
+      ).toThrow(AppShellValidationError);
+    }
+  });
+
   it('suppresses global bindings while a text input owns focus but retains surface-local dismissal', () => {
     const harness = createHarness();
     const focusedHost = { ...host, textFocused: true };
@@ -678,8 +902,20 @@ describe('createAppShell validation and focus ownership', () => {
     );
     expect(blockedByFocus.receipts).toEqual([]);
     expect(blockedByFocus.diagnostics).toMatchObject([
-      { code: 'unavailable-action', field: 'message.source' },
-    ]);
+      { code: 'unavailable-action', field: 'message.source' }]);
+
+    const forgedClosedPaletteRequest = update(
+      harness.shell,
+      closed,
+      {
+        type: 'shell-request-action',
+        actionId: 'file.save',
+        source: 'palette',
+      },
+      focusedHost,
+    );
+    expect(forgedClosedPaletteRequest.receipts).toEqual([]);
+    expect(forgedClosedPaletteRequest.diagnostics).toMatchObject([{ code: 'unavailable-action', field: 'message.source' }]);
 
     const confirming = harness.shell.init(host, {
       confirm: { id: 'modal', title: 'Modal confirmation' },
@@ -691,8 +927,38 @@ describe('createAppShell validation and focus ownership', () => {
     });
     expect(blockedByModal.receipts).toEqual([]);
     expect(blockedByModal.diagnostics).toMatchObject([
-      { code: 'unavailable-action', field: 'message.source' },
-    ]);
+      { code: 'unavailable-action', field: 'message.source' }]);
+    let hostileLengthReads = 0;
+    const hostileActionId = Object.defineProperty({}, 'length', {
+      enumerable: true,
+      get: () => {
+        hostileLengthReads += 1;
+        throw new Error('length escaped');
+      },
+    });
+    for (const actionId of [
+      hostileActionId,
+      Symbol('action'),
+      '',
+      'a'.repeat(257),
+    ]) {
+      const malformed = update(harness.shell, confirming, {
+        type: 'shell-request-action',
+        actionId,
+        source: 'shortcut',
+      } as never);
+      expect(malformed.model).toEqual(confirming);
+      expect(malformed.receipts).toEqual([]);
+      expect(malformed.diagnostics).toMatchObject([
+        { code: 'invalid-model', field: 'message.actionId' },
+      ]);
+    }
+    expect(hostileLengthReads).toBe(0);
+    for (const msg of [{ type: 'shell-toggle-help' }, { type: 'shell-toggle-notifications' }] as const) {
+      const blockedToggle = update(harness.shell, confirming, msg);
+      expect(blockedToggle.model).toEqual(confirming);
+      expect(blockedToggle.diagnostics).toMatchObject([{ code: 'unavailable-action', field: 'message.type' }]);
+    }
 
     const forgedNotificationSource = update(harness.shell, closed, {
       type: 'shell-request-action',
@@ -725,6 +991,339 @@ describe('createAppShell validation and focus ownership', () => {
         }),
       ).filter((kind) => isChord(kind, 'escape')),
     ).toHaveLength(1);
+  });
+
+  it('rechecks queued global opens against the current host focus owner', () => {
+    const harness = createHarness();
+    const closed = harness.shell.init(host);
+    const focusedHost = { ...host, textFocused: true };
+
+    for (const msg of [{ type: 'shell-open-palette' }, { type: 'shell-toggle-help' }, { type: 'shell-toggle-notifications' }] as const) {
+      const blocked = update(harness.shell, closed, msg, focusedHost);
+      expect(blocked.model).toEqual(closed);
+      expect(blocked.diagnostics).toMatchObject([{ code: 'unavailable-action', field: 'message.type' }]);
+    }
+  });
+
+  it('validates nested center messages before focus precedence without dereferencing accessors', () => {
+    const harness = createHarness();
+    const confirming = harness.shell.init(host, {
+      confirm: { id: 'confirm', title: 'Confirm?' },
+    });
+
+    for (const nested of [
+      null,
+      7,
+      { type: 'activate-action', id: 0, actionId: '' },
+    ]) {
+      const result = update(harness.shell, confirming, {
+        type: 'shell-notification-center',
+        msg: nested,
+      } as never);
+      expect(result.model).toEqual(confirming);
+      expect(result.receipts).toEqual([]);
+      expect(result.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: 'invalid-model' }),
+        ]),
+      );
+      expect(
+        result.diagnostics.some((entry) => entry.code === 'unavailable-action'),
+      ).toBe(false);
+    }
+
+    let nestedTypeReads = 0;
+    const accessorNested = Object.defineProperty({}, 'type', {
+      enumerable: true,
+      get: () => {
+        nestedTypeReads += 1;
+        return 'activate';
+      },
+    });
+    const accessorResult = update(harness.shell, confirming, {
+      type: 'shell-notification-center',
+      msg: accessorNested,
+    } as never);
+    expect(accessorResult.model).toEqual(confirming);
+    expect(accessorResult.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'invalid-model' }),
+      ]),
+    );
+    expect(nestedTypeReads).toBe(0);
+  });
+
+  it('clears hidden toast ownership and gates lower-layer interaction while timers continue', () => {
+    const harness = createHarness();
+    const enqueued = harness.store.enqueue(harness.store.init(), {
+      message: 'Timed toast',
+      level: 'info',
+      delivery: 'toast',
+      durationMs: 1_000,
+    });
+    if (!enqueued.ok) throw new Error(enqueued.diagnostics[0]?.message);
+    const id = enqueued.value.entry.id;
+    const layeredSeed = harness.shell.init(host, {
+      confirm: { id: 'seed-blocker', title: 'Seed blocker' },
+      notifications: enqueued.value.model,
+      toastInteraction: {
+        mouseHoveredToastId: null,
+        focusedToastId: id,
+      },
+    });
+    expect(layeredSeed.toastInteraction.focusedToastId).toBeNull();
+    expect(layeredSeed.notifications.hoveredToastId).toBeNull();
+    expect(layeredSeed.notifications.pausedToast).toBeNull();
+
+    let model = harness.shell.init(host, {
+      notifications: enqueued.value.model,
+    });
+    model = update(harness.shell, model, {
+      type: 'shell-toast',
+      msg: { type: 'focus', id },
+    }).model;
+    expect(model.toastInteraction.focusedToastId).toBe(id);
+    expect(model.notifications.pausedToast?.id).toBe(id);
+
+    model = update(harness.shell, model, {
+      type: 'shell-notification-center',
+      msg: { type: 'open' },
+    }).model;
+    expect(model.notificationCenter.open).toBe(true);
+    expect(model.toastInteraction).toEqual({
+      mouseHoveredToastId: null,
+      focusedToastId: null,
+    });
+    expect(model.notifications.hoveredToastId).toBeNull();
+    expect(model.notifications.pausedToast).toBeNull();
+    model = update(harness.shell, model, {
+      type: 'shell-notification-center',
+      msg: { type: 'close' },
+    }).model;
+    model = update(harness.shell, model, {
+      type: 'shell-toast',
+      msg: { type: 'focus', id },
+    }).model;
+    expect(model.toastInteraction.focusedToastId).toBe(id);
+    expect(model.notifications.pausedToast?.id).toBe(id);
+
+    model = update(harness.shell, model, {
+      type: 'shell-open-confirm',
+      confirm: { id: 'blocking', title: 'Blocking confirmation' },
+    }).model;
+    expect(model.toastInteraction).toEqual({
+      mouseHoveredToastId: null,
+      focusedToastId: null,
+    });
+    expect(model.notifications.hoveredToastId).toBeNull();
+    expect(model.notifications.pausedToast).toBeNull();
+
+    const blockedFocus = update(harness.shell, model, {
+      type: 'shell-toast',
+      msg: { type: 'focus', id },
+    });
+    expect(blockedFocus.model.toastInteraction.focusedToastId).toBeNull();
+    expect(blockedFocus.diagnostics).toMatchObject([
+      { code: 'unavailable-action', field: 'message.type' },
+    ]);
+
+    const tick = update(harness.shell, model, {
+      type: 'shell-toast',
+      msg: { type: 'tick' },
+    });
+    expect(tick.diagnostics).toEqual([]);
+    const subscriptions = flattenSubscriptions(
+      harness.shell.subscriptions(model, { hostModel: host, viewport }),
+    );
+    expect(subscriptions.filter((kind) => isChord(kind, 'enter'))).toHaveLength(1);
+    expect(subscriptions.some((kind) => isChord(kind, 'space'))).toBe(false);
+    expect(subscriptions.some((kind) => kind.kind === 'timer')).toBe(true);
+  });
+
+  it('snapshots public boundaries once and rejects accessors or revoked proxies observably', () => {
+    const harness = createHarness();
+    const model = harness.shell.init(host);
+    let paletteReads = 0;
+    const accessorModel = Object.defineProperty({ ...model }, 'palette', {
+      enumerable: true,
+      get: () => {
+        paletteReads += 1;
+        return model.palette;
+      },
+    }) as AppShellModel;
+    const accessorResult = update(harness.shell, accessorModel, {
+      type: 'shell-noop',
+    });
+    expect(accessorResult.model).toBe(accessorModel);
+    expect(accessorResult.diagnostics).toMatchObject([{ code: 'invalid-model', field: 'model' }]);
+    expect(paletteReads).toBe(0);
+
+    let typeReads = 0;
+    const accessorMessage = Object.defineProperty({}, 'type', {
+      enumerable: true,
+      get: () => {
+        typeReads += 1;
+        return 'shell-open-palette';
+      },
+    });
+    const messageResult = update(harness.shell, model, accessorMessage as never);
+    expect(messageResult.model.palette.open).toBe(false);
+    expect(messageResult.diagnostics).toMatchObject([{ code: 'invalid-model', field: 'message' }]);
+    expect(typeReads).toBe(0);
+
+    for (const unsafeType of ['unknown\n', 'unknown\u001b', 'unknown\u202e', 'unknown\ud800']) {
+      const unknown = update(harness.shell, model, { type: unsafeType } as never);
+      expect(unknown.diagnostics).toMatchObject([{ code: 'invalid-model', field: 'message.type' }]);
+      expect(unknown.diagnostics[0]?.message).not.toContain(unsafeType);
+    }
+
+    const revokedModel = Proxy.revocable(model, {});
+    revokedModel.revoke();
+    expect(
+      update(harness.shell, revokedModel.proxy as AppShellModel, {
+        type: 'shell-noop',
+      }).diagnostics,
+    ).toMatchObject([{ code: 'invalid-model', field: 'model' }]);
+
+    const huge = new Array<string>(4_294_967_295);
+    const hugePalette = update(
+      harness.shell,
+      {
+        ...model,
+        palette: { ...model.palette, filteredIds: huge },
+      },
+      { type: 'shell-noop' },
+    );
+    expect(hugePalette.diagnostics).toMatchObject([{ code: 'invalid-model', field: 'model' }]);
+    const hugeTasks = update(harness.shell, { ...model, tasks: huge as never }, { type: 'shell-noop' });
+    expect(hugeTasks.diagnostics).toMatchObject([{ code: 'invalid-model', field: 'model' }]);
+
+    expect(() => harness.shell.subscriptions({ ...model, palette: { ...model.palette, query: '\ud800' } }, { hostModel: host, viewport })).toThrow(
+      AppShellValidationError,
+    );
+
+    const oversizedViewport = {
+      hostModel: host,
+      viewport: {
+        cols: Number.MAX_SAFE_INTEGER,
+        rows: Number.MAX_SAFE_INTEGER,
+      },
+    };
+    const oversizedResult = harness.shell.update({ type: 'shell-open-palette' }, model, oversizedViewport);
+    expect(oversizedResult.model).toBe(model);
+    expect(oversizedResult.diagnostics.map((entry) => entry.field)).toEqual(expect.arrayContaining(['viewport.cols', 'viewport.rows']));
+    expect(() => harness.shell.subscriptions(model, oversizedViewport)).toThrow(AppShellValidationError);
+  });
+
+  it('snapshots construction config so later caller mutation cannot change ownership', () => {
+    const registry = createActionRegistry<HostModel, HostMsg>([]);
+    const store = createNotificationStore();
+    const mutableConfig = {
+      registry,
+      notificationStore: store,
+      formatTimestamp: (timestamp: number) => String(timestamp),
+      canUseGlobalShortcuts: () => false,
+    };
+    const shell = createAppShell(mutableConfig);
+    const model = shell.init(host);
+    (
+      mutableConfig as {
+        canUseGlobalShortcuts: AppShellConfig<HostModel, HostMsg>['canUseGlobalShortcuts'];
+      }
+    ).canUseGlobalShortcuts = () => true;
+
+    const paletteBinding = shell.project(model, host).keyBindings.find((binding) => binding.msg.type === 'shell-open-palette');
+    expect(paletteBinding?.when?.()).toBe(false);
+  });
+
+  it('evaluates action availability once per projection and propagates projection failures through palette transitions', () => {
+    let alternatingCalls = 0;
+    const stable = createHarness({
+      extraActions: [
+        {
+          id: 'alternating',
+          title: 'Alternating',
+          shortcuts: ['ctrl+a'],
+          when: () => {
+            alternatingCalls += 1;
+            return alternatingCalls % 2 === 1;
+          },
+          run: () => null,
+        },
+      ],
+    });
+    const stableModel = stable.shell.init(host);
+    const stableProjection = stable.shell.project(stableModel, host);
+    expect(alternatingCalls).toBe(1);
+    expect(stableProjection.commands.some((command) => command.id === 'alternating')).toBe(true);
+    expect(stableProjection.keyBindings.some((binding) => binding.msg.type === 'shell-request-action' && binding.msg.actionId === 'alternating')).toBe(true);
+
+    const failing = createHarness({
+      extraActions: [
+        {
+          id: 'failing',
+          title: 'Failing',
+          when: () => {
+            throw new Error('availability failed');
+          },
+          run: () => null,
+        },
+      ],
+    });
+    const closed = failing.shell.init(host);
+    const opened = update(failing.shell, closed, {
+      type: 'shell-open-palette',
+    });
+    expect(opened.model.palette.open).toBe(true);
+    expect(opened.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'invalid-context',
+          field: 'registry',
+          message: expect.stringContaining('availability failed'),
+        }),
+      ]),
+    );
+    for (const msg of [{ type: 'shell-palette-input', char: 'x' }, { type: 'shell-palette-backspace' }, { type: 'shell-palette-select' }] as const) {
+      expect(update(failing.shell, opened.model, msg).diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'invalid-context',
+            message: expect.stringContaining('availability failed'),
+          }),
+        ]),
+      );
+    }
+    expect(() => failing.shell.subscriptions(closed, { hostModel: host, viewport })).toThrow(AppShellValidationError);
+  });
+
+  it('rejects invalid action availability without emitting an action receipt', () => {
+    const harness = createHarness({
+      extraActions: [
+        {
+          id: 'invalid-availability',
+          title: 'Invalid availability',
+          when: (() => 'enabled') as never,
+          run: () => null,
+        },
+      ],
+    });
+    const model = harness.shell.init(host);
+    const result = update(harness.shell, model, {
+      type: 'shell-request-action',
+      actionId: 'invalid-availability',
+      source: 'shortcut',
+    });
+
+    expect(result.receipts).toEqual([]);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'invalid-context',
+          message: expect.stringContaining('must return true, false, or "disabled"'),
+        }),
+      ]),
+    );
   });
 });
 
@@ -779,5 +1378,45 @@ describe('createAppShell task evidence and immutable state', () => {
     });
     expect(invalid.diagnostics[0]?.field).toContain('.error');
     expect(invalid.model.tasks).toHaveLength(4);
+  });
+
+  it('validates exported task helpers without invoking hostile accessors', () => {
+    expect(() => summarizeAppShellTasks([{ id: 'bogus', state: { status: 'bogus' } as never }])).toThrow(/task status is invalid/i);
+    expect(() =>
+      getAppShellTaskMessage({ status: 'bogus' } as never, {
+        running: 'Running',
+        success: 'Done',
+        error: 'Failed',
+        cancelled: 'Cancelled',
+      }),
+    ).toThrow(/task status is invalid/i);
+
+    let stateReads = 0;
+    const hostileTask = Object.defineProperties(
+      {},
+      {
+        id: { enumerable: true, value: 'hostile' },
+        state: {
+          enumerable: true,
+          get: () => {
+            stateReads += 1;
+            return { status: 'running' };
+          },
+        },
+      },
+    );
+    expect(() => summarizeAppShellTasks([hostileTask as never])).toThrow(/state.*own data property/i);
+    expect(stateReads).toBe(0);
+
+    let runningReads = 0;
+    const hostileMessages = Object.defineProperty({}, 'running', {
+      enumerable: true,
+      get: () => {
+        runningReads += 1;
+        return 'Running';
+      },
+    });
+    expect(() => getAppShellTaskMessage({ status: 'running' }, hostileMessages as never)).toThrow(/running.*own data property/i);
+    expect(runningReads).toBe(0);
   });
 });

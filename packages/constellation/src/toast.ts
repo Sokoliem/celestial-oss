@@ -6,6 +6,7 @@ import { measureTextWidth, wrapCellText } from '@celestial/rosetta';
 import { generateFocusGroupId } from './focus-group.js';
 import {
   createNotificationStore,
+  isNotificationStore,
   type NotificationDiagnostic,
   type NotificationEntry,
   type NotificationLevel,
@@ -140,13 +141,38 @@ export interface ToastEnqueueValue {
 export type ToastEnqueueResult = NotificationStoreResult<ToastEnqueueValue>;
 export type ToastProjectionResult = NotificationStoreResult<ToastModel>;
 
+const MAX_TOAST_VALIDATION_DIAGNOSTICS = 100;
+const MAX_TOAST_VALIDATION_ERROR_LENGTH = 4_096;
+
+function toastValidationErrorMessage(diagnostics: readonly NotificationDiagnostic[]): string {
+  let message = 'Invalid toast: ';
+  const bounded = diagnostics.slice(0, MAX_TOAST_VALIDATION_DIAGNOSTICS);
+  for (const [index, diagnostic] of bounded.entries()) {
+    const separator = index === 0 ? '' : '; ';
+    const detail = `${diagnostic.field}: ${diagnostic.message}`;
+    const remaining = MAX_TOAST_VALIDATION_ERROR_LENGTH - message.length - separator.length;
+    if (remaining <= 1) return `${message.slice(0, MAX_TOAST_VALIDATION_ERROR_LENGTH - 1)}…`;
+    if (detail.length > remaining) return `${message}${separator}${detail.slice(0, remaining - 1)}…`;
+    message += `${separator}${detail}`;
+  }
+  if (diagnostics.length > bounded.length) {
+    const suffix = `; ${String(diagnostics.length - bounded.length)} additional diagnostics omitted`;
+    if (message.length + suffix.length > MAX_TOAST_VALIDATION_ERROR_LENGTH) {
+      return `${message.slice(0, MAX_TOAST_VALIDATION_ERROR_LENGTH - 1)}…`;
+    }
+    message += suffix;
+  }
+  return message;
+}
+
 export class ToastValidationError extends TypeError {
   readonly diagnostics: readonly NotificationDiagnostic[];
 
   constructor(diagnostics: readonly NotificationDiagnostic[]) {
-    super(`Invalid toast: ${diagnostics.map((diagnostic) => `${diagnostic.field}: ${diagnostic.message}`).join('; ')}`);
+    const boundedDiagnostics = Object.freeze(diagnostics.slice(0, MAX_TOAST_VALIDATION_DIAGNOSTICS));
+    super(toastValidationErrorMessage(diagnostics));
     this.name = 'ToastValidationError';
-    this.diagnostics = diagnostics;
+    this.diagnostics = boundedDiagnostics;
   }
 }
 
@@ -157,14 +183,91 @@ const STATUS_KIND: Record<ToastLevel, StatusKind> = {
   error: 'danger',
 };
 const PLACEMENTS = new Set<ToastPlacement>(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
-const TERMINAL_CONTROL = /[\u0000-\u001f\u007f-\u009f]/u;
+const TERMINAL_CONTROL = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\uD800-\uDFFF]/u;
+const MAX_DIAGNOSTIC_QUOTE_LENGTH = 1_024;
+const MAX_TOAST_SURFACE_ID_LENGTH = 256;
+const MAX_TOAST_ELEMENT_ID_LENGTH = 512;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function boundedDiagnosticQuote(input: string): string {
+  let output = '"';
+  let truncated = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const code = input.charCodeAt(index);
+    const next = input.charCodeAt(index + 1);
+    let chunk: string;
+    if (code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) {
+      chunk = input.slice(index, index + 2);
+      index += 1;
+    } else if (
+      code <= 0x1f ||
+      (code >= 0x7f && code <= 0x9f) ||
+      code === 0x061c ||
+      code === 0x200e ||
+      code === 0x200f ||
+      (code >= 0x2028 && code <= 0x202e) ||
+      (code >= 0x2066 && code <= 0x2069) ||
+      (code >= 0xd800 && code <= 0xdfff)
+    ) {
+      chunk = `\\u${code.toString(16).padStart(4, '0')}`;
+    } else if (code === 0x22) {
+      chunk = '\\"';
+    } else if (code === 0x5c) {
+      chunk = '\\\\';
+    } else {
+      chunk = input[index]!;
+    }
+    if (output.length + chunk.length > MAX_DIAGNOSTIC_QUOTE_LENGTH - 2) {
+      truncated = true;
+      break;
+    }
+    output += chunk;
+  }
+  return `${output}${truncated ? '…' : ''}"`;
 }
 
-function requireRecord(value: unknown, message: string): void {
-  if (!isRecord(value)) throw new TypeError(message);
+function snapshotOwnDataRecord(value: unknown, label: string): Record<string, unknown> {
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new TypeError(`${label} must be an object.`);
+    }
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > 1_000) {
+      throw new RangeError(`${label} must not define more than 1000 properties.`);
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of keys) {
+      if (typeof key !== 'string') {
+        throw new TypeError(`${label} must not define symbol properties.`);
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !('value' in descriptor)) {
+        throw new TypeError(`${label}.${key} must be an own data property.`);
+      }
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch (error) {
+    if (error instanceof TypeError && typeof error.message === 'string' && error.message.startsWith(label)) {
+      throw error;
+    }
+    throw new TypeError(`${label} could not be inspected.`);
+  }
+}
+
+function ownDataValue(value: object, key: string, label: string): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined) return undefined;
+    if (!('value' in descriptor)) {
+      throw new TypeError(`${label}.${key} must be an own data property.`);
+    }
+    return descriptor.value;
+  } catch (error) {
+    if (error instanceof TypeError && typeof error.message === 'string' && error.message.startsWith(label)) {
+      throw error;
+    }
+    throw new TypeError(`${label} could not be inspected.`);
+  }
 }
 
 function configuredPositiveInteger(value: number | undefined, fallback: number, field: string, max = 100_000): number {
@@ -206,6 +309,7 @@ function positiveToastId(value: unknown, field: string): number {
 }
 
 function parsedToastId(value: string): number | null {
+  if (value.length > 16) return null;
   if (!/^[1-9][0-9]*$/u.test(value)) return null;
   const id = Number(value);
   return Number.isSafeInteger(id) ? id : null;
@@ -239,16 +343,26 @@ function toastInteraction(model: NotificationModel): ToastInteractionState {
 }
 
 function validatedToastInteraction(interaction: ToastInteractionState): ToastInteractionState {
-  if (interaction === null || typeof interaction !== 'object') {
-    throw new TypeError('Toast interaction state must be an object.');
-  }
+  const snapshot = snapshotOwnDataRecord(interaction, 'Toast interaction state');
   for (const field of ['mouseHoveredToastId', 'focusedToastId'] as const) {
-    const value = interaction[field];
-    if (value !== null && (!Number.isSafeInteger(value) || value <= 0)) {
+    const value = snapshot[field];
+    if (value !== null && (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0)) {
       throw new RangeError(`Toast interaction ${field} must be null or a positive safe integer.`);
     }
   }
-  return interaction;
+  return Object.freeze({
+    mouseHoveredToastId: snapshot.mouseHoveredToastId as number | null,
+    focusedToastId: snapshot.focusedToastId as number | null,
+  });
+}
+
+function snapshotModelInteraction(model: NotificationModel, canonical: NotificationModel): ToastInteractionState {
+  const mouseHoveredCandidate = ownDataValue(model, 'mouseHoveredToastId', 'Toast model');
+  const focusedCandidate = ownDataValue(model, 'focusedToastId', 'Toast model');
+  return validatedToastInteraction({
+    mouseHoveredToastId: mouseHoveredCandidate === undefined ? canonical.hoveredToastId : (mouseHoveredCandidate as number | null),
+    focusedToastId: focusedCandidate === undefined ? null : (focusedCandidate as number | null),
+  });
 }
 
 function toastEntry(entry: NotificationEntry): ToastEntry {
@@ -314,7 +428,7 @@ function measureToast(message: string, level: ToastLevel, width: number, occurre
 }
 
 export function createToastManager(config: ToastManagerConfig = {}) {
-  requireRecord(config, 'Toast manager config must be an object.');
+  config = Object.freeze(snapshotOwnDataRecord(config, 'Toast manager config')) as unknown as ToastManagerConfig;
   const width = configuredPositiveInteger(config.width, 44, 'width');
   const margin = configuredNonNegativeInteger(config.margin, 1, 'margin');
   const maxVisibleToasts = configuredPositiveInteger(config.maxVisibleToasts, 5, 'maxVisibleToasts', 1_000);
@@ -322,26 +436,22 @@ export function createToastManager(config: ToastManagerConfig = {}) {
   const zIndex = configuredInteger(config.zIndex, 60, 'zIndex');
   if (
     config.id !== undefined
-    && (typeof config.id !== 'string' || config.id.trim().length === 0 || TERMINAL_CONTROL.test(config.id))
+    && (
+      typeof config.id !== 'string'
+      || config.id.length > MAX_TOAST_SURFACE_ID_LENGTH
+      || config.id.trim().length === 0
+      || TERMINAL_CONTROL.test(config.id)
+    )
   ) {
-    throw new TypeError('id must be non-empty printable text.');
+    throw new TypeError(
+      `id must be non-empty printable text of at most ${String(MAX_TOAST_SURFACE_ID_LENGTH)} characters.`,
+    );
   }
   if (config.dismissalOwner !== undefined && config.dismissalOwner !== 'toast' && config.dismissalOwner !== 'host') {
     throw new TypeError('dismissalOwner must be "toast" or "host".');
   }
-  if (
-    config.store !== undefined &&
-    (!config.store ||
-      typeof config.store.init !== 'function' ||
-      typeof config.store.validateModel !== 'function' ||
-      typeof config.store.enqueue !== 'function' ||
-      typeof config.store.hoverToast !== 'function' ||
-      typeof config.store.leaveToast !== 'function' ||
-      typeof config.store.hideToast !== 'function' ||
-      typeof config.store.hideLatestToast !== 'function' ||
-      typeof config.store.tick !== 'function' ||
-      typeof config.store.panic !== 'function')
-  ) {
+  const injectedStore = config.store;
+  if (injectedStore !== undefined && !isNotificationStore(injectedStore)) {
     throw new TypeError('store must be a NotificationStore.');
   }
   if (
@@ -352,7 +462,7 @@ export function createToastManager(config: ToastManagerConfig = {}) {
   }
 
   const store =
-    config.store ??
+    injectedStore ??
     createNotificationStore({
       maxEntries: config.maxToasts,
       defaultDurationMs: config.defaultDurationMs,
@@ -365,6 +475,35 @@ export function createToastManager(config: ToastManagerConfig = {}) {
   const focusPrefix = `${surfaceId}:dismiss-focus:`;
   const ownsDismissal = (config.dismissalOwner ?? 'toast') === 'toast';
 
+  const paintedToastEntries = (model: NotificationModel): readonly NotificationEntry[] =>
+    visibleToastEntries(model).slice(-maxVisibleToasts);
+
+  const paintedToastIds = (model: NotificationModel): ReadonlySet<number> =>
+    new Set(paintedToastEntries(model).map((entry) => entry.id));
+
+  const clampInteractionToPaintedToasts = (
+    model: NotificationModel,
+    interaction: ToastInteractionState,
+  ): ToastInteractionState => {
+    const paintedIds = paintedToastIds(model);
+    return Object.freeze({
+      mouseHoveredToastId:
+        interaction.mouseHoveredToastId !== null && paintedIds.has(interaction.mouseHoveredToastId)
+          ? interaction.mouseHoveredToastId
+          : null,
+      focusedToastId:
+        interaction.focusedToastId !== null && paintedIds.has(interaction.focusedToastId)
+          ? interaction.focusedToastId
+          : null,
+    });
+  };
+
+  const projectToastModel = (
+    model: NotificationModel,
+    interaction: ToastInteractionState,
+  ): ToastModel =>
+    asToastModel(model, clampInteractionToPaintedToasts(model, interaction));
+
   const validateCanonical = (model: NotificationModel): NotificationStoreResult<NotificationModel> => {
     const validated = store.validateModel(model);
     if (!validated.ok) return validated;
@@ -374,7 +513,10 @@ export function createToastManager(config: ToastManagerConfig = {}) {
   const canonicalToastOrThrow = (model: NotificationModel): ToastModel => {
     const validated = validateCanonical(model);
     if (!validated.ok) throw new ToastValidationError(validated.diagnostics);
-    return asToastModel(validated.value, toastInteraction(model));
+    return projectToastModel(
+      validated.value,
+      snapshotModelInteraction(model, validated.value),
+    );
   };
 
   const reconcileInteraction = (
@@ -383,7 +525,11 @@ export function createToastManager(config: ToastManagerConfig = {}) {
   ): NotificationStoreResult<ToastModel> => {
     const validated = validateCanonical(model);
     if (!validated.ok) return validated;
-    const projected = asToastModel(validated.value, requestedInteraction);
+    const boundedInteraction = clampInteractionToPaintedToasts(
+      validated.value,
+      requestedInteraction,
+    );
+    const projected = asToastModel(validated.value, boundedInteraction);
     const desiredPausedId = projected.focusedToastId ?? projected.mouseHoveredToastId;
     const transition =
       desiredPausedId !== null
@@ -392,7 +538,10 @@ export function createToastManager(config: ToastManagerConfig = {}) {
           ? ({ ok: true, value: projected } as const)
           : store.leaveToast(projected, projected.hoveredToastId);
     if (!transition.ok) return transition;
-    return { ok: true, value: asToastModel(transition.value, requestedInteraction) };
+    return {
+      ok: true,
+      value: asToastModel(transition.value, boundedInteraction),
+    };
   };
 
   const unwrapClocked = (
@@ -400,7 +549,9 @@ export function createToastManager(config: ToastManagerConfig = {}) {
     interaction: ToastInteractionState,
   ): ToastModel => {
     if (!result.ok) throw new ToastValidationError(result.diagnostics);
-    return asToastModel(result.value, interaction);
+    const reconciled = reconcileInteraction(result.value, interaction);
+    if (!reconciled.ok) throw new ToastValidationError(reconciled.diagnostics);
+    return reconciled.value;
   };
 
   const reconcileOrThrow = (model: NotificationModel, interaction: ToastInteractionState): ToastModel => {
@@ -410,22 +561,30 @@ export function createToastManager(config: ToastManagerConfig = {}) {
   };
 
   const enqueue = (model: ToastModel, toast: Toast): ToastEnqueueResult => {
-    if (!isRecord(toast as unknown)) {
-      const invalid = store.enqueue(model, toast as never);
+    const validated = validateCanonical(model);
+    if (!validated.ok) return validated;
+    const requestedInteraction = snapshotModelInteraction(model, validated.value);
+    let toastSnapshot: Record<string, unknown>;
+    try {
+      toastSnapshot = snapshotOwnDataRecord(toast, 'Toast input');
+    } catch {
+      const invalid = store.enqueue(validated.value, null as never);
       if (!invalid.ok) return invalid;
       throw new TypeError('Toast input must be an object.');
     }
-    const result = store.enqueue(model, {
-      message: toast.message,
-      level: toast.level,
+    const result = store.enqueue(validated.value, {
+      message: toastSnapshot.message as string,
+      level: toastSnapshot.level as ToastLevel,
       delivery: 'toast',
-      ...(toast.duration === undefined ? {} : { durationMs: toast.duration }),
+      ...(toastSnapshot.duration === undefined ? {} : { durationMs: toastSnapshot.duration as number | null }),
     });
     if (!result.ok) return result;
+    const reconciled = reconcileInteraction(result.value.model, requestedInteraction);
+    if (!reconciled.ok) return reconciled;
     return {
       ok: true,
       value: {
-        model: asToastModel(result.value.model, toastInteraction(model)),
+        model: reconciled.value,
         entry: toastEntry(result.value.entry),
       },
     };
@@ -437,13 +596,13 @@ export function createToastManager(config: ToastManagerConfig = {}) {
     return result.value.model;
   };
 
-  const view = (model: ToastModel, options: ToastViewOptions = {}): VNode => {
-    requireRecord(options, 'Toast view options must be an object.');
-    model = canonicalToastOrThrow(model);
-    const toasts = visibleToastEntries(model).slice(-maxVisibleToasts);
+  const renderToastEntries = (
+    model: ToastModel,
+    toasts: readonly NotificationEntry[],
+    viewWidth: number,
+  ): VNode => {
     if (toasts.length === 0) return text('');
     const tokens = useTokens(toastContract, config, 'Toast');
-    const viewWidth = configuredPositiveInteger(options.width, width, 'view.width');
     const levelColors: Record<ToastLevel, Color> = {
       info: tokens.info,
       success: tokens.success,
@@ -526,6 +685,13 @@ export function createToastManager(config: ToastManagerConfig = {}) {
     );
   };
 
+  const view = (model: ToastModel, options: ToastViewOptions = {}): VNode => {
+    options = Object.freeze(snapshotOwnDataRecord(options, 'Toast view options')) as ToastViewOptions;
+    model = canonicalToastOrThrow(model);
+    const viewWidth = configuredPositiveInteger(options.width, width, 'view.width');
+    return renderToastEntries(model, paintedToastEntries(model), viewWidth);
+  };
+
   return {
     getInteraction(model: NotificationModel): ToastInteractionState {
       const projected = canonicalToastOrThrow(model);
@@ -539,20 +705,31 @@ export function createToastManager(config: ToastManagerConfig = {}) {
      * Reattach facade-only interaction after another shared-store projection
      * (for example the notification center) returns a canonical model.
      */
-    project(model: NotificationModel, interaction: ToastInteractionState = toastInteraction(model)): ToastProjectionResult {
-      return reconcileInteraction(model, validatedToastInteraction(interaction));
+    project(model: NotificationModel, interaction?: ToastInteractionState): ToastProjectionResult {
+      const validated = validateCanonical(model);
+      if (!validated.ok) return validated;
+      const requestedInteraction = interaction === undefined ? snapshotModelInteraction(model, validated.value) : validatedToastInteraction(interaction);
+      return reconcileInteraction(validated.value, requestedInteraction);
     },
 
     init(seed?: NotificationModel): [ToastModel, Cmd<ToastMsg>] {
       const initial = store.init(seed);
-      return [asToastModel(initial, seed === undefined ? { mouseHoveredToastId: null, focusedToastId: null } : toastInteraction(seed)), Cmd.none()];
+      return [reconcileOrThrow(
+        initial,
+        seed === undefined
+          ? { mouseHoveredToastId: null, focusedToastId: null }
+          : snapshotModelInteraction(seed, initial),
+      ),
+        Cmd.none(),
+      ];
     },
 
     enqueue,
     push,
 
     update(msg: ToastMsg, model: ToastModel): [ToastModel, Cmd<ToastMsg>] {
-      if (!isRecord(msg as unknown) || typeof msg.type !== 'string') {
+      msg = Object.freeze(snapshotOwnDataRecord(msg, 'Toast message')) as unknown as ToastMsg;
+      if (typeof msg.type !== 'string') {
         throw new TypeError('Toast message must be an object with a string type.');
       }
       model = canonicalToastOrThrow(model);
@@ -572,7 +749,9 @@ export function createToastManager(config: ToastManagerConfig = {}) {
         }
         case 'dismiss-latest': {
           const latest = model.visibleToastIds.at(-1);
-          if (latest === undefined) return [asToastModel(model, toastInteraction(model)), Cmd.none()];
+          if (latest === undefined) {
+            return [projectToastModel(model, toastInteraction(model)), Cmd.none()];
+          }
           const interaction = toastInteraction(model);
           return [
             reconcileOrThrow(store.hideLatestToast(model), {
@@ -584,33 +763,50 @@ export function createToastManager(config: ToastManagerConfig = {}) {
         }
         case 'hover': {
           positiveToastId(msg.id, 'Toast hover id');
-          if (!model.visibleToastIds.includes(msg.id)) return [asToastModel(model, toastInteraction(model)), Cmd.none()];
+          if (!paintedToastIds(model).has(msg.id)) {
+            return [reconcileOrThrow(model, toastInteraction(model)), Cmd.none()];
+          }
           const interaction = { ...toastInteraction(model), mouseHoveredToastId: msg.id };
           return [reconcileOrThrow(model, interaction), Cmd.none()];
         }
         case 'leave': {
           positiveToastId(msg.id, 'Toast leave id');
           const current = toastInteraction(model);
-          if (current.mouseHoveredToastId !== msg.id) return [asToastModel(model, current), Cmd.none()];
+          if (current.mouseHoveredToastId !== msg.id) {
+            return [reconcileOrThrow(model, current), Cmd.none()];
+          }
           return [reconcileOrThrow(model, { ...current, mouseHoveredToastId: null }), Cmd.none()];
         }
         case 'focus': {
           if (msg.id !== null) positiveToastId(msg.id, 'Toast focus id');
           const current = toastInteraction(model);
-          const focusedToastId = msg.id !== null && model.visibleToastIds.includes(msg.id) ? msg.id : null;
+          const focusedToastId = msg.id !== null && paintedToastIds(model).has(msg.id) ? msg.id : null;
           return [reconcileOrThrow(model, { ...current, focusedToastId }), Cmd.none()];
         }
         case 'panic': {
-          if (model.visibleToastIds.length === 0) return [asToastModel(model), Cmd.none()];
+          if (model.visibleToastIds.length === 0) {
+            return [projectToastModel(model, toastInteraction(model)), Cmd.none()];
+          }
           broadcastSurfacePanic();
-          return [asToastModel(store.panic(model), { mouseHoveredToastId: null, focusedToastId: null }), Cmd.none()];
+          return [
+            projectToastModel(
+              store.panic(model),
+              { mouseHoveredToastId: null, focusedToastId: null },
+            ),
+            Cmd.none(),
+          ];
         }
-        case 'tick':
-          return [unwrapClocked(store.tick(model), toastInteraction(model)), Cmd.none()];
+        case 'tick': {
+          const reconciled = reconcileOrThrow(model, toastInteraction(model));
+          return [
+            unwrapClocked(store.tick(reconciled), toastInteraction(reconciled)),
+            Cmd.none(),
+          ];
+        }
         case 'noop':
-          return [asToastModel(model, toastInteraction(model)), Cmd.none()];
+          return [reconcileOrThrow(model, toastInteraction(model)), Cmd.none()];
         default:
-          throw new RangeError(`Unknown toast message type "${String((msg as { type: unknown }).type)}".`);
+          throw new RangeError(`Unknown toast message type ${boundedDiagnosticQuote((msg as { type: string }).type)}.`);
       }
     },
 
@@ -618,10 +814,10 @@ export function createToastManager(config: ToastManagerConfig = {}) {
 
     /** Render the toast stack as a layout-neutral corner layer. */
     layer(base: VNode, model: ToastModel, bounds: { cols: number; rows: number }, options: ToastLayerOptions = {}): VNode {
-      requireRecord(bounds, 'Toast layer bounds must be an object.');
-      requireRecord(options, 'Toast layer options must be an object.');
+      bounds = Object.freeze(snapshotOwnDataRecord(bounds, 'Toast layer bounds')) as { cols: number; rows: number };
+      options = Object.freeze(snapshotOwnDataRecord(options, 'Toast layer options')) as ToastLayerOptions;
       model = canonicalToastOrThrow(model);
-      const entries = visibleToastEntries(model).slice(-maxVisibleToasts);
+      const entries = paintedToastEntries(model);
       if (entries.length === 0) return base;
       const cols = requiredNonNegativeInteger(bounds.cols, 'Toast layer bounds.cols');
       const rows = requiredNonNegativeInteger(bounds.rows, 'Toast layer bounds.rows');
@@ -629,18 +825,30 @@ export function createToastManager(config: ToastManagerConfig = {}) {
       const layerMargin = Math.min(configuredNonNegativeInteger(options.margin, margin, 'layer.margin'), Math.floor(Math.min(cols, rows) / 2));
       const maxWidth = Math.max(1, cols - layerMargin * 2);
       const layerWidth = Math.min(configuredPositiveInteger(options.width, width, 'layer.width'), maxWidth);
-      const stackHeight = entries.reduce(
-        (sum, entry) => sum + measureToast(entry.message, entry.level, layerWidth, entry.occurrences).height,
-        0,
-      );
-      const height = Math.max(1, Math.min(stackHeight, Math.max(1, rows - layerMargin * 2)));
+      const availableHeight = Math.max(1, rows - layerMargin * 2);
+      const fittingEntries: NotificationEntry[] = [];
+      let stackHeight = 0;
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index]!;
+        const entryHeight = measureToast(
+          entry.message,
+          entry.level,
+          layerWidth,
+          entry.occurrences,
+        ).height;
+        if (fittingEntries.length > 0 && stackHeight + entryHeight > availableHeight) break;
+        fittingEntries.unshift(entry);
+        stackHeight += entryHeight;
+        if (stackHeight >= availableHeight) break;
+      }
+      const height = Math.max(1, Math.min(stackHeight, availableHeight));
       const layerPlacement = configuredPlacement(options.placement, placement);
       const x = layerPlacement.endsWith('right') ? Math.max(0, cols - layerMargin - layerWidth) : layerMargin;
       const y = layerPlacement.startsWith('bottom') ? Math.max(0, rows - layerMargin - height) : layerMargin;
       const layerZIndex = configuredInteger(options.zIndex, zIndex, 'layer.zIndex');
       return layerStack(
         base,
-        overlay(view(model, { width: layerWidth }), {
+        overlay(renderToastEntries(model, fittingEntries, layerWidth), {
           x,
           y,
           width: layerWidth,
@@ -655,8 +863,15 @@ export function createToastManager(config: ToastManagerConfig = {}) {
     subscriptions(model: ToastModel): Sub<ToastMsg> {
       model = canonicalToastOrThrow(model);
       if (model.visibleToastIds.length === 0) return Sub.none();
+      const entryById = new Map(model.entries.map((entry) => [entry.id, entry] as const));
+      const hasTimedVisibleToast = model.visibleToastIds.some(
+        (id) => typeof entryById.get(id)?.durationMs === 'number',
+      );
       const interaction = Sub.batch(
         Sub.elementMouse<ToastMsg>((mouseEvent) => {
+          if (mouseEvent.elementId.length > MAX_TOAST_ELEMENT_ID_LENGTH) {
+            return { type: 'noop' };
+          }
           if (mouseEvent.handlerTag === dismissTag && mouseEvent.elementId.startsWith(`${surfaceId}:dismiss:`)) {
             const id = parsedToastId(mouseEvent.elementId.slice(`${surfaceId}:dismiss:`.length));
             return id === null ? { type: 'noop' } : { type: 'dismiss', id };
@@ -680,7 +895,9 @@ export function createToastManager(config: ToastManagerConfig = {}) {
           const id = focusedId?.startsWith(focusPrefix) ? parsedToastId(focusedId.slice(focusPrefix.length)) : null;
           return { type: 'focus', id };
         }),
-        Sub.timer(500, () => ({ type: 'tick' })),
+        ...(hasTimedVisibleToast
+          ? [Sub.timer<ToastMsg>(500, () => ({ type: 'tick' }))]
+          : []),
         ...(model.focusedToastId === null
           ? []
           : [

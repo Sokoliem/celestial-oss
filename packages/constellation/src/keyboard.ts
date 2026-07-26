@@ -8,15 +8,17 @@
  */
 
 import type { KeyEvent, KeyModifiers, VNode } from '@celestial/core/nebula';
-import { column, setVNodeMeta, Sub, text } from '@celestial/core/nebula';
+import { column, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { measureTextWidth, segmentGraphemes, truncateText, wrapCellText } from '@celestial/rosetta';
 import { positiveInteger } from './internal.js';
 
 /** Upper bound on the key column so one pathological label cannot blow up the layout. */
 const MAX_KEY_COLUMN_CELLS = 32;
 const DEFAULT_HELP_WIDTH = 80;
-const TERMINAL_CONTROL = /[\u0000-\u001f\u007f-\u009f]/u;
-const TERMINAL_CONTROL_EXCEPT_LINE_FEED = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u;
+const UNSAFE_SINGLE_LINE_TEXT = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\uD800-\uDFFF]/u;
+const UNSAFE_MULTILINE_TEXT = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\uD800-\uDFFF]/u;
+const MAX_KEY_BINDINGS = 10_000;
+const MAX_DIAGNOSTIC_SCALARS = 96;
 
 const NAMED_KEYS = new Set([
   'enter',
@@ -67,12 +69,169 @@ export interface KeyBinding<M> {
 
 type KeyProbe = Pick<KeyEvent, 'key' | 'ctrl' | 'alt' | 'shift'>;
 
+function ownDataValue(value: object, field: string, label: string, required = false): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, field);
+  if (descriptor === undefined) {
+    if (required) throw new TypeError(`${label} requires own data property ${field}.`);
+    return undefined;
+  }
+  if (!('value' in descriptor)) {
+    throw new TypeError(`${label} ${field} must be an own data property.`);
+  }
+  return descriptor.value;
+}
+
+function snapshotModifiers(value: unknown, label: string): KeyModifiers | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`${label} must be an object when supplied.`);
+  }
+  const ctrl = ownDataValue(value, 'ctrl', label);
+  const alt = ownDataValue(value, 'alt', label);
+  const shift = ownDataValue(value, 'shift', label);
+  for (const [field, flag] of [
+    ['ctrl', ctrl],
+    ['alt', alt],
+    ['shift', shift],
+  ] as const) {
+    if (flag !== undefined && typeof flag !== 'boolean') {
+      throw new TypeError(`${label} ${field} must be boolean when supplied.`);
+    }
+  }
+  return Object.freeze({
+    ...(ctrl === undefined ? {} : { ctrl: ctrl as boolean }),
+    ...(alt === undefined ? {} : { alt: alt as boolean }),
+    ...(shift === undefined ? {} : { shift: shift as boolean }),
+  });
+}
+
+function snapshotBinding<M>(value: unknown, index: number): KeyBinding<M> {
+  const label = `Key binding ${String(index)}`;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`${label} must be an object.`);
+  }
+  const key = ownDataValue(value, 'key', label, true);
+  const msg = ownDataValue(value, 'msg', label, true) as M;
+  const description = ownDataValue(value, 'description', label, true);
+  const modifiers = snapshotModifiers(ownDataValue(value, 'modifiers', label), `${label} modifiers`);
+  const when = ownDataValue(value, 'when', label);
+  const category = ownDataValue(value, 'category', label);
+  const discoverable = ownDataValue(value, 'discoverable', label);
+  if (typeof key !== 'string') throw new TypeError(`${label} key must be a string.`);
+  if (typeof description !== 'string' || UNSAFE_MULTILINE_TEXT.test(description)) {
+    throw new TypeError(`${label} description must contain printable text and optional line feeds.`);
+  }
+  if (category !== undefined && (typeof category !== 'string' || UNSAFE_SINGLE_LINE_TEXT.test(category))) {
+    throw new TypeError(`${label} category must be single-line printable text.`);
+  }
+  if (when !== undefined && typeof when !== 'function') {
+    throw new TypeError(`${label} when must be a function when supplied.`);
+  }
+  if (discoverable !== undefined && typeof discoverable !== 'boolean') {
+    throw new TypeError(`${label} discoverable must be boolean when supplied.`);
+  }
+  return Object.freeze({
+    key,
+    ...(modifiers === undefined ? {} : { modifiers }),
+    msg,
+    ...(when === undefined ? {} : { when: when as () => boolean }),
+    description,
+    ...(category === undefined ? {} : { category }),
+    ...(discoverable === undefined ? {} : { discoverable }),
+  });
+}
+
+function snapshotBindings<M>(value: readonly KeyBinding<M>[]): readonly KeyBinding<M>[] {
+  if (!Array.isArray(value)) throw new TypeError('Key bindings must be an array.');
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+  const length = lengthDescriptor !== undefined && 'value' in lengthDescriptor ? lengthDescriptor.value : undefined;
+  if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 0 || length > MAX_KEY_BINDINGS) {
+    throw new RangeError(`Key bindings must contain at most ${String(MAX_KEY_BINDINGS)} entries.`);
+  }
+  const snapshots: KeyBinding<M>[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor === undefined) {
+      throw new TypeError(`Key bindings must be dense; index ${String(index)} is missing.`);
+    }
+    if (!('value' in descriptor)) {
+      throw new TypeError(`Key binding index ${String(index)} must be an own data property.`);
+    }
+    snapshots.push(snapshotBinding<M>(descriptor.value, index));
+  }
+  return Object.freeze(snapshots);
+}
+
+function snapshotKeyProbe(value: KeyProbe): KeyProbe {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Key event must be an object.');
+  }
+  const key = ownDataValue(value, 'key', 'Key event', true);
+  if (typeof key !== 'string') throw new TypeError('Key event key must be a string.');
+  const modifiers = snapshotModifiers(value, 'Key event') ?? {};
+  return Object.freeze({
+    key,
+    ctrl: modifiers.ctrl ?? false,
+    alt: modifiers.alt ?? false,
+    shift: modifiers.shift ?? false,
+  });
+}
+
 function requiredModifiers(modifiers?: KeyModifiers): Required<KeyModifiers> {
+  if (modifiers !== undefined && (modifiers === null || typeof modifiers !== 'object' || Array.isArray(modifiers))) {
+    throw new TypeError('Key binding modifiers must be an object when supplied.');
+  }
+  for (const field of ['ctrl', 'alt', 'shift'] as const) {
+    if (modifiers?.[field] !== undefined && typeof modifiers[field] !== 'boolean') {
+      throw new TypeError(`Key binding modifier ${field} must be boolean when supplied.`);
+    }
+  }
   return {
     ctrl: modifiers?.ctrl ?? false,
     alt: modifiers?.alt ?? false,
     shift: modifiers?.shift ?? false,
   };
+}
+
+function bindingIsActive<M>(binding: KeyBinding<M>): boolean {
+  if (binding.when === undefined) return true;
+  const active = binding.when();
+  if (typeof active !== 'boolean') {
+    throw new TypeError('Key binding when must return boolean.');
+  }
+  return active;
+}
+
+function quoteDiagnosticText(value: string): string {
+  let result = '"';
+  let count = 0;
+  for (const scalar of value) {
+    if (count >= MAX_DIAGNOSTIC_SCALARS) {
+      result += '…';
+      break;
+    }
+    count += 1;
+    const codePoint = scalar.codePointAt(0)!;
+    if (scalar === '"') {
+      result += '\\"';
+    } else if (scalar === '\\') {
+      result += '\\\\';
+    } else if (
+      (codePoint >= 0x00 && codePoint <= 0x1f) ||
+      (codePoint >= 0x7f && codePoint <= 0x9f) ||
+      codePoint === 0x061c ||
+      codePoint === 0x200e ||
+      codePoint === 0x200f ||
+      (codePoint >= 0x2028 && codePoint <= 0x202e) ||
+      (codePoint >= 0x2066 && codePoint <= 0x2069) ||
+      (codePoint >= 0xd800 && codePoint <= 0xdfff)
+    ) {
+      result += `\\u${codePoint.toString(16).padStart(4, '0')}`;
+    } else {
+      result += scalar;
+    }
+  }
+  return `${result}"`;
 }
 
 /**
@@ -100,13 +259,19 @@ export function normalizeKeyBindingKey(key: string, modifiers?: KeyModifiers): s
 
   const scalars = Array.from(key);
   if (scalars.length !== 1) {
-    throw new TypeError(`Key binding ${JSON.stringify(key)} must be one named key or a single Unicode scalar.`);
+    throw new TypeError(`Key binding ${quoteDiagnosticText(key)} must be one named key or a single Unicode scalar.`);
   }
 
   const scalar = scalars[0]!;
   const codePoint = scalar.codePointAt(0)!;
-  if ((codePoint >= 0x00 && codePoint <= 0x1f) || (codePoint >= 0x7f && codePoint <= 0x9f) || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
-    throw new TypeError(`Key binding ${JSON.stringify(key)} must be a printable Unicode scalar; use a named key for controls.`);
+  if ((codePoint >= 0x00 && codePoint <= 0x1f) || (codePoint >= 0x7f && codePoint <= 0x9f) ||
+    codePoint === 0x061c ||
+    codePoint === 0x200e ||
+    codePoint === 0x200f ||
+    (codePoint >= 0x2028 && codePoint <= 0x202e) ||
+    (codePoint >= 0x2066 && codePoint <= 0x2069) ||
+    (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+    throw new TypeError(`Key binding ${quoteDiagnosticText(key)} must be a printable Unicode scalar; use a named key for controls.`);
   }
   if (/^[a-z]$/i.test(scalar)) {
     return modifiers?.shift === true ? scalar.toUpperCase() : scalar.toLowerCase();
@@ -161,6 +326,9 @@ interface NormalizedKeyBinding<M> {
 }
 
 function normalizeBinding<M>(binding: KeyBinding<M>): NormalizedKeyBinding<M> {
+  if (binding.discoverable !== undefined && typeof binding.discoverable !== 'boolean') {
+    throw new TypeError('Key binding discoverable must be boolean when supplied.');
+  }
   const modifiers = requiredModifiers(binding.modifiers);
   const key = normalizeKeyBindingKey(binding.key, modifiers);
   if (!isKeyBindingRepresentable(key, modifiers)) {
@@ -175,7 +343,7 @@ function normalizedChordId(binding: Pick<NormalizedKeyBinding<unknown>, 'key' | 
 }
 
 function bindingMatchesEvent<M>(binding: KeyBinding<M>, event: KeyProbe, evaluateGuard: boolean): boolean {
-  if (evaluateGuard && binding.when && !binding.when()) return false;
+  if (evaluateGuard && !bindingIsActive(binding)) return false;
 
   const normalized = normalizeBinding(binding);
   const eventModifiers = requiredModifiers(event);
@@ -188,11 +356,12 @@ function bindingMatchesEvent<M>(binding: KeyBinding<M>, event: KeyProbe, evaluat
 }
 
 export function matchesKeyBinding<M>(binding: KeyBinding<M>, event: KeyProbe): boolean {
-  return bindingMatchesEvent(binding, event, true);
+  return bindingMatchesEvent(snapshotBinding(binding, 0), snapshotKeyProbe(event), true);
 }
 
 export function getMatchingKeyBinding<M>(bindings: readonly KeyBinding<M>[], event: KeyProbe): KeyBinding<M> | null {
-  return bindings.find((binding) => matchesKeyBinding(binding, event)) ?? null;
+  const eventSnapshot = snapshotKeyProbe(event);
+  return snapshotBindings(bindings).find((binding) => bindingMatchesEvent(binding, eventSnapshot, true)) ?? null;
 }
 
 /**
@@ -205,8 +374,8 @@ export function getMatchingKeyBinding<M>(bindings: readonly KeyBinding<M>[], eve
  * the key but does not consume or suppress the subsequent focus movement.
  */
 export function keyMap<M>(bindings: readonly KeyBinding<M>[]): Sub<M> {
-  const normalized = bindings.map(normalizeBinding);
-  const active = normalized.filter(({ binding }) => binding.when === undefined || binding.when());
+  const normalized = snapshotBindings(bindings).map(normalizeBinding);
+  const active = normalized.filter(({ binding }) => bindingIsActive(binding));
   if (active.length === 0) return Sub.none();
 
   const seen = new Set<string>();
@@ -229,13 +398,28 @@ export function keyMap<M>(bindings: readonly KeyBinding<M>[]): Sub<M> {
  * action-to-command projection so a shortcut renders identically wherever it
  * appears — help screen, palette entry, or status hint.
  */
-export function formatDisplayKey(key: string): string {
+function formatNormalizedDisplayKey(key: string): string {
   const graphemes = segmentGraphemes(key);
   const first = graphemes[0];
   if (first === undefined) return key;
   const displayFirst = /^[a-z]$/i.test(first) ? first.toUpperCase() : first;
   if (graphemes.length === 1) return displayFirst;
   return displayFirst + graphemes.slice(1).join('');
+}
+
+export function formatDisplayKey(key: string): string {
+  if (typeof key !== 'string' || key.length === 0 || UNSAFE_SINGLE_LINE_TEXT.test(key)) {
+    throw new TypeError('Display keys must be non-empty printable single-line text.');
+  }
+  let displayKey = key;
+  try {
+    displayKey = normalizeKeyBindingKey(key);
+  } catch {
+    if (segmentGraphemes(key).length !== 1) {
+      throw new TypeError('Display keys must be one named key or one printable grapheme.');
+    }
+  }
+  return formatNormalizedDisplayKey(displayKey);
 }
 
 /**
@@ -247,12 +431,14 @@ export function formatDisplayKey(key: string): string {
  * several characters.
  */
 export function formatKeyBinding(key: string, modifiers?: KeyModifiers): string {
+  const modifierSnapshot = snapshotModifiers(modifiers, 'Key binding display modifiers');
+  const normalizedKey = normalizeKeyBindingKey(key, modifierSnapshot);
   const parts: string[] = [];
-  if (modifiers?.ctrl) parts.push('Ctrl');
-  if (modifiers?.alt) parts.push('Alt');
-  if (modifiers?.shift) parts.push('Shift');
+  if (modifierSnapshot?.ctrl === true) parts.push('Ctrl');
+  if (modifierSnapshot?.alt === true) parts.push('Alt');
+  if (modifierSnapshot?.shift === true) parts.push('Shift');
 
-  parts.push(formatDisplayKey(key));
+  parts.push(formatNormalizedDisplayKey(normalizedKey));
 
   return parts.join('+');
 }
@@ -277,15 +463,39 @@ export interface HelpViewOptions {
   readonly groupByCategory?: boolean;
 }
 
+function snapshotHelpOptions(value: HelpViewOptions): HelpViewOptions {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Key binding help options must be an object.');
+  }
+  const includeInactive = ownDataValue(value, 'includeInactive', 'Key binding help options');
+  const includeUndiscoverable = ownDataValue(value, 'includeUndiscoverable', 'Key binding help options');
+  const width = ownDataValue(value, 'width', 'Key binding help options');
+  const title = ownDataValue(value, 'title', 'Key binding help options');
+  const groupByCategory = ownDataValue(value, 'groupByCategory', 'Key binding help options');
+  return Object.freeze({
+    ...(includeInactive === undefined ? {} : { includeInactive: includeInactive as boolean }),
+    ...(includeUndiscoverable === undefined ? {} : { includeUndiscoverable: includeUndiscoverable as boolean }),
+    ...(width === undefined ? {} : { width: width as number }),
+    ...(title === undefined ? {} : { title: title as string }),
+    ...(groupByCategory === undefined ? {} : { groupByCategory: groupByCategory as boolean }),
+  });
+}
+
 export function helpView<M>(bindings: readonly KeyBinding<M>[], options: HelpViewOptions = {}): VNode {
+  options = snapshotHelpOptions(options);
+  for (const field of ['includeInactive', 'includeUndiscoverable', 'groupByCategory'] as const) {
+    if (options[field] !== undefined && typeof options[field] !== 'boolean') {
+      throw new TypeError(`Key binding help option ${field} must be boolean when supplied.`);
+    }
+  }
   const width = positiveInteger(options.width, DEFAULT_HELP_WIDTH);
   const title = options.title ?? 'Key Bindings:';
-  if (typeof title !== 'string' || TERMINAL_CONTROL.test(title)) {
+  if (typeof title !== 'string' || UNSAFE_SINGLE_LINE_TEXT.test(title)) {
     throw new TypeError('Key binding help titles must be single-line printable text.');
   }
-  const evaluated = bindings.map((binding) => {
+  const evaluated = snapshotBindings(bindings).map((binding) => {
     const normalized = normalizeBinding(binding);
-    return { ...normalized, active: binding.when === undefined || binding.when() };
+    return { ...normalized, active: bindingIsActive(binding) };
   });
   const activeOwners = new Map<string, (typeof evaluated)[number]>();
   for (const entry of evaluated) {
@@ -310,10 +520,10 @@ export function helpView<M>(bindings: readonly KeyBinding<M>[], options: HelpVie
   }
 
   const formatted = visible.map(({ binding, key, modifiers }) => {
-    if (binding.category !== undefined && (typeof binding.category !== 'string' || TERMINAL_CONTROL.test(binding.category))) {
-      throw new TypeError(`Key binding category ${JSON.stringify(binding.category)} must be single-line printable text.`);
+    if (binding.category !== undefined && (typeof binding.category !== 'string' || UNSAFE_SINGLE_LINE_TEXT.test(binding.category))) {
+      throw new TypeError(`Key binding category ${quoteDiagnosticText(binding.category)} must be single-line printable text.`);
     }
-    if (typeof binding.description !== 'string' || TERMINAL_CONTROL_EXCEPT_LINE_FEED.test(binding.description)) {
+    if (typeof binding.description !== 'string' || UNSAFE_MULTILINE_TEXT.test(binding.description)) {
       throw new TypeError(`Key binding descriptions must contain printable text and optional line feeds.`);
     }
     const category = binding.category?.trim() || 'General';

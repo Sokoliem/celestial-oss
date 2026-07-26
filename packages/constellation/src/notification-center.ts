@@ -4,6 +4,7 @@ import type { Sub as Subscription, ThemeContext, VNode } from '@celestial/core/n
 import { box, column, empty, event, focus, measure, row, Sub, scroll, setVNodeMeta, text } from '@celestial/core/nebula';
 import { padCellText, wrapCellText } from '@celestial/rosetta';
 import { generateFocusGroupId } from './focus-group.js';
+import { MAX_RENDER_CELLS } from './internal.js';
 import {
   buildNotificationGeometry,
   clampNotificationOffset,
@@ -14,10 +15,8 @@ import {
 } from './notification-geometry.js';
 import type {
   NotificationEntry,
-  NotificationId,
-  NotificationModel,
-  NotificationStore,
-} from './notification-store.js';
+  NotificationId, NotificationModel, NotificationStore } from './notification-store.js';
+import { isNotificationStore } from './notification-store.js';
 import { useTokens } from './theme.js';
 
 export interface NotificationCenterTokens {
@@ -170,6 +169,8 @@ interface ResolvedNotificationAction extends NotificationCenterAction {
   readonly id: string;
 }
 
+type ResolveNotificationEntryActions = (entry: NotificationEntry) => readonly ResolvedNotificationAction[];
+
 interface NotificationProjection {
   readonly state: NotificationCenterState;
   readonly entries: readonly NotificationEntry[];
@@ -188,10 +189,121 @@ const LEVEL_MARK: Readonly<Record<NotificationEntry['level'], string>> = {
   error: 'x',
 };
 
+const MAX_DIAGNOSTIC_LENGTH = 1_024;
+const MAX_NOTIFICATION_CENTER_ID_LENGTH = 256;
+const MAX_NOTIFICATION_CENTER_TITLE_LENGTH = 256;
+const MAX_NOTIFICATION_ACTION_ID_LENGTH = 256;
+const MAX_NOTIFICATION_ACTION_LABEL_LENGTH = 256;
+const MAX_NOTIFICATION_TIMESTAMP_LENGTH = 256;
+const MAX_NOTIFICATION_HOVER_TARGET_LENGTH = 4_096;
+const MAX_NOTIFICATION_ELEMENT_ID_LENGTH = 4_096;
+
+function diagnosticSafeText(input: string): string {
+  let output = '';
+  let truncated = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const code = input.charCodeAt(index);
+    const next = input.charCodeAt(index + 1);
+    let chunk: string;
+    if (code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) {
+      chunk = input.slice(index, index + 2);
+      index += 1;
+    } else {
+      const unsafe =
+        code <= 0x1f ||
+        (code >= 0x7f && code <= 0x9f) ||
+        code === 0x061c ||
+        code === 0x200e ||
+        code === 0x200f ||
+        (code >= 0x2028 && code <= 0x202e) ||
+        (code >= 0x2066 && code <= 0x2069) ||
+        (code >= 0xd800 && code <= 0xdfff);
+      chunk = unsafe ? `\\u${code.toString(16).padStart(4, '0')}` : input[index]!;
+    }
+    if (output.length + chunk.length > MAX_DIAGNOSTIC_LENGTH - 1) {
+      truncated = true;
+      break;
+    }
+    output += chunk;
+  }
+  return truncated ? `${output}…` : output;
+}
+
+function describeDiagnosticValue(value: unknown): string {
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized !== undefined) return diagnosticSafeText(serialized);
+  } catch {
+    // Fall through to total string coercion.
+  }
+  try {
+    return diagnosticSafeText(String(value));
+  } catch {
+    return '<unprintable>';
+  }
+}
+
+function describeDiagnosticError(error: unknown): string {
+  try {
+    if (error instanceof Error && typeof error.message === 'string' && error.message.length > 0) {
+      return diagnosticSafeText(error.message);
+    }
+  } catch {
+    // Hostile Error subclasses still need a bounded diagnostic.
+  }
+  return describeDiagnosticValue(error);
+}
+
+function snapshotOwnDataRecord(value: unknown, label: string): Record<string, unknown> {
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new TypeError(`${label} must be an object.`);
+    }
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > 1_000) {
+      throw new RangeError(`${label} must not define more than 1000 properties.`);
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of keys) {
+      if (typeof key !== 'string') {
+        throw new TypeError(`${label} must not define symbol properties.`);
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !('value' in descriptor)) {
+        throw new TypeError(`${label}.${key} must be an own data property.`);
+      }
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch (error) {
+    if (error instanceof TypeError && typeof error.message === 'string' && error.message.startsWith(label)) {
+      throw error;
+    }
+    throw new TypeError(`${label} could not be inspected: ${describeDiagnosticError(error)}.`);
+  }
+}
+
+function snapshotCenterConfig(value: unknown): NotificationCenterConfig {
+  const snapshot = snapshotOwnDataRecord(value, 'Notification center config');
+  return Object.freeze(snapshot) as unknown as NotificationCenterConfig;
+}
+
+function snapshotCenterState(value: unknown): NotificationCenterState {
+  const snapshot = snapshotOwnDataRecord(value, 'Notification center state');
+  if (snapshot.actionCursor !== null && snapshot.actionCursor !== undefined) {
+    snapshot.actionCursor = Object.freeze(snapshotOwnDataRecord(snapshot.actionCursor, 'Notification center state.actionCursor'));
+  }
+  return Object.freeze(snapshot) as unknown as NotificationCenterState;
+}
+
+function snapshotCenterMessage(value: unknown): NotificationCenterMsg {
+  return Object.freeze(snapshotOwnDataRecord(value, 'Notification center message')) as unknown as NotificationCenterMsg;
+}
+
 function validConfiguredDimension(value: number | undefined, label: string, fallback: number): number {
   if (value === undefined) return fallback;
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new RangeError(`${label} must be a positive safe integer; received ${String(value)}`);
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_RENDER_CELLS) {
+    throw new RangeError(`${label} must be a positive safe integer no greater than ${String(MAX_RENDER_CELLS)}; received ${describeDiagnosticValue(value)}`);
   }
   return value;
 }
@@ -208,11 +320,11 @@ function safeMultilineText(value: string): string {
   return value.split('\n').map(safeText).join('\n');
 }
 
-const SINGLE_LINE_CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
+const SINGLE_LINE_CONTROL = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\uD800-\uDFFF]/u;
 
-function validatedSingleLine(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new TypeError(`${label} must be a non-empty string.`);
+function validatedSingleLine(value: unknown, label: string, maximumLength: number): string {
+  if (typeof value !== 'string' || value.length > maximumLength || value.trim().length === 0) {
+    throw new TypeError(`${label} must be a non-empty string of at most ${String(maximumLength)} characters.`);
   }
   if (SINGLE_LINE_CONTROL.test(value)) {
     throw new TypeError(`${label} must not contain C0, C1, or line-separator controls.`);
@@ -221,19 +333,21 @@ function validatedSingleLine(value: unknown, label: string): string {
 }
 
 function normalizedViewport(viewport: NotificationCenterViewport): NormalizedViewport {
-  if (viewport === null || typeof viewport !== 'object') {
-    throw new TypeError('Notification center viewport must be an object.');
+  const snapshot = snapshotOwnDataRecord(viewport, 'Notification center viewport');
+  if (!Number.isSafeInteger(snapshot.cols) || (snapshot.cols as number) <= 0 || (snapshot.cols as number) > MAX_RENDER_CELLS) {
+    throw new RangeError(
+      `Notification center viewport cols must be a positive safe integer no greater than ${String(MAX_RENDER_CELLS)}; received ${describeDiagnosticValue(snapshot.cols)}.`,
+    );
   }
-  if (!Number.isSafeInteger(viewport.cols) || viewport.cols <= 0) {
-    throw new RangeError(`Notification center viewport cols must be a positive safe integer; received ${String(viewport.cols)}.`);
+  if (!Number.isSafeInteger(snapshot.rows) || (snapshot.rows as number) <= 0 || (snapshot.rows as number) > MAX_RENDER_CELLS) {
+    throw new RangeError(
+      `Notification center viewport rows must be a positive safe integer no greater than ${String(MAX_RENDER_CELLS)}; received ${describeDiagnosticValue(snapshot.rows)}.`,
+    );
   }
-  if (!Number.isSafeInteger(viewport.rows) || viewport.rows <= 0) {
-    throw new RangeError(`Notification center viewport rows must be a positive safe integer; received ${String(viewport.rows)}.`);
-  }
-  return {
-    cols: viewport.cols,
-    rows: viewport.rows,
-  };
+  return Object.freeze({
+    cols: snapshot.cols as number,
+    rows: snapshot.rows as number,
+  });
 }
 
 function isPositiveId(value: unknown): value is NotificationId {
@@ -242,7 +356,7 @@ function isPositiveId(value: unknown): value is NotificationId {
 
 function isHoverTarget(value: unknown): value is NotificationCenterHoverTarget {
   if (value === 'close' || value === 'list') return true;
-  if (typeof value !== 'string') return false;
+  if (typeof value !== 'string' || value.length > MAX_NOTIFICATION_HOVER_TARGET_LENGTH) return false;
   const idTarget = /^(?:row|dismiss):([1-9][0-9]*)$/u.exec(value);
   if (idTarget) return isPositiveId(Number(idTarget[1]));
   const actionTarget = /^action:([1-9][0-9]*):(.+)$/u.exec(value);
@@ -251,6 +365,7 @@ function isHoverTarget(value: unknown): value is NotificationCenterHoverTarget {
     const actionId = decodeURIComponent(actionTarget[2]!);
     return (
       actionId.trim().length > 0
+      && actionId.length <= MAX_NOTIFICATION_ACTION_ID_LENGTH
       && !SINGLE_LINE_CONTROL.test(actionId)
       && encodeURIComponent(actionId) === actionTarget[2]
     );
@@ -284,6 +399,7 @@ function assertCenterState(state: NotificationCenterState): void {
       typeof state.actionCursor !== 'object'
       || !isPositiveId(state.actionCursor.notificationId)
       || typeof state.actionCursor.actionId !== 'string'
+      || state.actionCursor.actionId.length > MAX_NOTIFICATION_ACTION_ID_LENGTH
       || state.actionCursor.actionId.trim().length === 0
       || SINGLE_LINE_CONTROL.test(state.actionCursor.actionId)
     ) {
@@ -321,7 +437,11 @@ function assertCenterMessage(msg: NotificationCenterMsg): void {
       return;
     case 'activate-action':
       if (!isPositiveId(msg.id)) throw new RangeError('Notification center activate-action id must be a positive safe integer.');
-      validatedSingleLine(msg.actionId, 'Notification center activate-action actionId');
+      validatedSingleLine(
+        msg.actionId,
+        'Notification center activate-action actionId',
+        MAX_NOTIFICATION_ACTION_ID_LENGTH,
+      );
       return;
     case 'dismiss':
       if (msg.id !== undefined && !isPositiveId(msg.id)) {
@@ -330,7 +450,7 @@ function assertCenterMessage(msg: NotificationCenterMsg): void {
       return;
     case 'scroll':
       if (!Number.isFinite(msg.delta)) {
-        throw new RangeError(`Notification center scroll delta must be finite; received ${String(msg.delta)}.`);
+        throw new RangeError(`Notification center scroll delta must be finite; received ${describeDiagnosticValue(msg.delta)}.`);
       }
       return;
     case 'hover-target':
@@ -340,7 +460,7 @@ function assertCenterMessage(msg: NotificationCenterMsg): void {
       if (typeof msg.within !== 'boolean') throw new TypeError('Notification center focus-changed within must be a boolean.');
       return;
     default:
-      throw new RangeError(`Unknown notification center message type "${String((msg as { type: unknown }).type)}".`);
+      throw new RangeError(`Unknown notification center message type ${describeDiagnosticValue((msg as { type: unknown }).type)}.`);
   }
 }
 
@@ -402,24 +522,46 @@ function targetForAction(id: NotificationId, actionId: string): NotificationCent
 
 function resolveEntryActions(config: NotificationCenterConfig, entry: NotificationEntry): readonly ResolvedNotificationAction[] {
   return entry.actionIds.map((id) => {
-    const resolved = config.resolveAction(id, entry);
+    let resolved: unknown;
+    try {
+      resolved = config.resolveAction(id, entry);
+    } catch (error) {
+      throw new TypeError(`Notification action "${safeText(id)}" resolution failed: ${describeDiagnosticError(error)}.`);
+    }
     if (resolved === null || typeof resolved !== 'object') {
       throw new TypeError(`Notification action "${safeText(id)}" did not resolve to an action descriptor.`);
     }
-    if (resolved.disabled !== undefined && typeof resolved.disabled !== 'boolean') {
+    const snapshot = snapshotOwnDataRecord(resolved, `Notification action "${safeText(id)}" descriptor`);
+    if (snapshot.disabled !== undefined && typeof snapshot.disabled !== 'boolean') {
       throw new TypeError(`Notification action "${safeText(id)}" disabled must be a boolean when supplied.`);
     }
-    return {
+    return Object.freeze({
       id,
-      label: validatedSingleLine(resolved.label, `Notification action "${safeText(id)}" label`),
-      disabled: resolved.disabled === true,
-    };
+      label: validatedSingleLine(
+        snapshot.label,
+        `Notification action "${safeText(id)}" label`,
+        MAX_NOTIFICATION_ACTION_LABEL_LENGTH,
+      ),
+      disabled: snapshot.disabled === true,
+    });
   });
+}
+
+function createActionResolutionSnapshot(config: NotificationCenterConfig): ResolveNotificationEntryActions {
+  const resolvedByEntryId = new Map<NotificationId, readonly ResolvedNotificationAction[]>();
+  return (entry) => {
+    const cached = resolvedByEntryId.get(entry.id);
+    if (cached !== undefined) return cached;
+    const resolved = Object.freeze(resolveEntryActions(config, entry));
+    resolvedByEntryId.set(entry.id, resolved);
+    return resolved;
+  };
 }
 
 function buildRowNode(
   surfaceId: string,
   config: NotificationCenterConfig,
+  resolveActions: ResolveNotificationEntryActions,
   tokens: NotificationCenterTokens,
   state: NotificationCenterState,
   entry: NotificationEntry,
@@ -442,9 +584,16 @@ function buildRowNode(
   const messageWidth = Math.max(1, summaryWidth - 5);
   const messageLines = wrapCellText(safeText(entry.message), messageWidth);
   const safeMessageLines = messageLines.length > 0 ? messageLines : [''];
+  let formattedTimestamp: unknown;
+  try {
+    formattedTimestamp = config.formatTimestamp(entry.updatedAt, entry);
+  } catch (error) {
+    throw new TypeError(`Formatted timestamp for notification ${String(entry.id)} failed: ${describeDiagnosticError(error)}.`);
+  }
   const timestamp = validatedSingleLine(
-    config.formatTimestamp(entry.updatedAt, entry),
+    formattedTimestamp,
     `Formatted timestamp for notification ${String(entry.id)}`,
+    MAX_NOTIFICATION_TIMESTAMP_LENGTH,
   );
   const occurrenceBadge = entry.occurrences > 1 ? ` [x${String(entry.occurrences)}]` : '';
   const summaryLines = [
@@ -514,7 +663,7 @@ function buildRowNode(
       children.push(detailNode);
     }
 
-    for (const action of resolveEntryActions(config, entry)) {
+    for (const action of resolveActions(entry)) {
       const target = targetForAction(entry.id, action.id);
       const actionSelected =
         state.actionCursor?.notificationId === entry.id
@@ -584,8 +733,15 @@ function buildRowNode(
 
 function safeSurfaceId(value: string | undefined): string {
   if (value === undefined) return generateFocusGroupId('notification-center');
-  if (typeof value !== 'string' || value.trim().length === 0 || /[\u0000-\u001f\u007f-\u009f]/u.test(value)) {
-    throw new TypeError('Notification center id must be a non-empty control-free string.');
+  if (
+    typeof value !== 'string'
+    || value.length > MAX_NOTIFICATION_CENTER_ID_LENGTH
+    || value.trim().length === 0
+    || SINGLE_LINE_CONTROL.test(value)
+  ) {
+    throw new TypeError(
+      `Notification center id must be a non-empty control-free string of at most ${String(MAX_NOTIFICATION_CENTER_ID_LENGTH)} characters.`,
+    );
   }
   return value;
 }
@@ -597,17 +753,11 @@ function eventIdSuffix(elementId: string, prefix: string): number | null {
 }
 
 export function createNotificationCenter(config: NotificationCenterConfig): NotificationCenter {
+  config = snapshotCenterConfig(config);
   if (!config || typeof config.resolveAction !== 'function') {
     throw new TypeError('Notification center requires a resolveAction(actionId, entry) function.');
   }
-  if (
-    !config.store
-    || typeof config.store.init !== 'function'
-    || typeof config.store.validateModel !== 'function'
-    || typeof config.store.markRead !== 'function'
-    || typeof config.store.hideLatestToast !== 'function'
-    || typeof config.store.dismiss !== 'function'
-  ) {
+  if (!isNotificationStore(config.store)) {
     throw new TypeError('Notification center requires the exact NotificationStore that owns its model.');
   }
   if (typeof config.formatTimestamp !== 'function') {
@@ -625,7 +775,11 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
 
   const preferredWidth = validConfiguredDimension(config.width, 'notification center width', 44);
   const maxHeight = validConfiguredDimension(config.maxHeight, 'notification center maxHeight', 18);
-  const title = validatedSingleLine(config.title === undefined ? 'Notifications' : config.title, 'Notification center title');
+  const title = validatedSingleLine(
+    config.title === undefined ? 'Notifications' : config.title,
+    'Notification center title',
+    MAX_NOTIFICATION_CENTER_TITLE_LENGTH,
+  );
   const surfaceId = safeSurfaceId(config.id);
   const focusId = `${surfaceId}:focus`;
   const closeElementId = `${surfaceId}:close`;
@@ -646,29 +800,44 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
 
   const assertStoreModel = (model: NotificationModel): NotificationModel => {
     const validated = storeOps.validateModel(model);
-    if (validated.ok) return model;
+    if (validated.ok) return validated.value;
     const first = validated.diagnostics[0]!;
     throw new TypeError(`${first.field}: ${first.message}`);
   };
 
-  const resolveActionById = (entry: NotificationEntry, actionId: string): ResolvedNotificationAction | undefined =>
-    resolveEntryActions(config, entry).find((action) => action.id === actionId);
+  const resolveActionById = (
+    entry: NotificationEntry,
+    actionId: string,
+    resolveActions: ResolveNotificationEntryActions,
+  ): ResolvedNotificationAction | undefined =>
+    resolveActions(entry).find((action) => action.id === actionId);
 
   const project = (
     state: NotificationCenterState,
     store: NotificationModel,
     viewportInput: NotificationCenterViewport,
+    resolveActions: ResolveNotificationEntryActions,
   ): NotificationProjection => {
-    const effectiveState = reconcileState(state, store);
+    let effectiveState = reconcileState(state, store);
     const viewport = normalizedViewport(viewportInput);
     const surfaceWidth = Math.max(1, Math.min(preferredWidth, viewport.cols));
     const surfaceHeight = Math.max(1, Math.min(maxHeight, viewport.rows));
     const innerWidth = Math.max(1, surfaceWidth - 2);
     const listHeight = Math.max(1, surfaceHeight - 4);
     const entries = inboxEntries(store);
+    if (effectiveState.actionCursor !== null) {
+      const cursorEntry = entryById(entries, effectiveState.actionCursor.notificationId);
+      const cursorAction =
+        cursorEntry === undefined
+          ? undefined
+          : resolveActionById(cursorEntry, effectiveState.actionCursor.actionId, resolveActions);
+      if (cursorAction === undefined || cursorAction.disabled) {
+        effectiveState = { ...effectiveState, actionCursor: null };
+      }
+    }
     const tokens = useTokens(notificationCenterContract, config, 'NotificationCenter');
     const rowNodes = entries.map((entry) =>
-      buildRowNode(surfaceId, config, tokens, effectiveState, entry, innerWidth, tags),
+      buildRowNode(surfaceId, config, resolveActions, tokens, effectiveState, entry, innerWidth, tags),
     );
     const geometry = buildNotificationGeometry(
       rowNodes.map((node, index) => ({
@@ -697,10 +866,23 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
     state: NotificationCenterState,
     store: NotificationModel,
     viewport: NotificationCenterViewport,
+    resolveActions: ResolveNotificationEntryActions,
   ): NotificationCenterState => {
     if (!state.open) return reconcileState(state, store);
-    const projection = project(state, store, viewport);
+    const projection = project(state, store, viewport, resolveActions);
     if (projection.state.selectedId === null) return projection.state;
+    const selectedGeometry = projection.geometry.rows.find(
+      (candidate) => candidate.id === projection.state.selectedId,
+    );
+    if (
+      selectedGeometry !== undefined
+      && selectedGeometry.height > projection.listHeight
+      && projection.state.expandedId === projection.state.selectedId
+      && projection.state.rowScrollOffset >= selectedGeometry.top
+      && projection.state.rowScrollOffset < selectedGeometry.bottom
+    ) {
+      return projection.state;
+    }
     const rowScrollOffset = ensureNotificationVisible(
       projection.geometry,
       projection.state.selectedId,
@@ -717,11 +899,12 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
     store: NotificationModel,
     id: NotificationId,
     actionId: string,
+    resolveActions: ResolveNotificationEntryActions,
   ): NotificationCenterUpdate => {
     const entries = inboxEntries(store);
     const entry = entryById(entries, id);
     if (!entry) return { state, store };
-    const action = resolveActionById(entry, actionId);
+    const action = resolveActionById(entry, actionId, resolveActions);
     if (!action || action.disabled) return { state, store };
     return {
       state: {
@@ -737,7 +920,7 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
 
   const controller: NotificationCenter = {
     init(store = storeOps.init()): NotificationCenterState {
-      assertStoreModel(store);
+      store = assertStoreModel(store);
       const entries = inboxEntries(store);
       return {
         open: config.initiallyOpen === true,
@@ -751,10 +934,19 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
     },
 
     update(msg, state, store, viewport): NotificationCenterUpdate {
-      normalizedViewport(viewport);
+      msg = snapshotCenterMessage(msg);
+      state = snapshotCenterState(state);
       assertCenterMessage(msg);
       assertCenterState(state);
-      assertStoreModel(store);
+      store = assertStoreModel(store);
+      const closeState = (current: NotificationCenterState): NotificationCenterState => ({
+        ...reconcileState(current, store),
+        open: false,
+        expandedId: null,
+        actionCursor: null,
+        hoveredTarget: null,
+        focusWithin: false,
+      });
       // This precedence chain is intentionally handled before reconciliation:
       // one Escape owns one transition, even if external store changes left
       // other UI fields stale.
@@ -766,37 +958,31 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
           return { state: { ...state, expandedId: null }, store };
         }
         if (state.open) {
-          return controller.update({ type: 'close' }, state, store, viewport);
+          return { state: closeState(state), store };
         }
         if (config.ownsToastEscape && store.visibleToastIds.length > 0) {
           return { state, store: storeOps.hideLatestToast(store) };
         }
         return { state, store };
       }
+      if (msg.type === 'close' || (msg.type === 'toggle' && state.open)) {
+        return { state: closeState(state), store };
+      }
 
-      const current = keepSelectedVisible(state, store, viewport);
+      viewport = normalizedViewport(viewport);
+      const resolveActions = createActionResolutionSnapshot(config);
+      const current = keepSelectedVisible(state, store, viewport, resolveActions);
       const entries = inboxEntries(store);
       switch (msg.type) {
         case 'open': {
           const next = { ...current, open: true };
-          return { state: keepSelectedVisible(next, store, viewport), store };
+          return { state: keepSelectedVisible(next, store, viewport, resolveActions), store };
         }
-        case 'close':
+        case 'toggle':
           return {
-            state: {
-              ...current,
-              open: false,
-              expandedId: null,
-              actionCursor: null,
-              hoveredTarget: null,
-              focusWithin: false,
-            },
+            state: keepSelectedVisible({ ...current, open: true }, store, viewport, resolveActions),
             store,
           };
-        case 'toggle':
-          return current.open
-            ? controller.update({ type: 'close' }, current, store, viewport)
-            : controller.update({ type: 'open' }, current, store, viewport);
         case 'select': {
           if (!entryById(entries, msg.id)) return { state: current, store };
           const next = {
@@ -805,7 +991,7 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
             expandedId: current.expandedId === msg.id ? current.expandedId : null,
             actionCursor: null,
           };
-          return { state: keepSelectedVisible(next, store, viewport), store };
+          return { state: keepSelectedVisible(next, store, viewport, resolveActions), store };
         }
         case 'select-previous':
         case 'select-next': {
@@ -820,7 +1006,7 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
             expandedId: current.expandedId === selectedId ? selectedId : null,
             actionCursor: null,
           };
-          return { state: keepSelectedVisible(next, store, viewport), store };
+          return { state: keepSelectedVisible(next, store, viewport, resolveActions), store };
         }
         case 'select-first':
         case 'select-last': {
@@ -832,11 +1018,11 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
             expandedId: current.expandedId === selected.id ? selected.id : null,
             actionCursor: null,
           };
-          return { state: keepSelectedVisible(next, store, viewport), store };
+          return { state: keepSelectedVisible(next, store, viewport, resolveActions), store };
         }
         case 'page-up':
         case 'page-down': {
-          const projection = project(current, store, viewport);
+          const projection = project(current, store, viewport, resolveActions);
           const selectedId = moveNotificationSelectionByViewportRows(
             projection.geometry,
             current.selectedId ?? undefined,
@@ -850,7 +1036,7 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
             expandedId: current.expandedId === selectedId ? selectedId : null,
             actionCursor: null,
           };
-          return { state: keepSelectedVisible(next, store, viewport), store };
+          return { state: keepSelectedVisible(next, store, viewport, resolveActions), store };
         }
         case 'activate-row': {
           const entry = entryById(entries, msg.id);
@@ -863,30 +1049,52 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
             expandedId: expanding ? entry.id : null,
             actionCursor: null,
           };
-          return { state: keepSelectedVisible(next, nextStore, viewport), store: nextStore };
+          return {
+            state: keepSelectedVisible(next, nextStore, viewport, resolveActions),
+            store: nextStore,
+          };
         }
         case 'toggle-expanded': {
           if (current.selectedId === null) return { state: current, store };
-          return controller.update({ type: 'activate-row', id: current.selectedId }, current, store, viewport);
+          const entry = entryById(entries, current.selectedId);
+          if (!entry) return { state: current, store };
+          const expanding = current.expandedId !== entry.id;
+          const nextStore = expanding && !entry.read ? storeOps.markRead(store, entry.id) : store;
+          const next = {
+            ...current,
+            expandedId: expanding ? entry.id : null,
+            actionCursor: null,
+          };
+          return {
+            state: keepSelectedVisible(next, nextStore, viewport, resolveActions),
+            store: nextStore,
+          };
         }
         case 'action-previous':
         case 'action-next': {
           const entry = entryById(entries, current.expandedId);
           if (!entry || entry.actionIds.length === 0) return { state: current, store };
+          const enabledActions = resolveActions(entry).filter((action) => !action.disabled);
+          if (enabledActions.length === 0) {
+            return {
+              state: current.actionCursor === null ? current : { ...current, actionCursor: null },
+              store,
+            };
+          }
           const delta = msg.type === 'action-previous' ? -1 : 1;
           const currentIndex =
             current.actionCursor === null
               ? -1
-              : entry.actionIds.indexOf(current.actionCursor.actionId);
+              : enabledActions.findIndex((action) => action.id === current.actionCursor?.actionId);
           const nextIndex =
-            current.actionCursor === null
+            current.actionCursor === null || currentIndex < 0
               ? delta > 0
                 ? 0
-                : entry.actionIds.length - 1
-              : (currentIndex + delta + entry.actionIds.length) % entry.actionIds.length;
+                : enabledActions.length - 1
+              : (currentIndex + delta + enabledActions.length) % enabledActions.length;
           const actionCursor = {
             notificationId: entry.id,
-            actionId: entry.actionIds[nextIndex]!,
+            actionId: enabledActions[nextIndex]!.id,
           };
           return { state: { ...current, actionCursor }, store };
         }
@@ -894,12 +1102,28 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
           const entry = entryById(entries, current.selectedId);
           if (!entry) return { state: current, store };
           if (current.actionCursor !== null) {
-            return activateAction(current, store, entry.id, current.actionCursor.actionId);
+            return activateAction(
+              current,
+              store,
+              entry.id,
+              current.actionCursor.actionId,
+              resolveActions,
+            );
           }
-          return controller.update({ type: 'activate-row', id: entry.id }, current, store, viewport);
+          const expanding = current.expandedId !== entry.id;
+          const nextStore = expanding && !entry.read ? storeOps.markRead(store, entry.id) : store;
+          const next = {
+            ...current,
+            expandedId: expanding ? entry.id : null,
+            actionCursor: null,
+          };
+          return {
+            state: keepSelectedVisible(next, nextStore, viewport, resolveActions),
+            store: nextStore,
+          };
         }
         case 'activate-action':
-          return activateAction(current, store, msg.id, msg.actionId);
+          return activateAction(current, store, msg.id, msg.actionId, resolveActions);
         case 'dismiss': {
           const id = msg.id ?? current.selectedId;
           if (id === null) return { state: current, store };
@@ -907,7 +1131,10 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
           if (removedIndex < 0) return { state: current, store };
           const nextStore = storeOps.dismiss(store, id);
           if (current.selectedId !== id) {
-            return { state: keepSelectedVisible(current, nextStore, viewport), store: nextStore };
+            return {
+              state: keepSelectedVisible(current, nextStore, viewport, resolveActions),
+              store: nextStore,
+            };
           }
           const remaining = inboxEntries(nextStore);
           const selectedId = remaining[Math.min(removedIndex, remaining.length - 1)]?.id ?? null;
@@ -917,7 +1144,10 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
             expandedId: null,
             actionCursor: null,
           };
-          return { state: keepSelectedVisible(next, nextStore, viewport), store: nextStore };
+          return {
+            state: keepSelectedVisible(next, nextStore, viewport, resolveActions),
+            store: nextStore,
+          };
         }
         case 'mark-read':
           return entryById(entries, msg.id)
@@ -925,15 +1155,21 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
             : { state: current, store };
         case 'scroll': {
           if (msg.delta === 0) return { state: current, store };
-          const projection = project(current, store, viewport);
+          const projection = project(current, store, viewport, resolveActions);
           const delta = Math.sign(msg.delta) * Math.min(100_000, Math.max(1, Math.floor(Math.abs(msg.delta))));
           const requested = Math.max(0, projection.state.rowScrollOffset + delta);
           const rowScrollOffset = clampNotificationOffset(projection.geometry, requested, projection.listHeight);
           const selectedGeometry = projection.geometry.rows.find((candidate) => candidate.id === current.selectedId);
           const selectedRemainsVisible =
             selectedGeometry !== undefined
-            && selectedGeometry.top >= rowScrollOffset
-            && selectedGeometry.bottom <= rowScrollOffset + projection.listHeight;
+            && (
+              selectedGeometry.height > projection.listHeight
+              && current.expandedId === selectedGeometry.id
+                ? selectedGeometry.top < rowScrollOffset + projection.listHeight
+                  && selectedGeometry.bottom > rowScrollOffset
+                : selectedGeometry.top >= rowScrollOffset
+                  && selectedGeometry.bottom <= rowScrollOffset + projection.listHeight
+            );
           const replacement =
             selectedRemainsVisible
               ? undefined
@@ -950,7 +1186,7 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
             rowScrollOffset,
           };
           return {
-            state: keepSelectedVisible(scrolled, store, viewport),
+            state: keepSelectedVisible(scrolled, store, viewport, resolveActions),
             store,
           };
         }
@@ -975,11 +1211,17 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
     },
 
     view(state, store, viewport): VNode {
-      normalizedViewport(viewport);
+      state = snapshotCenterState(state);
+      viewport = normalizedViewport(viewport);
       assertCenterState(state);
-      assertStoreModel(store);
+      store = assertStoreModel(store);
       if (!state.open) return empty(0, 0);
-      const projection = project(state, store, viewport);
+      const projection = project(
+        state,
+        store,
+        viewport,
+        createActionResolutionSnapshot(config),
+      );
       const tokens = useTokens(notificationCenterContract, config, 'NotificationCenter');
       const unreadCount = projection.entries.reduce((count, entry) => count + (entry.read ? 0 : 1), 0);
       const closeWidth = Math.min(3, projection.innerWidth);
@@ -1090,8 +1332,9 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
     },
 
     subscriptions(state, store): Subscription<NotificationCenterMsg> {
+      state = snapshotCenterState(state);
       assertCenterState(state);
-      assertStoreModel(store);
+      store = assertStoreModel(store);
       const subs: Subscription<NotificationCenterMsg>[] = [];
       const hasEscapeTarget =
         state.actionCursor !== null
@@ -1105,6 +1348,9 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
       subs.push(
         Sub.focus((focused) => ({ type: 'focus-changed', within: focused === focusId })),
         Sub.elementMouse((mouseEvent): NotificationCenterMsg => {
+          if (mouseEvent.elementId.length > MAX_NOTIFICATION_ELEMENT_ID_LENGTH) {
+            return { type: 'noop' };
+          }
           if (mouseEvent.handlerTag === tags.close && mouseEvent.elementId === closeElementId) {
             return { type: 'close' };
           }
@@ -1153,7 +1399,13 @@ export function createNotificationCenter(config: NotificationCenterConfig): Noti
               const id = Number(suffix.slice(0, separator));
               try {
                 const actionId = separator < 0 ? '' : decodeURIComponent(suffix.slice(separator + 1));
-                if (Number.isSafeInteger(id) && id > 0 && actionId.length > 0) {
+                const entry = Number.isSafeInteger(id) && id > 0 ? entryById(entries, id) : undefined;
+                if (
+                  entry !== undefined
+                  && actionId.length > 0
+                  && actionId.length <= MAX_NOTIFICATION_ACTION_ID_LENGTH
+                  && entry.actionIds.includes(actionId)
+                ) {
                   return { type: 'hover-target', target: targetForAction(id, actionId) };
                 }
               } catch {

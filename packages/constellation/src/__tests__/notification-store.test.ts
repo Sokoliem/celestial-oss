@@ -15,6 +15,23 @@ const bothNotification: NotificationEnqueueInput = {
   actionIds: ['open-log'],
 };
 
+const UNSAFE_DIRECTIONAL_CONTROLS = [
+  '\u061c',
+  '\u200e',
+  '\u200f',
+  '\u2028',
+  '\u2029',
+  '\u202a',
+  '\u202b',
+  '\u202c',
+  '\u202d',
+  '\u202e',
+  '\u2066',
+  '\u2067',
+  '\u2068',
+  '\u2069',
+] as const;
+
 function enqueueOrThrow(
   store: ReturnType<typeof createNotificationStore>,
   model: NotificationModel,
@@ -56,6 +73,53 @@ describe('createNotificationStore', () => {
     [{ now: 42 as never }, 'now'],
   ])('rejects invalid factory configuration with a field-specific error: %o', (config, field) => {
     expect(() => createNotificationStore(config)).toThrow(field);
+  });
+
+  it('rejects factory and hydration accessors without invoking them', () => {
+    let configReads = 0;
+    const config = Object.defineProperty({}, 'maxEntries', {
+      get: () => {
+        configReads += 1;
+        return 100;
+      },
+    });
+    expect(() => createNotificationStore(config)).toThrow(/own data property/i);
+    expect(configReads).toBe(0);
+
+    const store = createNotificationStore();
+    let seedReads = 0;
+    const seed = Object.defineProperty({}, 'entries', {
+      get: () => {
+        seedReads += 1;
+        return [];
+      },
+    });
+    expect(() => store.init(seed)).toThrow(/own data property/i);
+    expect(seedReads).toBe(0);
+  });
+
+  it('contains hostile config-value coercion and sanitizes config diagnostics', () => {
+    const throwingValue = {
+      toJSON: () => {
+        throw new Error('json\u001b escaped');
+      },
+      [Symbol.toPrimitive]: () => {
+        throw new Error('coercion\u001b escaped');
+      },
+    };
+    expect(() => createNotificationStore({ maxEntries: throwingValue as never })).toThrow(/<unprintable>/i);
+
+    const injectingValue = {
+      toJSON: () => 'bad\u001b[31m',
+    };
+    let message = '';
+    try {
+      createNotificationStore({ defaultDurationMs: injectingValue as never });
+    } catch (error) {
+      message = error instanceof Error ? error.message : '';
+    }
+    expect(message).toContain('bad\\u001b[31m');
+    expect(message).not.toContain('\u001b');
   });
 
   it('returns explicit enqueue diagnostics and leaves the source model untouched', () => {
@@ -123,6 +187,74 @@ describe('createNotificationStore', () => {
 
     const valid = enqueueOrThrow(store, model, { ...bothNotification, detail: 'First line 😀\nSecond line' });
     expect(valid.entry.detail).toBe('First line 😀\nSecond line');
+  });
+
+  it('rejects Unicode directionality controls from every enqueue text field', () => {
+    const store = createNotificationStore({ now: () => 10 });
+    const model = store.init();
+
+    for (const control of UNSAFE_DIRECTIONAL_CONTROLS) {
+      const invalidCases: readonly [NotificationEnqueueInput, string, string][] = [
+        [{ ...bothNotification, message: `Build${control}complete` }, 'invalid-message', 'message'],
+        [{ ...bothNotification, detail: `First${control}Second` }, 'invalid-message', 'detail'],
+        [{ ...bothNotification, dedupeKey: `build${control}complete` }, 'invalid-dedupe-key', 'dedupeKey'],
+        [{ ...bothNotification, actionIds: [`open${control}log`] }, 'invalid-action-id', 'actionIds[0]'],
+      ];
+
+      for (const [input, code, field] of invalidCases) {
+        expect(store.enqueue(model, input)).toMatchObject({
+          ok: false,
+          diagnostics: [{ code, field }],
+        });
+      }
+    }
+  });
+
+  it('bounds notification text, action IDs, action counts, and forged-model diagnostics', () => {
+    const store = createNotificationStore({ now: () => 10 });
+    const model = store.init();
+    const oversizedCases: readonly [NotificationEnqueueInput, string][] = [
+      [{ ...bothNotification, message: 'm'.repeat(1_000_000) }, 'message'],
+      [{ ...bothNotification, detail: 'd'.repeat(16_385) }, 'detail'],
+      [{ ...bothNotification, dedupeKey: 'k'.repeat(257) }, 'dedupeKey'],
+      [{ ...bothNotification, actionIds: ['a'.repeat(257)] }, 'actionIds[0]'],
+      [
+        {
+          ...bothNotification,
+          actionIds: Array.from({ length: 101 }, (_, index) => `action-${String(index)}`),
+        },
+        'actionIds',
+      ],
+    ];
+
+    for (const [input, field] of oversizedCases) {
+      const result = store.enqueue(model, input);
+      expect(result).toMatchObject({
+        ok: false,
+        diagnostics: [{ field }],
+      });
+      if (!result.ok) {
+        expect(result.diagnostics).toHaveLength(1);
+        expect(result.diagnostics[0]!.message.length).toBeLessThanOrEqual(1_024);
+      }
+    }
+
+    const forged = {
+      entries: Array.from({ length: 100_000 }, () => null),
+      visibleToastIds: [],
+      nextId: 1,
+      hoveredToastId: null,
+      pausedToast: null,
+    } as unknown as NotificationModel;
+    const validated = store.validateModel(forged);
+    expect(validated).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'invalid-model', field: 'model' }],
+    });
+    if (!validated.ok) {
+      expect(validated.diagnostics.length).toBeLessThanOrEqual(100);
+      expect(validated.diagnostics[0]!.message.length).toBeLessThanOrEqual(1_024);
+    }
   });
 
   it('snapshots a valid enqueue, applies toast defaults, and advances nextId exactly once', () => {
@@ -318,6 +450,37 @@ describe('createNotificationStore', () => {
     expect(paused.entries[0]).toMatchObject({ updatedAt: 0, expiresAt: 100 });
   });
 
+  it('rejects a clock regression across distinct retained notifications', () => {
+    let now = 100;
+    const store = createNotificationStore({ now: () => now });
+    const first = enqueueOrThrow(store, store.init(), {
+      message: 'First timestamp',
+      level: 'info',
+      delivery: 'inbox',
+    }).model;
+
+    now = 50;
+    const regressed = store.enqueue(first, {
+      message: 'Second timestamp',
+      level: 'info',
+      delivery: 'inbox',
+    });
+    expect(regressed).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'invalid-clock', field: 'now' }],
+    });
+    expect(first.entries).toHaveLength(1);
+
+    now = 101;
+    expect(
+      enqueueOrThrow(store, first, {
+        message: 'Second timestamp',
+        level: 'info',
+        delivery: 'inbox',
+      }).model.entries.map((entry) => entry.updatedAt),
+    ).toEqual([100, 101]);
+  });
+
   it('reports deadline overflow on enqueue and pause resume without mutating the source model', () => {
     let now = Number.MAX_SAFE_INTEGER - 5;
     const overflowingStore = createNotificationStore({ now: () => now, defaultDurationMs: 10 });
@@ -397,6 +560,111 @@ describe('createNotificationStore', () => {
         },
       ],
     });
+
+    const bidiStore = createNotificationStore({
+      now: () => {
+        throw new Error('clock\u001b[31m\u202Espoof');
+      },
+    });
+    const bidiResult = bidiStore.enqueue(bidiStore.init(), bothNotification);
+    expect(bidiResult).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'invalid-clock', field: 'now' }],
+    });
+    if (bidiResult.ok) throw new Error('Expected invalid clock receipt');
+    expect(bidiResult.diagnostics[0]?.message).not.toContain('\u001b');
+    expect(bidiResult.diagnostics[0]?.message).not.toContain('\u202E');
+  });
+
+  it('contains hostile models and enqueue inputs behind immutable diagnostic receipts', () => {
+    const store = createNotificationStore();
+    let modelReads = 0;
+    const hostileModel = Object.defineProperties(
+      {},
+      {
+        entries: {
+          get: () => {
+            modelReads += 1;
+            throw new Error('entries getter\u001b[31m');
+          },
+        },
+      },
+    );
+    const validation = store.validateModel(hostileModel as NotificationModel);
+    expect(validation).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'invalid-model', field: 'model' }],
+    });
+    expect(modelReads).toBe(0);
+    if (validation.ok) throw new Error('Expected invalid model receipt');
+    expect(validation.diagnostics[0]?.message).not.toContain('\u001b');
+
+    const revocable = Proxy.revocable({}, {});
+    revocable.revoke();
+    expect(() => store.validateModel(revocable.proxy as NotificationModel)).not.toThrow();
+    expect(store.validateModel(revocable.proxy as NotificationModel)).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'invalid-model' }],
+    });
+
+    let inputReads = 0;
+    const hostileInput = Object.defineProperty({}, 'message', {
+      get: () => {
+        inputReads += 1;
+        return 'Owned';
+      },
+    });
+    expect(store.enqueue(store.init(), hostileInput as NotificationEnqueueInput)).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'invalid-message', field: 'input' }],
+    });
+    expect(inputReads).toBe(0);
+  });
+
+  it('detaches a valid mutable forged model before exposing it', () => {
+    const store = createNotificationStore();
+    const forged = {
+      entries: [] as NotificationEntry[],
+      visibleToastIds: [] as number[],
+      nextId: 1,
+      hoveredToastId: null,
+      pausedToast: null,
+    };
+    const validated = store.validateModel(forged);
+    expect(validated.ok).toBe(true);
+    if (!validated.ok) throw new Error('Expected valid forged model');
+
+    forged.nextId = 2;
+    forged.visibleToastIds.push(1);
+    expect(validated.value).toEqual({
+      entries: [],
+      visibleToastIds: [],
+      nextId: 1,
+      hoveredToastId: null,
+      pausedToast: null,
+    });
+    expect(validated.value).not.toBe(forged);
+    expect(Object.isFrozen(validated.value)).toBe(true);
+    expect(Object.isFrozen(validated.value.entries)).toBe(true);
+  });
+
+  it('rejects malformed notification IDs at every public ID boundary', () => {
+    const store = createNotificationStore();
+    const model = store.init();
+
+    for (const id of [Number.NaN, Number.POSITIVE_INFINITY, -1, 0]) {
+      expect(() => store.markRead(model, id)).toThrow(/positive safe integer/i);
+      expect(store.hoverToast(model, id)).toMatchObject({
+        ok: false,
+        diagnostics: [{ field: 'id' }],
+      });
+      expect(store.leaveToast(model, id)).toMatchObject({
+        ok: false,
+        diagnostics: [{ field: 'id' }],
+      });
+      expect(() => store.hideToast(model, id)).toThrow(/positive safe integer/i);
+      expect(() => store.dismiss(model, id)).toThrow(/positive safe integer/i);
+    }
   });
 
   it('retains 100 entries by default without recycling nextId', () => {
@@ -546,6 +814,44 @@ describe('createNotificationStore', () => {
           nextId: 2,
         }),
       ).toThrow(field);
+    }
+  });
+
+  it('rejects Unicode directionality controls from every hydrated notification text field', () => {
+    const store = createNotificationStore();
+    const entry: NotificationEntry = {
+      id: 1,
+      message: 'Valid',
+      detail: 'Valid detail',
+      level: 'info',
+      delivery: 'both',
+      durationMs: 100,
+      createdAt: 1,
+      updatedAt: 1,
+      expiresAt: 101,
+      read: false,
+      occurrences: 1,
+      dedupeKey: 'valid',
+      actionIds: ['retry'],
+    };
+
+    for (const control of UNSAFE_DIRECTIONAL_CONTROLS) {
+      const invalidCases: readonly [Partial<NotificationEntry>, string][] = [
+        [{ message: `Invalid${control}` }, 'entries[0].message'],
+        [{ detail: `Invalid${control}` }, 'entries[0].detail'],
+        [{ dedupeKey: `invalid${control}` }, 'entries[0].dedupeKey'],
+        [{ actionIds: [`invalid${control}`] }, 'entries[0].actionIds[0]'],
+      ];
+
+      for (const [patch, field] of invalidCases) {
+        expect(() =>
+          store.init({
+            entries: [{ ...entry, ...patch }],
+            visibleToastIds: [1],
+            nextId: 2,
+          }),
+        ).toThrow(field);
+      }
     }
   });
 

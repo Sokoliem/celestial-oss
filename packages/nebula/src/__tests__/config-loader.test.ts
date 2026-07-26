@@ -449,15 +449,49 @@ describe('loadConfig', () => {
         {
           id: 'long-error',
           read: () => {
-            throw `\uD800${'x'.repeat(2_000)}`;
+            throw `${'x'.repeat(1_022)}😀tail`;
           },
         },
       ]),
     );
     const longMessage = longResult.diagnostics[0]?.message ?? '';
     expect(longMessage.length).toBeLessThan(1_200);
-    expect(longMessage).not.toContain('\uD800');
+    expect(longMessage).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(longMessage).not.toContain('😀');
+    expect(longMessage).toContain(`${'x'.repeat(1_022)}…`);
     expect(longMessage).toContain('…');
+
+    const hugeDetail = `${'\u001b'.repeat(8 * 1_024 * 1_024)}tail`;
+    const originalReplace = String.prototype.replace;
+    const sanitizedInputLengths: number[] = [];
+    let hugeMessage = '';
+    String.prototype.replace = function (
+      this: string,
+      searchValue: unknown,
+      replaceValue: unknown,
+    ): string {
+      if (replaceValue === '\uFFFD') sanitizedInputLengths.push(String(this).length);
+      return Reflect.apply(originalReplace, this, [searchValue, replaceValue]) as string;
+    };
+    try {
+      const hugeResult = await loadConfig(
+        options([
+          {
+            id: 'huge-error',
+            read: () => {
+              throw hugeDetail;
+            },
+          },
+        ]),
+      );
+      hugeMessage = hugeResult.diagnostics[0]?.message ?? '';
+    } finally {
+      String.prototype.replace = originalReplace;
+    }
+
+    expect(sanitizedInputLengths).toEqual([1_024]);
+    expect(hugeMessage).toContain(`${'\uFFFD'.repeat(1_023)}…`);
+    expect(hugeMessage).not.toContain('\u001b');
   });
 
   it('bounds every adapter stage when stageTimeoutMs is provided', async () => {

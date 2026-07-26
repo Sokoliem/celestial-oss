@@ -3,9 +3,10 @@ import {
   getVNodeMeta,
   type Sub,
   subKind,
+  text,
   type VNode,
 } from '@celestial/core/nebula';
-import { auditA11y } from '@celestial/test';
+import { auditA11y, renderToLines } from '@celestial/test';
 import { describe, expect, it } from 'vitest';
 import { createNotificationStore } from '../notification-store.js';
 import { statusGlyph } from '../status-icon.js';
@@ -126,6 +127,43 @@ describe('createToastManager', () => {
     expect(toastLayer.transparent).toBe(true);
   });
 
+  it('layers the newest height-fitting suffix chronologically at 70x32 and narrow bounds', () => {
+    const manager = createToastManager({
+      width: 44,
+      margin: 1,
+      maxVisibleToasts: 5,
+      now: () => 1,
+    });
+    let [model] = manager.init();
+    for (const marker of ['FIRST', 'SECOND', 'THIRD', 'FOURTH', 'LATEST']) {
+      model = manager.push(model, {
+        message: `${marker} ${'wrapped content '.repeat(12)}`,
+        level: 'info',
+        duration: null,
+      });
+    }
+
+    const standard = renderToLines(
+      manager.layer(text(''), model, { cols: 70, rows: 32 }),
+      { width: 70, height: 32 },
+    ).join('\n');
+    expect(standard).toContain('LATEST');
+    expect(standard).toContain('[x]');
+    expect(standard).toContain('THIRD');
+    expect(standard).toContain('FOURTH');
+    expect(standard).not.toContain('FIRST');
+    expect(standard.indexOf('THIRD')).toBeLessThan(standard.indexOf('FOURTH'));
+    expect(standard.indexOf('FOURTH')).toBeLessThan(standard.indexOf('LATEST'));
+
+    const narrow = renderToLines(
+      manager.layer(text(''), model, { cols: 20, rows: 6 }),
+      { width: 20, height: 6 },
+    ).join('\n');
+    expect(narrow).toContain('LATEST');
+    expect(narrow).toContain('[x]');
+    expect(narrow).not.toContain('FOURTH');
+  });
+
   it('view returns empty text when no toasts', () => {
     const manager = createToastManager();
     const [model] = manager.init();
@@ -189,6 +227,72 @@ describe('createToastManager', () => {
     const [pointerLeft] = manager.update({ type: 'leave', id: shown.toasts[0]!.id }, focused);
     expect(pointerLeft.hoveredToastId).toBe(1);
     expect(pointerLeft.focusedToastId).toBe(1);
+  });
+
+  it('releases hidden focus, hover, pause, and key bindings at the painted-toast boundary', () => {
+    let now = 0;
+    const manager = createToastManager({
+      id: 'painted-window',
+      dismissalOwner: 'host',
+      maxVisibleToasts: 1,
+      now: () => now,
+    });
+    const [initial] = manager.init();
+    const first = manager.push(initial, {
+      message: 'FIRST hidden finite toast',
+      level: 'info',
+      duration: 10,
+    });
+    const [hovered] = manager.update({ type: 'hover', id: 1 }, first);
+    const [focused] = manager.update({ type: 'focus', id: 1 }, hovered);
+    expect(focused).toMatchObject({
+      hoveredToastId: 1,
+      pausedToast: { id: 1, startedAt: 0 },
+      mouseHoveredToastId: 1,
+      focusedToastId: 1,
+    });
+
+    now = 1;
+    const second = manager.push(focused, {
+      message: 'SECOND painted persistent toast',
+      level: 'success',
+      duration: null,
+    });
+    expect(second.visibleToastIds).toEqual([1, 2]);
+    expect(second.toasts.map((toast) => toast.id)).toEqual([1, 2]);
+    expect(second).toMatchObject({
+      hoveredToastId: null,
+      pausedToast: null,
+      mouseHoveredToastId: null,
+      focusedToastId: null,
+    });
+    const painted = renderToLines(manager.view(second), { width: 44, height: 8 }).join('\n');
+    expect(painted).toContain('SECOND');
+    expect(painted).not.toContain('FIRST');
+    expect(
+      flattenSubs(manager.subscriptions(second)).some(
+        (kind) =>
+          kind.kind === 'key'
+          && kind.msg.type === 'dismiss'
+          && kind.msg.id === 1,
+      ),
+    ).toBe(false);
+    expect(collectSubKinds(manager.subscriptions(second))).toContain('timer');
+
+    const [hiddenHovered] = manager.update({ type: 'hover', id: 1 }, second);
+    const [hiddenFocused] = manager.update({ type: 'focus', id: 1 }, hiddenHovered);
+    expect(hiddenFocused).toMatchObject({
+      hoveredToastId: null,
+      pausedToast: null,
+      mouseHoveredToastId: null,
+      focusedToastId: null,
+    });
+
+    now = 11;
+    const [expired] = manager.update({ type: 'tick' }, hiddenFocused);
+    expect(expired.visibleToastIds).toEqual([2]);
+    expect(expired.toasts.map((toast) => toast.id)).toEqual([2]);
+    expect(collectSubKinds(manager.subscriptions(expired))).not.toContain('timer');
   });
 
   it('pauses timed expiry across the whole toast surface, not only its close button', () => {
@@ -377,6 +481,57 @@ describe('createToastManager', () => {
     expect(() => manager.view(controlBearing)).toThrow(ToastValidationError);
   });
 
+  it('rejects Unicode directionality controls before toast projection', () => {
+    const store = createNotificationStore({ now: () => 1 });
+    const manager = createToastManager({ store, dismissalOwner: 'host' });
+    const valid = store.enqueue(store.init(), {
+      message: 'Valid',
+      detail: 'Valid detail',
+      level: 'info',
+      delivery: 'toast',
+      dedupeKey: 'valid',
+      actionIds: ['retry'],
+    });
+    if (!valid.ok) throw new Error(valid.diagnostics[0]?.message);
+    const controls = [
+      '\u061c',
+      '\u200e',
+      '\u200f',
+      '\u2028',
+      '\u2029',
+      '\u202a',
+      '\u202b',
+      '\u202c',
+      '\u202d',
+      '\u202e',
+      '\u2066',
+      '\u2067',
+      '\u2068',
+      '\u2069',
+    ] as const;
+
+    for (const control of controls) {
+      const invalidCases: readonly [Record<string, unknown>, string][] = [
+        [{ message: `Unsafe${control}message` }, 'entries[0].message'],
+        [{ detail: `Unsafe${control}detail` }, 'entries[0].detail'],
+        [{ dedupeKey: `unsafe${control}key` }, 'entries[0].dedupeKey'],
+        [{ actionIds: [`unsafe${control}action`] }, 'entries[0].actionIds[0]'],
+      ];
+
+      for (const [patch, field] of invalidCases) {
+        const model = {
+          ...valid.value.model,
+          entries: [{ ...valid.value.model.entries[0]!, ...patch }],
+        } as never;
+        expect(manager.project(model)).toMatchObject({
+          ok: false,
+          diagnostics: [{ field }],
+        });
+        expect(() => manager.view(model)).toThrow(ToastValidationError);
+      }
+    }
+  });
+
   it('uses assertive alert semantics only for errors and exposes a real close button', () => {
     const manager = createToastManager({ now: () => 1 });
     const [model] = manager.init();
@@ -407,9 +562,28 @@ describe('createToastManager', () => {
     expect(() => createToastManager({ maxToasts: 0 })).toThrow(/maxEntries/i);
     expect(() => createToastManager({ width: Number.NaN })).toThrow(/width/i);
     expect(() => createToastManager({ id: 42 as never })).toThrow(/id/i);
+    expect(() => createToastManager({ id: 'i'.repeat(257) })).toThrow(/at most 256/i);
+    expect(() => createToastManager({ id: 'bad\u202eid' })).toThrow(/id/i);
+    expect(() => createToastManager({ id: 'bad\ud800id' })).toThrow(/id/i);
     expect(() => createToastManager({ placement: 'center' as never })).toThrow(/placement/i);
     expect(() => createToastManager({ dismissalOwner: 'both' as never })).toThrow(/dismissalOwner/i);
     expect(() => createToastManager({ store: {} as never })).toThrow(/store/i);
+    const realStore = createNotificationStore();
+    expect(() =>
+      createToastManager({
+        store: {
+          init: realStore.init,
+          validateModel: realStore.validateModel,
+          enqueue: realStore.enqueue,
+          hoverToast: realStore.hoverToast,
+          leaveToast: realStore.leaveToast,
+          hideToast: realStore.hideToast,
+          hideLatestToast: realStore.hideLatestToast,
+          tick: realStore.tick,
+          panic: realStore.panic,
+        } as never,
+      }),
+    ).toThrow(/NotificationStore/i);
     expect(() => createToastManager({ store: createNotificationStore(), maxToasts: 20 })).toThrow(/injected store/i);
     const shared = createNotificationStore();
     const manager = createToastManager({ store: shared });
@@ -425,6 +599,12 @@ describe('createToastManager', () => {
     expect(() => manager.update({ type: 'unknown' } as never, model)).toThrow(/Unknown/);
     expect(() => manager.update({ type: 'dismiss', id: Number.NaN }, model)).toThrow(/dismiss id/i);
     expect(() => manager.update({ type: 'push', toast: null as never }, model)).toThrow(ToastValidationError);
+    expect(() =>
+      manager.push(model, {
+        message: 'm'.repeat(4_097),
+        level: 'info',
+      }),
+    ).toThrow(ToastValidationError);
     expect(() => manager.view(model, null as never)).toThrow(/view options/i);
     expect(() => manager.layer({ kind: 'text', content: 'base' }, model, null as never)).toThrow(/bounds/i);
     expect(() =>
@@ -434,6 +614,161 @@ describe('createToastManager', () => {
         { cols: Number.NaN, rows: 10 },
       ),
     ).toThrow(/bounds.cols/i);
+  });
+
+  it('caps aggregate toast validation diagnostics and error text', () => {
+    const diagnostics = Array.from({ length: 1_000 }, (_, index) => ({
+      code: 'invalid-model' as const,
+      field: `entries[${String(index)}].message`,
+      message: 'invalid '.repeat(100),
+    }));
+    const error = new ToastValidationError(diagnostics);
+
+    expect(error.diagnostics).toHaveLength(100);
+    expect(Object.isFrozen(error.diagnostics)).toBe(true);
+    expect(error.message.length).toBeLessThanOrEqual(4_096);
+    expect(error.message).toContain('Invalid toast');
+  });
+
+  it('quotes unknown message types without leaking terminal or directionality controls', () => {
+    const manager = createToastManager({ now: () => 1 });
+    const [model] = manager.init();
+
+    for (const unsafe of ['\n', '\u001b', '\u202e', '\u2066', '\ud800']) {
+      let message = '';
+      try {
+        manager.update({ type: `unknown${unsafe}type` } as never, model);
+      } catch (error) {
+        message = error instanceof Error ? error.message : '';
+      }
+      expect(message).toContain('Unknown toast message type');
+      expect(message).not.toContain(unsafe);
+    }
+
+    let boundedMessage = '';
+    try {
+      manager.update({ type: 'x'.repeat(10_000) } as never, model);
+    } catch (error) {
+      boundedMessage = error instanceof Error ? error.message : '';
+    }
+    expect(boundedMessage.length).toBeLessThan(1_100);
+    expect(boundedMessage).toContain('…');
+  });
+
+  it('snapshots config, messages, options, interactions, and facade model state exactly once', () => {
+    const store = createNotificationStore({ now: () => 1 });
+    const mutableConfig = {
+      store,
+      dismissalOwner: 'host' as 'host' | 'toast',
+    };
+    const manager = createToastManager(mutableConfig);
+    mutableConfig.dismissalOwner = 'toast';
+    const [initial] = manager.init();
+    const shown = manager.push(initial, { message: 'Snapshot target', level: 'info' });
+    expect(collectSubKinds(manager.subscriptions(shown))).not.toContain('key');
+
+    let configReads = 0;
+    const accessorConfig = Object.defineProperty({}, 'dismissalOwner', {
+      enumerable: true,
+      get: () => {
+        configReads += 1;
+        return 'toast';
+      },
+    });
+    expect(() => createToastManager(accessorConfig)).toThrow(/own data property/i);
+    expect(configReads).toBe(0);
+
+    let messageReads = 0;
+    const alternatingMessage = Object.defineProperty({}, 'type', {
+      enumerable: true,
+      get: () => {
+        messageReads += 1;
+        return messageReads === 1 ? 'noop' : 'dismiss-latest';
+      },
+    });
+    expect(() => manager.update(alternatingMessage as ToastMsg, shown)).toThrow(/own data property/i);
+    expect(messageReads).toBe(0);
+    expect(shown.visibleToastIds).toHaveLength(1);
+
+    let optionReads = 0;
+    const accessorOptions = Object.defineProperty({}, 'width', {
+      enumerable: true,
+      get: () => {
+        optionReads += 1;
+        return 30;
+      },
+    });
+    expect(() => manager.view(shown, accessorOptions)).toThrow(/own data property/i);
+    expect(optionReads).toBe(0);
+
+    let interactionReads = 0;
+    const accessorInteraction = Object.defineProperty({ focusedToastId: null }, 'mouseHoveredToastId', {
+      enumerable: true,
+      get: () => {
+        interactionReads += 1;
+        return null;
+      },
+    });
+    expect(() => manager.project(shown, accessorInteraction as never)).toThrow(/own data property/i);
+    expect(interactionReads).toBe(0);
+
+    let modelReads = 0;
+    const accessorModel = Object.defineProperty({ ...shown }, 'focusedToastId', {
+      enumerable: false,
+      get: () => {
+        modelReads += 1;
+        return null;
+      },
+    }) as ToastModel;
+    expect(() => manager.view(accessorModel)).toThrow(/own data property/i);
+    expect(modelReads).toBe(0);
+  });
+
+  it('contains revoked proxies at every public toast boundary', () => {
+    const manager = createToastManager({ now: () => 1 });
+    const [initial] = manager.init();
+    const shown = manager.push(initial, { message: 'Revoked boundary', level: 'info' });
+
+    const revokedMessage = Proxy.revocable({ type: 'noop' }, {});
+    revokedMessage.revoke();
+    expect(() => manager.update(revokedMessage.proxy as ToastMsg, shown)).toThrow(TypeError);
+
+    const revokedModel = Proxy.revocable(shown, {});
+    revokedModel.revoke();
+    expect(() => manager.update({ type: 'noop' }, revokedModel.proxy)).toThrow(TypeError);
+    expect(() => manager.view(revokedModel.proxy)).toThrow(TypeError);
+    expect(() => manager.subscriptions(revokedModel.proxy)).toThrow(TypeError);
+    expect(() => manager.getInteraction(revokedModel.proxy)).toThrow(TypeError);
+    expect(manager.project(revokedModel.proxy)).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: 'invalid-model' }],
+    });
+
+    const revokedViewOptions = Proxy.revocable({ width: 30 }, {});
+    revokedViewOptions.revoke();
+    expect(() => manager.view(shown, revokedViewOptions.proxy)).toThrow(TypeError);
+
+    const revokedBounds = Proxy.revocable({ cols: 40, rows: 10 }, {});
+    revokedBounds.revoke();
+    expect(() => manager.layer({ kind: 'text', content: 'base' }, shown, revokedBounds.proxy)).toThrow(TypeError);
+
+    const revokedLayerOptions = Proxy.revocable({ placement: 'top-right' as const }, {});
+    revokedLayerOptions.revoke();
+    expect(() => manager.layer({ kind: 'text', content: 'base' }, shown, { cols: 40, rows: 10 }, revokedLayerOptions.proxy)).toThrow(TypeError);
+
+    const revokedInteraction = Proxy.revocable(
+      {
+        mouseHoveredToastId: null,
+        focusedToastId: null,
+      },
+      {},
+    );
+    revokedInteraction.revoke();
+    expect(() => manager.project(shown, revokedInteraction.proxy)).toThrow(TypeError);
+
+    const revokedConfig = Proxy.revocable({ dismissalOwner: 'host' as const }, {});
+    revokedConfig.revoke();
+    expect(() => createToastManager(revokedConfig.proxy)).toThrow(TypeError);
   });
 });
 

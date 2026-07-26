@@ -13,20 +13,19 @@ import type {
   KeyEvent,
   KeyModifiers,
   ResolvedAction,
-  Sub as Subscription,
-  TaskState,
-  TaskStatus,
-} from '@celestial/core/nebula';
-import { resolveAction, Sub, subKind } from '@celestial/core/nebula';
+  Sub as Subscription, TaskState, TaskStatus } from '@celestial/core/nebula';
+import { isActionRegistry, resolveAction, Sub, subKind } from '@celestial/core/nebula';
 import {
   actionCommands,
   actionKeyBindings,
+  createActionResolutionSnapshot,
+  formatActionShortcut,
   type UnbindableShortcut,
   unbindableActionShortcuts,
 } from './actions.js';
 import { generateFocusGroupId } from './focus-group.js';
-import {
-  formatKeyBinding,
+import { MAX_RENDER_CELLS } from './internal.js';
+import { formatKeyBinding,
   isKeyBindingRepresentable,
   type KeyBinding,
   keyMap,
@@ -40,18 +39,16 @@ import {
   type NotificationCenterState,
   type NotificationCenterViewport,
 } from './notification-center.js';
-import type {
-  NotificationDiagnostic,
-  NotificationEnqueueInput,
-  NotificationModel,
-  NotificationModelSeed,
-  NotificationStore,
+import {
+  isNotificationStore,
+  type NotificationDiagnostic,
+  type NotificationEnqueueInput,
+  type NotificationModel,
+  type NotificationModelSeed,
+  type NotificationStore,
 } from './notification-store.js';
 import {
-  type Command,
-  createPaletteState,
-  getSelectedCommand,
-  type PaletteState,
+  type Command, createPaletteState, filterPaletteCommandIds, getSelectedCommand, type PaletteState,
   paletteUpdate,
 } from './palette.js';
 import type { StatusBarSection } from './status-bar.js';
@@ -64,10 +61,74 @@ import {
   ToastValidationError,
 } from './toast.js';
 
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/u;
 const LONE_SURROGATE = /[\uD800-\uDFFF]/u;
 const TASK_STATUSES = new Set<TaskStatus>(['idle', 'running', 'success', 'error', 'cancelled']);
 const MODIFIERS = new Set(['ctrl', 'alt', 'shift']);
+const INTERACTIVE_TOAST_MESSAGES = new Set([
+  'dismiss',
+  'dismiss-latest',
+  'hover',
+  'leave',
+  'focus',
+]);
+const MAX_DIAGNOSTIC_LENGTH = 1_024;
+const MAX_ACTION_ID_LENGTH = 256;
+const MAX_SHELL_SHORTCUT_LENGTH = 4_096;
+const MAX_NOTIFICATION_HOVER_TARGET_LENGTH = 4_096;
+
+function sanitizeAppShellDiagnostic(input: string): string {
+  let output = '';
+  let truncated = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const code = input.charCodeAt(index);
+    const next = input.charCodeAt(index + 1);
+    let chunk: string;
+    if (code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) {
+      chunk = input.slice(index, index + 2);
+      index += 1;
+    } else {
+      const unsafe =
+        code <= 0x1f ||
+        (code >= 0x7f && code <= 0x9f) ||
+        code === 0x061c ||
+        code === 0x200e ||
+        code === 0x200f ||
+        (code >= 0x2028 && code <= 0x202e) ||
+        (code >= 0x2066 && code <= 0x2069) ||
+        (code >= 0xd800 && code <= 0xdfff);
+      chunk = unsafe ? `\\u${code.toString(16).padStart(4, '0')}` : input[index]!;
+    }
+    if (output.length + chunk.length > MAX_DIAGNOSTIC_LENGTH - 1) {
+      truncated = true;
+      break;
+    }
+    output += chunk;
+  }
+  return truncated ? `${output}…` : output;
+}
+
+function describeAppShellError(error: unknown): string {
+  let detail: string | null = null;
+  try {
+    if (typeof error === 'string') {
+      detail = error;
+    } else if ((typeof error === 'object' && error !== null) || typeof error === 'function') {
+      const message = Reflect.get(error, 'message');
+      if (typeof message === 'string') detail = message;
+    }
+  } catch {
+    // Hostile error inspection is contained below.
+  }
+  if (detail === null) {
+    try {
+      detail = String(error);
+    } catch {
+      detail = '<unprintable>';
+    }
+  }
+  return sanitizeAppShellDiagnostic(detail);
+}
 
 export interface AppShellShortcuts {
   readonly palette?: string;
@@ -325,12 +386,18 @@ function diagnostic(
   message: string,
   extra: Pick<AppShellDiagnostic, 'actionId' | 'shortcut'> = {},
 ): AppShellDiagnostic {
+  const actionId = extra.actionId;
+  const shortcut = extra.shortcut;
   return Object.freeze({
     code,
-    field,
-    message,
-    ...(extra.actionId === undefined ? {} : { actionId: extra.actionId }),
-    ...(extra.shortcut === undefined ? {} : { shortcut: extra.shortcut }),
+    field: sanitizeAppShellDiagnostic(field),
+    message: sanitizeAppShellDiagnostic(message),
+    ...(typeof actionId === 'string'
+      ? { actionId: sanitizeAppShellDiagnostic(actionId) }
+      : {}),
+    ...(typeof shortcut === 'string'
+      ? { shortcut: sanitizeAppShellDiagnostic(shortcut) }
+      : {}),
   });
 }
 
@@ -365,6 +432,16 @@ function parseShellShortcut(
         'invalid-shortcut',
         field,
         'Shortcut must be a string; only an absent value uses the default.',
+      ),
+    };
+  }
+  if (declaration.length > MAX_SHELL_SHORTCUT_LENGTH) {
+    return {
+      diagnostic: diagnostic(
+        'invalid-shortcut',
+        field,
+        `Shortcut must be no longer than ${String(MAX_SHELL_SHORTCUT_LENGTH)} characters.`,
+        { shortcut: declaration },
       ),
     };
   }
@@ -431,9 +508,7 @@ function parseShellShortcut(
   } catch (error) {
     return {
       diagnostic: diagnostic(
-        'invalid-shortcut',
-        field,
-        error instanceof Error ? error.message : String(error),
+        'invalid-shortcut', field, describeAppShellError(error),
         { shortcut: declaration },
       ),
     };
@@ -474,11 +549,15 @@ function resolveShellShortcuts(configured: AppShellShortcuts | undefined): {
   const chordOwners = new Map<string, AppShellShortcutName>();
 
   for (const name of Object.keys(DEFAULT_SHORTCUTS) as AppShellShortcutName[]) {
-    const configuredValue = configured?.[name];
-    const source = configuredValue === undefined ? 'default' : 'configured';
+    const hasConfiguredValue =
+      configured !== undefined && Object.hasOwn(configured, name);
+    const configuredValue = hasConfiguredValue
+      ? configured[name]
+      : DEFAULT_SHORTCUTS[name];
+    const source = hasConfiguredValue ? 'configured' : 'default';
     const result = parseShellShortcut(
       name,
-      configuredValue === undefined ? DEFAULT_SHORTCUTS[name] : configuredValue,
+      configuredValue,
       source,
     );
     if ('diagnostic' in result) {
@@ -540,13 +619,34 @@ function snapshotPalette(palette: PaletteState): PaletteState {
   });
 }
 
+function reconcilePaletteCommands<M>(palette: PaletteState, commands: readonly Command<M>[]): PaletteState {
+  const filteredIds = filterPaletteCommandIds(palette.query, commands);
+  const priorId = palette.filteredIds[palette.selectedIndex];
+  const retainedIndex = priorId === undefined ? -1 : filteredIds.indexOf(priorId);
+  const selectedIndex = filteredIds.length === 0 ? 0 : retainedIndex >= 0 ? retainedIndex : Math.min(palette.selectedIndex, filteredIds.length - 1);
+  return snapshotPalette({
+    ...palette,
+    filteredIds,
+    selectedIndex,
+  });
+}
+
 function snapshotConfirm(confirm: AppShellConfirmState | null): AppShellConfirmState | null {
-  return confirm === null ? null : Object.freeze({ ...confirm });
+  return confirm === null ? null : Object.freeze({
+        id: confirm.id,
+        title: confirm.title,
+        ...(confirm.description === undefined ? {} : { description: confirm.description }),
+        ...(confirm.confirmLabel === undefined ? {} : { confirmLabel: confirm.confirmLabel }),
+        ...(confirm.cancelLabel === undefined ? {} : { cancelLabel: confirm.cancelLabel }),
+        ...(confirm.variant === undefined ? {} : { variant: confirm.variant }),
+      });
 }
 
 function snapshotCenter(state: NotificationCenterState): NotificationCenterState {
   return Object.freeze({
-    ...state,
+    open: state.open,
+    selectedId: state.selectedId,
+    expandedId: state.expandedId,
     actionCursor:
       state.actionCursor === null
         ? null
@@ -554,6 +654,9 @@ function snapshotCenter(state: NotificationCenterState): NotificationCenterState
             notificationId: state.actionCursor.notificationId,
             actionId: state.actionCursor.actionId,
           }),
+    rowScrollOffset: state.rowScrollOffset,
+    hoveredTarget: state.hoveredTarget,
+    focusWithin: state.focusWithin,
   });
 }
 
@@ -607,6 +710,10 @@ function frozenResult(
     receipts: Object.freeze(receipts.map((receipt) => Object.freeze({ ...receipt }))),
     diagnostics: Object.freeze([...diagnostics]),
   });
+}
+
+function appendResultDiagnostics(result: AppShellUpdateResult, diagnostics: readonly AppShellDiagnostic[]): AppShellUpdateResult {
+  return diagnostics.length === 0 ? result : frozenResult(result.model, result.receipts, dedupeDiagnostics([...diagnostics, ...result.diagnostics]));
 }
 
 function validateConfirm(confirm: unknown, field = 'confirm'): AppShellDiagnostic[] {
@@ -736,6 +843,7 @@ function validateCenter(state: unknown): AppShellDiagnostic[] {
       || !validPositiveId(state.actionCursor.notificationId)
       || typeof state.actionCursor.actionId !== 'string'
       || state.actionCursor.actionId.trim().length === 0
+      || state.actionCursor.actionId.length > MAX_ACTION_ID_LENGTH
       || unsafeText(state.actionCursor.actionId)
     ) {
       diagnostics.push(
@@ -813,7 +921,35 @@ function validateTasks(tasks: unknown): AppShellDiagnostic[] {
   return diagnostics;
 }
 
+function snapshotPublicTaskState(state: unknown, label: string): TaskState {
+  const snapshot = Object.freeze(snapshotOwnDataRecord(state, label));
+  const diagnostics = validateTaskState(snapshot, label);
+  if (diagnostics.length > 0) {
+    throw new TypeError(`Invalid app-shell task state: ${diagnostics[0]!.message}`);
+  }
+  return snapshotTaskState(snapshot as unknown as TaskState);
+}
+
+function snapshotPublicTasks(tasks: unknown): readonly AppShellTaskRecord[] {
+  const values = snapshotDenseArrayValues(tasks, 'App-shell task summary input');
+  const snapshots = values.map((task, index) => {
+    const label = `App-shell task summary input[${String(index)}]`;
+    const record = snapshotOwnDataRecord(task, label);
+    return Object.freeze({
+      id: record.id as string,
+      ...(record.label === undefined ? {} : { label: record.label as string }),
+      state: snapshotPublicTaskState(record.state, `${label}.state`),
+    });
+  });
+  const diagnostics = validateTasks(snapshots);
+  if (diagnostics.length > 0) {
+    throw new TypeError(`Invalid app-shell task summary input: ${diagnostics[0]!.message}`);
+  }
+  return snapshotTasks(snapshots);
+}
+
 export function summarizeAppShellTasks(tasks: readonly AppShellTaskRecord[]): AppShellTaskSummary {
+  tasks = snapshotPublicTasks(tasks);
   let idle = 0;
   let running = 0;
   let succeeded = 0;
@@ -864,10 +1000,29 @@ function resolveTaskMessage(
   return printableSingleLine(resolved, `Task ${state.status} message`);
 }
 
+function snapshotTaskMessages(messages: unknown): AppShellTaskMessages {
+  const snapshot = snapshotOwnDataRecord(messages, 'App-shell task messages');
+  for (const field of ['idle', 'running', 'success', 'error', 'cancelled'] as const) {
+    const value = snapshot[field];
+    const required = field !== 'idle';
+    if (required && value === undefined) {
+      throw new TypeError(`App-shell task messages requires own data property ${field}.`);
+    }
+    if (value === undefined || (field === 'idle' && value === null)) continue;
+    if (typeof value !== 'string' && typeof value !== 'function') {
+      throw new TypeError(`App-shell task message ${field} must be printable text or a function.`);
+    }
+    if (typeof value === 'string') {
+      printableSingleLine(value, `Task ${field} message`);
+    }
+  }
+  return Object.freeze(snapshot) as unknown as AppShellTaskMessages;
+}
+
 export function getAppShellTaskMessage(
-  state: TaskState,
-  messages: AppShellTaskMessages,
-): string | null {
+  state: TaskState, messages: AppShellTaskMessages): string | null {
+  state = snapshotPublicTaskState(state, 'App-shell task message state');
+  messages = snapshotTaskMessages(messages);
   switch (state.status) {
     case 'idle':
       return resolveTaskMessage(messages.idle, state);
@@ -880,6 +1035,7 @@ export function getAppShellTaskMessage(
     case 'cancelled':
       return resolveTaskMessage(messages.cancelled, state);
   }
+  throw new TypeError('App-shell task status is invalid.');
 }
 
 function removeEscapeSubscription<M>(subscription: Subscription<M>): Subscription<M> {
@@ -903,19 +1059,17 @@ function validViewport(viewport: unknown): AppShellDiagnostic[] {
   if (
     typeof viewport.cols !== 'number'
     || !Number.isSafeInteger(viewport.cols)
-    || viewport.cols <= 0
-  ) {
+    || viewport.cols <= 0 || viewport.cols > MAX_RENDER_CELLS) {
     diagnostics.push(
-      diagnostic('invalid-context', 'viewport.cols', 'Viewport columns must be a positive safe integer.'),
+      diagnostic('invalid-context', 'viewport.cols', `Viewport columns must be a positive safe integer no greater than ${String(MAX_RENDER_CELLS)}.`),
     );
   }
   if (
     typeof viewport.rows !== 'number'
     || !Number.isSafeInteger(viewport.rows)
-    || viewport.rows <= 0
-  ) {
+    || viewport.rows <= 0 || viewport.rows > MAX_RENDER_CELLS) {
     diagnostics.push(
-      diagnostic('invalid-context', 'viewport.rows', 'Viewport rows must be a positive safe integer.'),
+      diagnostic('invalid-context', 'viewport.rows', `Viewport rows must be a positive safe integer no greater than ${String(MAX_RENDER_CELLS)}.`),
     );
   }
   return diagnostics;
@@ -949,7 +1103,12 @@ function validateToastInteraction(interaction: unknown): AppShellDiagnostic[] {
 
 function validateCenterHoverTarget(value: unknown): boolean {
   if (value === null || value === 'close' || value === 'list') return true;
-  if (typeof value !== 'string') return false;
+  if (
+    typeof value !== 'string'
+    || value.length > MAX_NOTIFICATION_HOVER_TARGET_LENGTH
+  ) {
+    return false;
+  }
   const idTarget = /^(?:row|dismiss):([1-9][0-9]*)$/u.exec(value);
   if (idTarget) return validPositiveId(Number(idTarget[1]));
   const actionTarget = /^action:([1-9][0-9]*):(.+)$/u.exec(value);
@@ -958,6 +1117,7 @@ function validateCenterHoverTarget(value: unknown): boolean {
     const actionId = decodeURIComponent(actionTarget[2]!);
     return (
       actionId.trim().length > 0
+      && actionId.length <= MAX_ACTION_ID_LENGTH
       && !unsafeText(actionId)
       && encodeURIComponent(actionId) === actionTarget[2]
     );
@@ -966,10 +1126,281 @@ function validateCenterHoverTarget(value: unknown): boolean {
   }
 }
 
-function validateAppShellModel(
+function validateNotificationCenterMessageBoundary(
   value: unknown,
-  store: NotificationStore,
 ): readonly AppShellDiagnostic[] {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return Object.freeze([
+      diagnostic(
+        'invalid-model',
+        'message.msg',
+        'Notification-center message must be an object with a string type.',
+      ),
+    ]);
+  }
+
+  switch (value.type) {
+    case 'open':
+    case 'close':
+    case 'toggle':
+    case 'escape':
+    case 'select-previous':
+    case 'select-next':
+    case 'select-first':
+    case 'select-last':
+    case 'page-up':
+    case 'page-down':
+    case 'toggle-expanded':
+    case 'action-previous':
+    case 'action-next':
+    case 'activate':
+    case 'leave-target':
+    case 'noop':
+      return Object.freeze([]);
+    case 'select':
+    case 'activate-row':
+    case 'mark-read':
+      return validPositiveId(value.id)
+        ? Object.freeze([])
+        : Object.freeze([
+            diagnostic(
+              'invalid-model',
+              'message.msg.id',
+              `Notification-center ${value.type} ID must be a positive safe integer.`,
+            ),
+          ]);
+    case 'activate-action': {
+      const diagnostics: AppShellDiagnostic[] = [];
+      if (!validPositiveId(value.id)) {
+        diagnostics.push(
+          diagnostic(
+            'invalid-model',
+            'message.msg.id',
+            'Notification-center activate-action ID must be a positive safe integer.',
+          ),
+        );
+      }
+      if (
+        typeof value.actionId !== 'string'
+        || value.actionId.trim().length === 0
+        || value.actionId.length > 256
+        || unsafeText(value.actionId)
+      ) {
+        diagnostics.push(
+          diagnostic(
+            'invalid-model',
+            'message.msg.actionId',
+            'Notification-center action ID must be non-empty printable single-line text no longer than 256 characters.',
+          ),
+        );
+      }
+      return Object.freeze(diagnostics);
+    }
+    case 'dismiss':
+      return value.id === undefined || validPositiveId(value.id)
+        ? Object.freeze([])
+        : Object.freeze([
+            diagnostic(
+              'invalid-model',
+              'message.msg.id',
+              'Notification-center dismiss ID must be a positive safe integer when supplied.',
+            ),
+          ]);
+    case 'scroll':
+      return typeof value.delta === 'number' && Number.isFinite(value.delta)
+        ? Object.freeze([])
+        : Object.freeze([
+            diagnostic(
+              'invalid-model',
+              'message.msg.delta',
+              'Notification-center scroll delta must be finite.',
+            ),
+          ]);
+    case 'hover-target':
+      return (
+        value.target !== null
+        && typeof value.target === 'string'
+        && validateCenterHoverTarget(value.target)
+      )
+        ? Object.freeze([])
+        : Object.freeze([
+            diagnostic(
+              'invalid-model',
+              'message.msg.target',
+              'Notification-center hover target is malformed.',
+            ),
+          ]);
+    case 'focus-changed':
+      return typeof value.within === 'boolean'
+        ? Object.freeze([])
+        : Object.freeze([
+            diagnostic(
+              'invalid-model',
+              'message.msg.within',
+              'Notification-center focus state must be boolean.',
+            ),
+          ]);
+    default:
+      return Object.freeze([
+        diagnostic(
+          'invalid-model',
+          'message.msg.type',
+          `Unknown notification-center message type ${JSON.stringify(value.type)}.`,
+        ),
+      ]);
+  }
+}
+
+function validateToastMessageBoundary(
+  value: unknown,
+): readonly AppShellDiagnostic[] {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return Object.freeze([
+      diagnostic(
+        'invalid-model',
+        'message.msg',
+        'Toast message must be an object with a string type.',
+      ),
+    ]);
+  }
+
+  switch (value.type) {
+    case 'dismiss-latest':
+    case 'panic':
+    case 'tick':
+    case 'noop':
+      return Object.freeze([]);
+    case 'dismiss':
+    case 'hover':
+    case 'leave':
+      return validPositiveId(value.id)
+        ? Object.freeze([])
+        : Object.freeze([
+            diagnostic(
+              'invalid-model',
+              'message.msg.id',
+              `Toast ${value.type} ID must be a positive safe integer.`,
+            ),
+          ]);
+    case 'focus':
+      return value.id === null || validPositiveId(value.id)
+        ? Object.freeze([])
+        : Object.freeze([
+            diagnostic(
+              'invalid-model',
+              'message.msg.id',
+              'Toast focus ID must be null or a positive safe integer.',
+            ),
+          ]);
+    case 'push': {
+      if (!isRecord(value.toast)) {
+        return Object.freeze([
+          diagnostic(
+            'invalid-model',
+            'message.msg.toast',
+            'Toast push payload must be an object.',
+          ),
+        ]);
+      }
+      const diagnostics: AppShellDiagnostic[] = [];
+      if (
+        typeof value.toast.message !== 'string'
+        || value.toast.message.trim().length === 0
+        || unsafeText(value.toast.message)
+      ) {
+        diagnostics.push(
+          diagnostic(
+            'invalid-model',
+            'message.msg.toast.message',
+            'Toast message must be non-empty printable text.',
+          ),
+        );
+      }
+      if (
+        value.toast.level !== 'info'
+        && value.toast.level !== 'success'
+        && value.toast.level !== 'warning'
+        && value.toast.level !== 'error'
+      ) {
+        diagnostics.push(
+          diagnostic(
+            'invalid-model',
+            'message.msg.toast.level',
+            'Toast level must be info, success, warning, or error.',
+          ),
+        );
+      }
+      if (
+        value.toast.duration !== undefined
+        && value.toast.duration !== null
+        && (
+          typeof value.toast.duration !== 'number'
+          || !Number.isSafeInteger(value.toast.duration)
+          || value.toast.duration < 0
+        )
+      ) {
+        diagnostics.push(
+          diagnostic(
+            'invalid-model',
+            'message.msg.toast.duration',
+            'Toast duration must be null or a non-negative safe integer.',
+          ),
+        );
+      }
+      return Object.freeze(diagnostics);
+    }
+    default:
+      return Object.freeze([
+        diagnostic(
+          'invalid-model',
+          'message.msg.type',
+          `Unknown toast message type ${JSON.stringify(value.type)}.`,
+        ),
+      ]);
+  }
+}
+
+function validateAppShellMessageBoundary(
+  value: Record<string, unknown>,
+): readonly AppShellDiagnostic[] {
+  if (value.type === 'shell-request-action') {
+    const diagnostics: AppShellDiagnostic[] = [];
+    if (
+      typeof value.actionId !== 'string'
+      || value.actionId.trim().length === 0
+      || value.actionId.length > MAX_ACTION_ID_LENGTH
+      || unsafeText(value.actionId)
+    ) {
+      diagnostics.push(
+        diagnostic(
+          'invalid-model',
+          'message.actionId',
+          `Action ID must be non-empty printable single-line text no longer than ${String(MAX_ACTION_ID_LENGTH)} characters.`,
+        ),
+      );
+    }
+    if (value.source !== 'palette' && value.source !== 'shortcut') {
+      diagnostics.push(
+        diagnostic(
+          'invalid-model',
+          'message.source',
+          'Direct action request source must be palette or shortcut.',
+        ),
+      );
+    }
+    return Object.freeze(diagnostics);
+  }
+  if (value.type === 'shell-notification-center') {
+    return validateNotificationCenterMessageBoundary(value.msg);
+  }
+  if (value.type === 'shell-toast') {
+    return validateToastMessageBoundary(value.msg);
+  }
+  return Object.freeze([]);
+}
+
+function validateAppShellModel(
+  value: unknown, store: NotificationStore, registryById: ReadonlyMap<string, unknown>): readonly AppShellDiagnostic[] {
   if (!isRecord(value)) {
     return Object.freeze([
       diagnostic('invalid-model', 'model', 'App shell model must be an object.'),
@@ -1005,27 +1436,190 @@ function validateAppShellModel(
         ...validated.diagnostics.map((entry) =>
           diagnostic(
             'notification-store',
-            `notifications.${entry.field}`,
-            entry.message,
-          ),
-        ),
-      );
+            `notifications.${entry.field}`, entry.message)));
+    } else {
+      for (let entryIndex = 0; entryIndex < validated.value.entries.length; entryIndex += 1) {
+        const entry = validated.value.entries[entryIndex]!;
+        for (let actionIndex = 0; actionIndex < entry.actionIds.length; actionIndex += 1) {
+          const actionId = entry.actionIds[actionIndex]!;
+          if (!registryById.has(actionId)) {
+            diagnostics.push(
+              diagnostic(
+                'unknown-action',
+                `notifications.entries[${String(entryIndex)}].actionIds[${String(actionIndex)}]`,
+                `Notification references unknown action ${JSON.stringify(actionId)}.`,
+                { actionId },
+              ),
+            );
+          }
+        }
+      }
     }
   } catch (error) {
     diagnostics.push(
       diagnostic(
-        'notification-store',
-        'notifications',
-        `Notification store validation threw: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      ),
-    );
+        'notification-store', 'notifications', `Notification store validation threw: ${describeAppShellError(error)}`));
   }
 
   diagnostics.push(...validateToastInteraction(value.toastInteraction));
   diagnostics.push(...validateTasks(value.tasks));
   return Object.freeze(diagnostics);
+}
+
+type NormalizedAppShellModel =
+  | { readonly ok: true; readonly value: AppShellModel }
+  | { readonly ok: false; readonly diagnostics: readonly AppShellDiagnostic[] };
+
+function normalizeAppShellModel(value: unknown, store: NotificationStore, registryById: ReadonlyMap<string, unknown>): NormalizedAppShellModel {
+  try {
+    if (!isRecord(value)) {
+      return {
+        ok: false,
+        diagnostics: Object.freeze([diagnostic('invalid-model', 'model', 'App shell model must be an object.')]),
+      };
+    }
+    const boundary = snapshotOwnDataRecord(value, 'model');
+    if (isRecord(boundary.palette)) {
+      const palette = snapshotOwnDataRecord(boundary.palette, 'model.palette');
+      if (Array.isArray(palette.filteredIds)) {
+        palette.filteredIds = snapshotDenseArrayValues(palette.filteredIds, 'model.palette.filteredIds');
+      }
+      boundary.palette = Object.freeze(palette);
+    }
+    if (isRecord(boundary.confirm)) {
+      boundary.confirm = Object.freeze(snapshotOwnDataRecord(boundary.confirm, 'model.confirm'));
+    }
+    if (isRecord(boundary.notificationCenter)) {
+      const center = snapshotOwnDataRecord(boundary.notificationCenter, 'model.notificationCenter');
+      if (isRecord(center.actionCursor)) {
+        center.actionCursor = Object.freeze(snapshotOwnDataRecord(center.actionCursor, 'model.notificationCenter.actionCursor'));
+      }
+      boundary.notificationCenter = Object.freeze(center);
+    }
+    if (isRecord(boundary.toastInteraction)) {
+      boundary.toastInteraction = Object.freeze(snapshotOwnDataRecord(boundary.toastInteraction, 'model.toastInteraction'));
+    }
+    if (Array.isArray(boundary.tasks)) {
+      boundary.tasks = Object.freeze(
+        snapshotDenseArrayValues(boundary.tasks, 'model.tasks').map((task, index) => {
+          const taskSnapshot = snapshotOwnDataRecord(task, `model.tasks[${String(index)}]`);
+          if (isRecord(taskSnapshot.state)) {
+            taskSnapshot.state = Object.freeze(snapshotOwnDataRecord(taskSnapshot.state, `model.tasks[${String(index)}].state`));
+          }
+          return Object.freeze(taskSnapshot);
+        }),
+      );
+    }
+    const snapshot = snapshotModel(boundary as unknown as AppShellModel);
+    const diagnostics = validateAppShellModel(snapshot, store, registryById);
+    if (diagnostics.length > 0) return { ok: false, diagnostics };
+
+    const validatedNotifications = store.validateModel(snapshot.notifications);
+    if (!validatedNotifications.ok) {
+      return {
+        ok: false,
+        diagnostics: Object.freeze(
+          validatedNotifications.diagnostics.map((entry) => diagnostic('notification-store', `notifications.${entry.field}`, entry.message)),
+        ),
+      };
+    }
+    return {
+      ok: true,
+      value: snapshotModel({
+        palette: snapshot.palette,
+        helpOpen: snapshot.helpOpen,
+        confirm: snapshot.confirm,
+        notificationCenter: snapshot.notificationCenter,
+        notifications: validatedNotifications.value,
+        toastInteraction: snapshot.toastInteraction,
+        tasks: snapshot.tasks,
+      }),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostics: Object.freeze([diagnostic('invalid-model', 'model', `App shell model could not be inspected: ${describeAppShellError(error)}`)]),
+    };
+  }
+}
+
+function snapshotOwnDataRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new TypeError(`${label} must be an object.`);
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > 1_000) {
+    throw new RangeError(`${label} must not define more than 1000 properties.`);
+  }
+  const snapshot = Object.create(null) as Record<string, unknown>;
+  for (const key of keys) {
+    if (typeof key !== 'string') {
+      throw new TypeError(`${label} must not define symbol properties.`);
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !('value' in descriptor)) {
+      throw new TypeError(`${label}.${key} must be an own data property.`);
+    }
+    Object.defineProperty(snapshot, key, {
+      configurable: false,
+      enumerable: descriptor.enumerable,
+      writable: true,
+      value: descriptor.value,
+    });
+  }
+  return snapshot;
+}
+
+function snapshotDenseArrayValues(value: unknown, label: string): unknown[] {
+  if (!Array.isArray(value)) throw new TypeError(`${label} must be an array.`);
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+  const length = lengthDescriptor !== undefined && 'value' in lengthDescriptor ? lengthDescriptor.value : undefined;
+  if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 0 || length > 100_000) {
+    throw new RangeError(`${label} length must be a non-negative safe integer no greater than 100000.`);
+  }
+  const values: unknown[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor === undefined) {
+      throw new TypeError(`${label} must be dense; index ${String(index)} is missing.`);
+    }
+    if (!('value' in descriptor)) {
+      throw new TypeError(`${label}[${String(index)}] must be an own data property.`);
+    }
+    values.push(descriptor.value);
+  }
+  return values;
+}
+
+type NormalizedAppShellConfig<HostModel, HostMsg> =
+  | {
+      readonly ok: true;
+      readonly value: AppShellConfig<HostModel, HostMsg>;
+    }
+  | {
+      readonly ok: false;
+      readonly diagnostics: readonly AppShellDiagnostic[];
+    };
+
+function normalizeAppShellConfig<HostModel, HostMsg>(value: unknown): NormalizedAppShellConfig<HostModel, HostMsg> {
+  try {
+    const snapshot = snapshotOwnDataRecord(value, 'config');
+    for (const field of ['shortcuts', 'notifications', 'toast'] as const) {
+      const nested = snapshot[field];
+      if (nested !== undefined && isRecord(nested)) {
+        snapshot[field] = Object.freeze(snapshotOwnDataRecord(nested, `config.${field}`));
+      }
+    }
+    return {
+      ok: true,
+      value: Object.freeze(snapshot) as unknown as AppShellConfig<HostModel, HostMsg>,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostics: Object.freeze([diagnostic('invalid-config', 'config', `App shell config could not be snapshotted: ${describeAppShellError(error)}`)]),
+    };
+  }
 }
 
 function validateConfigShape(value: unknown): readonly AppShellDiagnostic[] {
@@ -1085,14 +1679,10 @@ function validateConfigShape(value: unknown): readonly AppShellDiagnostic[] {
   }
 
   const registry = value.registry;
-  if (!isRecord(registry)) {
+  if (!isActionRegistry(registry)) {
     diagnostics.push(
       diagnostic(
-        'invalid-config',
-        'registry',
-        'registry must be one ActionRegistry object.',
-      ),
-    );
+        'invalid-config', 'registry', 'registry must be one canonical ActionRegistry object.'));
   } else {
     if (!Array.isArray(registry.actions)) {
       diagnostics.push(
@@ -1178,13 +1768,7 @@ function validateConfigShape(value: unknown): readonly AppShellDiagnostic[] {
             } catch (error) {
               diagnostics.push(
                 diagnostic(
-                  'invalid-config',
-                  'registry.byId',
-                  `registry.byId.get threw: ${
-                    error instanceof Error ? error.message : String(error)
-                  }`,
-                ),
-              );
+                  'invalid-config', 'registry.byId', `registry.byId.get threw: ${describeAppShellError(error)}`));
             }
           }
         }
@@ -1281,14 +1865,10 @@ function validateConfigShape(value: unknown): readonly AppShellDiagnostic[] {
   }
 
   const store = value.notificationStore;
-  if (!isRecord(store)) {
+  if (!isNotificationStore(store)) {
     diagnostics.push(
       diagnostic(
-        'invalid-config',
-        'notificationStore',
-        'notificationStore must be one exact NotificationStore object.',
-      ),
-    );
+        'invalid-config', 'notificationStore', 'notificationStore must be one canonical NotificationStore object.'));
   } else {
     for (const method of [
       'init',
@@ -1467,10 +2047,12 @@ function printablePaletteCharacter(event: KeyEvent): string | null {
 export function createAppShell<HostModel, HostMsg>(
   config: AppShellConfig<HostModel, HostMsg>,
 ): AppShell<HostModel, HostMsg> {
-  const shapeDiagnostics = validateConfigShape(config);
-  if (!isRecord(config)) {
-    throw new AppShellValidationError('Invalid app shell config', shapeDiagnostics);
+  const normalizedConfig = normalizeAppShellConfig<HostModel, HostMsg>(config);
+  if (!normalizedConfig.ok) {
+    throw new AppShellValidationError('Invalid app shell config', normalizedConfig.diagnostics);
   }
+  config = normalizedConfig.value;
+  const shapeDiagnostics = validateConfigShape(config);
   const shortcutProjection = resolveShellShortcuts(
     isRecord(config.shortcuts) ? config.shortcuts : undefined,
   );
@@ -1496,12 +2078,29 @@ export function createAppShell<HostModel, HostMsg>(
   } catch (error) {
     throw new AppShellValidationError('Invalid app shell toast config', [
       diagnostic(
-        'invalid-config',
-        'toast',
-        error instanceof Error ? error.message : String(error),
-      ),
-    ]);
+        'invalid-config', 'toast', describeAppShellError(error))]);
   }
+
+  const globalFocusDecision = (
+    hostModel: HostModel,
+    model: AppShellModel,
+  ): { readonly ok: true; readonly allowed: boolean } | { readonly ok: false; readonly diagnostics: readonly AppShellDiagnostic[] } => {
+    try {
+      const allowed = config.canUseGlobalShortcuts(hostModel, model);
+      if (typeof allowed !== 'boolean') {
+        return {
+          ok: false,
+          diagnostics: Object.freeze([diagnostic('invalid-context', 'canUseGlobalShortcuts', 'canUseGlobalShortcuts must return boolean.')]),
+        };
+      }
+      return { ok: true, allowed };
+    } catch (error) {
+      return {
+        ok: false,
+        diagnostics: Object.freeze([diagnostic('invalid-context', 'canUseGlobalShortcuts', `Focus guard threw: ${describeAppShellError(error)}`)]),
+      };
+    }
+  };
 
   const scopeAllowedOrThrow = (
     scope: ActionScope,
@@ -1517,12 +2116,9 @@ export function createAppShell<HostModel, HostMsg>(
       throw new AppShellValidationError('Action scope resolution failed', [
         diagnostic(
           'invalid-context',
-          `actions.${action.descriptor.id}.scope`,
-          `isScopeActive threw: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-          { actionId: action.descriptor.id },
-        ),
+          `actions.${action.descriptor.id}.scope`, `isScopeActive threw: ${describeAppShellError(error)}`,
+          { actionId: action.descriptor.id,
+        }),
       ]);
     }
     if (typeof allowed !== 'boolean') {
@@ -1547,6 +2143,7 @@ export function createAppShell<HostModel, HostMsg>(
     if (
       typeof actionId !== 'string'
       || actionId.trim().length === 0
+      || actionId.length > MAX_ACTION_ID_LENGTH
       || unsafeText(actionId)
     ) {
       return {
@@ -1555,7 +2152,7 @@ export function createAppShell<HostModel, HostMsg>(
           diagnostic(
             'unknown-action',
             'actionId',
-            'Action ID must be non-empty printable single-line text.',
+            `Action ID must be non-empty printable single-line text no longer than ${String(MAX_ACTION_ID_LENGTH)} characters.`,
           ),
         ]),
       };
@@ -1570,12 +2167,7 @@ export function createAppShell<HostModel, HostMsg>(
         diagnostics: Object.freeze([
           diagnostic(
             'invalid-context',
-            `actions.${actionId}.when`,
-            `Action availability threw: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-            { actionId },
-          ),
+            `actions.${actionId}.when`, `Action availability threw: ${describeAppShellError(error)}`, { actionId }),
         ]),
       };
     }
@@ -1649,14 +2241,8 @@ export function createAppShell<HostModel, HostMsg>(
             [
               diagnostic(
                 'invalid-context',
-                `actions.${actionId}.when`,
-                `Action availability threw: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-                { actionId },
-              ),
-            ],
-          );
+                `actions.${actionId}.when`, `Action availability threw: ${describeAppShellError(error)}`, { actionId }),
+          ]);
         }
         if (action === undefined) {
           throw new AppShellValidationError(
@@ -1698,11 +2284,7 @@ export function createAppShell<HostModel, HostMsg>(
     if (error instanceof AppShellValidationError) throw error;
     throw new AppShellValidationError('Invalid app shell notification config', [
       diagnostic(
-        'invalid-config',
-        'notifications',
-        error instanceof Error ? error.message : String(error),
-      ),
-    ]);
+        'invalid-config', 'notifications', describeAppShellError(error))]);
   }
 
   const toastProjection = (
@@ -1730,11 +2312,7 @@ export function createAppShell<HostModel, HostMsg>(
           ? error.diagnostics.map(notificationDiagnostic)
           : [
               diagnostic(
-                'invalid-model',
-                'toastInteraction',
-                error instanceof Error ? error.message : String(error),
-              ),
-            ];
+                'invalid-model', 'toastInteraction', describeAppShellError(error))];
       return { ok: false, diagnostics: Object.freeze(entries) };
     }
   };
@@ -1766,46 +2344,79 @@ export function createAppShell<HostModel, HostMsg>(
     };
   };
 
-  const projectActions = (
+  const clearToastOwnership = (
     model: AppShellModel,
-    hostModel: HostModel,
-  ): AppShellProjection => {
-    const modelDiagnostics = validateAppShellModel(model, store);
-    if (modelDiagnostics.length > 0) {
+  ):
+    | { readonly ok: true; readonly model: AppShellModel }
+    | {
+        readonly ok: false;
+        readonly diagnostics: readonly AppShellDiagnostic[];
+      } => {
+    if (
+      model.toastInteraction.mouseHoveredToastId === null
+      && model.toastInteraction.focusedToastId === null
+      && model.notifications.hoveredToastId === null
+      && model.notifications.pausedToast === null
+    ) {
+      return { ok: true, model };
+    }
+
+    let projected: ReturnType<(typeof toastManager)['project']>;
+    try {
+      projected = toastManager.project(model.notifications, {
+        mouseHoveredToastId: null,
+        focusedToastId: null,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        diagnostics: Object.freeze([
+          diagnostic(
+            'notification-store',
+            'toastInteraction',
+            `Hidden toast ownership could not be cleared: ${describeAppShellError(error)}`,
+          ),
+        ]),
+      };
+    }
+    if (!projected.ok) {
+      return {
+        ok: false,
+        diagnostics: Object.freeze(
+          projected.diagnostics.map(notificationDiagnostic),
+        ),
+      };
+    }
+    return commitToastModel(model, projected.value);
+  };
+
+  const hasSurfaceAboveToast = (model: AppShellModel): boolean =>
+    model.confirm !== null
+    || model.palette.open
+    || model.helpOpen
+    || model.notificationCenter.open;
+
+  const hasSurfaceAboveCenter = (model: AppShellModel): boolean =>
+    model.confirm !== null || model.palette.open || model.helpOpen;
+
+  const projectActions = (
+    model: AppShellModel, hostModel: HostModel): AppShellProjection => {
+    const normalizedModel = normalizeAppShellModel(model, store, config.registry.byId);
+    if (!normalizedModel.ok) {
       return Object.freeze({
         commands: Object.freeze([]),
         keyBindings: Object.freeze([]),
         helpBindings: Object.freeze([]),
-        diagnostics: modelDiagnostics,
+        diagnostics: normalizedModel.diagnostics,
       });
     }
+    model = normalizedModel.value;
 
     const diagnostics: AppShellDiagnostic[] = [];
     let globalAllowed = false;
-    try {
-      const focusDecision = config.canUseGlobalShortcuts(hostModel, model);
-      if (typeof focusDecision !== 'boolean') {
-        diagnostics.push(
-          diagnostic(
-            'invalid-context',
-            'canUseGlobalShortcuts',
-            'canUseGlobalShortcuts must return boolean.',
-          ),
-        );
-      } else {
-        globalAllowed = focusDecision;
-      }
-    } catch (error) {
-      diagnostics.push(
-        diagnostic(
-          'invalid-context',
-          'canUseGlobalShortcuts',
-          `Focus guard threw: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        ),
-      );
-    }
+    const focusDecision = globalFocusDecision(hostModel, model);
+    if (focusDecision.ok) globalAllowed = focusDecision.allowed;
+    else diagnostics.push(...focusDecision.diagnostics);
 
     const scopeCache = new Map<string, boolean>();
     const projectScope = (
@@ -1826,10 +2437,8 @@ export function createAppShell<HostModel, HostMsg>(
           diagnostics.push(
             diagnostic(
               'invalid-context',
-              `actions.${action.descriptor.id}.scope`,
-              error instanceof Error ? error.message : String(error),
-              { actionId: action.descriptor.id },
-            ),
+              `actions.${action.descriptor.id}.scope`, describeAppShellError(error),
+              { actionId: action.descriptor.id }),
           );
         }
         scopeCache.set(key, false);
@@ -1840,9 +2449,11 @@ export function createAppShell<HostModel, HostMsg>(
     let commands: Command<AppShellMsg>[] = [];
     let actionBindings: KeyBinding<AppShellMsg>[] = [];
     try {
+      const resolution = createActionResolutionSnapshot(config.registry, hostModel);
       commands = actionCommands(config.registry, hostModel, {
         includeDisabled: config.includeDisabledActions ?? true,
         includeUndiscoverable: config.includeUndiscoverableActions ?? false,
+        resolution,
         isScopeActive: projectScope,
         toMsg: (actionId) =>
           Object.freeze({
@@ -1853,6 +2464,7 @@ export function createAppShell<HostModel, HostMsg>(
       });
       actionBindings = actionKeyBindings(config.registry, hostModel, {
         includeDisabled: config.includeDisabledActions ?? true,
+        resolution,
         isScopeActive: projectScope,
         toMsg: (actionId) =>
           Object.freeze({
@@ -1863,19 +2475,14 @@ export function createAppShell<HostModel, HostMsg>(
       });
       diagnostics.push(
         ...unbindableActionShortcuts(config.registry, hostModel, {
+          resolution,
           isScopeActive: projectScope,
         }).map(unbindableDiagnostic),
       );
     } catch (error) {
       diagnostics.push(
         diagnostic(
-          'invalid-context',
-          'registry',
-          `Action projection threw: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        ),
-      );
+          'invalid-context', 'registry', `Action projection threw: ${describeAppShellError(error)}`));
       commands = [];
       actionBindings = [];
     }
@@ -1971,7 +2578,11 @@ export function createAppShell<HostModel, HostMsg>(
         { type: 'shell-toggle-help' },
         'Toggle keyboard help',
         () =>
-          model.helpOpen
+          (
+            model.helpOpen
+            && model.confirm === null
+            && !model.palette.open
+          )
           || (globalAllowed
             && model.confirm === null
             && !model.palette.open
@@ -1985,7 +2596,12 @@ export function createAppShell<HostModel, HostMsg>(
         { type: 'shell-toggle-notifications' },
         'Toggle notifications',
         () =>
-          model.notificationCenter.open
+          (
+            model.notificationCenter.open
+            && model.confirm === null
+            && !model.palette.open
+            && !model.helpOpen
+          )
           || (globalAllowed
             && model.confirm === null
             && !model.palette.open
@@ -2022,6 +2638,8 @@ export function createAppShell<HostModel, HostMsg>(
       ownedShellBindings.map(({ owner, binding }) => [bindingChord(binding), owner]),
     );
     const acceptedActionBindings: KeyBinding<AppShellMsg>[] = [];
+    const rejectedShortcutDisplays = new Map<string, Set<string>>();
+    const rejectedShortcutDeclarations = new Map<string, Set<string>>();
     for (const binding of actionBindings) {
       const chord = bindingChord(binding);
       const owner = reservedChords.get(chord);
@@ -2030,6 +2648,25 @@ export function createAppShell<HostModel, HostMsg>(
           ? binding.msg.actionId
           : undefined;
       if (owner !== undefined) {
+        const display = formatKeyBinding(binding.key, binding.modifiers);
+        if (actionId !== undefined) {
+          const displays = rejectedShortcutDisplays.get(actionId) ?? new Set();
+          displays.add(display);
+          rejectedShortcutDisplays.set(actionId, displays);
+
+          const declarations = rejectedShortcutDeclarations.get(actionId) ?? new Set();
+          for (const declaration of config.registry.byId.get(actionId)?.shortcuts ?? []) {
+            try {
+              if (formatActionShortcut(declaration) === display) {
+                declarations.add(declaration);
+              }
+            } catch {
+              // Malformed declarations are already covered by the unbindable
+              // shortcut diagnostics from the coordinated projection.
+            }
+          }
+          rejectedShortcutDeclarations.set(actionId, declarations);
+        }
         diagnostics.push(
           diagnostic(
             'conflicting-shortcut',
@@ -2037,7 +2674,7 @@ export function createAppShell<HostModel, HostMsg>(
             `Action shortcut conflicts with shell shortcuts.${owner}; the shell binding owns this chord.`,
             {
               ...(actionId === undefined ? {} : { actionId }),
-              shortcut: formatKeyBinding(binding.key, binding.modifiers),
+              shortcut: display,
             },
           ),
         );
@@ -2052,6 +2689,27 @@ export function createAppShell<HostModel, HostMsg>(
           && (priorWhen === undefined || priorWhen()),
       });
     }
+    commands = commands.map((command) => {
+      const displays = rejectedShortcutDisplays.get(command.id);
+      if (displays === undefined) return command;
+      const remainingDisplays = command.shortcut?.split(', ').filter((display) => !displays.has(display)) ?? [];
+      const descriptor = config.registry.byId.get(command.id);
+      const rejectedDeclarations = rejectedShortcutDeclarations.get(command.id) ?? new Set();
+      const keywords =
+        descriptor === undefined
+          ? command.keywords
+          : [
+              descriptor.id,
+              ...(descriptor.description === undefined ? [] : [descriptor.description]),
+              ...(descriptor.shortcuts ?? []).filter((declaration) => !rejectedDeclarations.has(declaration)),
+            ];
+      const { shortcut: _shortcut, keywords: _keywords, ...base } = command;
+      return {
+        ...base,
+        ...(remainingDisplays.length === 0 ? {} : { shortcut: remainingDisplays.join(', ') }),
+        ...(keywords === undefined ? {} : { keywords }),
+      };
+    });
 
     const localBindings: KeyBinding<AppShellMsg>[] = [];
     if (model.confirm !== null) {
@@ -2114,14 +2772,15 @@ export function createAppShell<HostModel, HostMsg>(
 
   const initialize = (
     hostModel: HostModel,
-    seed: AppShellModelSeed = {},
-  ): AppShellModel => {
-    if (!isRecord(seed)) {
+    seed: AppShellModelSeed = {}): AppShellModel => {
+    let modelSeed: AppShellModelSeed;
+    try {
+      modelSeed = Object.freeze(snapshotOwnDataRecord(seed, 'seed')) as unknown as AppShellModelSeed;
+    } catch (error) {
       throw new AppShellValidationError('Invalid app shell seed', [
-        diagnostic('invalid-model', 'seed', 'App shell seed must be an object.'),
+        diagnostic('invalid-model', 'seed', `App shell seed could not be snapshotted: ${describeAppShellError(error)}`),
       ]);
     }
-    const modelSeed = seed as AppShellModelSeed;
 
     let notifications: NotificationModel;
     try {
@@ -2129,10 +2788,7 @@ export function createAppShell<HostModel, HostMsg>(
     } catch (error) {
       throw new AppShellValidationError('Invalid app shell notification seed', [
         diagnostic(
-          'notification-store',
-          'notifications',
-          error instanceof Error ? error.message : String(error),
-        ),
+          'notification-store', 'notifications', describeAppShellError(error)),
       ]);
     }
     const requestedInteraction =
@@ -2153,11 +2809,7 @@ export function createAppShell<HostModel, HostMsg>(
       if (error instanceof AppShellValidationError) throw error;
       throw new AppShellValidationError('Invalid app shell toast seed', [
         diagnostic(
-          'invalid-model',
-          'toastInteraction',
-          error instanceof Error ? error.message : String(error),
-        ),
-      ]);
+          'invalid-model', 'toastInteraction', describeAppShellError(error))]);
     }
     const validatedNotifications = store.validateModel(initialToast);
     if (!validatedNotifications.ok) {
@@ -2176,10 +2828,7 @@ export function createAppShell<HostModel, HostMsg>(
     } catch (error) {
       throw new AppShellValidationError('Invalid app shell notification center seed', [
         diagnostic(
-          'invalid-model',
-          'notificationCenter',
-          error instanceof Error ? error.message : String(error),
-        ),
+          'invalid-model', 'notificationCenter', describeAppShellError(error)),
       ]);
     }
     const candidate = {
@@ -2194,11 +2843,19 @@ export function createAppShell<HostModel, HostMsg>(
       toastInteraction: toastManager.getInteraction(initialToast),
       tasks: modelSeed.tasks === undefined ? [] : modelSeed.tasks,
     } as AppShellModel;
-    const diagnostics = validateAppShellModel(candidate, store);
-    if (diagnostics.length > 0) {
-      throw new AppShellValidationError('Invalid app shell seed', diagnostics);
+    const normalized = normalizeAppShellModel(candidate, store, config.registry.byId);
+    if (!normalized.ok) {
+      throw new AppShellValidationError('Invalid app shell seed', normalized.diagnostics);
     }
-    return snapshotModel(candidate);
+    if (!hasSurfaceAboveToast(normalized.value)) return normalized.value;
+    const cleared = clearToastOwnership(normalized.value);
+    if (!cleared.ok) {
+      throw new AppShellValidationError(
+        'Invalid layered app shell seed',
+        cleared.diagnostics,
+      );
+    }
+    return cleared.model;
   };
 
   const requestActionResult = (
@@ -2237,11 +2894,7 @@ export function createAppShell<HostModel, HostMsg>(
       }
       return frozenResult(model, [], [
         diagnostic(
-          'invalid-model',
-          'notificationCenter.message',
-          error instanceof Error ? error.message : String(error),
-        ),
-      ]);
+          'invalid-model', 'notificationCenter.message', describeAppShellError(error))]);
     }
 
     let projected: ReturnType<(typeof toastManager)['project']>;
@@ -2250,11 +2903,7 @@ export function createAppShell<HostModel, HostMsg>(
     } catch (error) {
       return frozenResult(model, [], [
         diagnostic(
-          'invalid-model',
-          'toastInteraction',
-          error instanceof Error ? error.message : String(error),
-        ),
-      ]);
+          'invalid-model', 'toastInteraction', describeAppShellError(error))]);
     }
     if (!projected.ok) {
       return frozenResult(
@@ -2286,22 +2935,58 @@ export function createAppShell<HostModel, HostMsg>(
     );
   };
 
+  const openingFocusDiagnostics = (model: AppShellModel, hostModel: HostModel, surface: string): readonly AppShellDiagnostic[] => {
+    const decision = globalFocusDecision(hostModel, model);
+    if (!decision.ok) return decision.diagnostics;
+    return decision.allowed
+      ? Object.freeze([])
+      : Object.freeze([diagnostic('unavailable-action', 'message.type', `${surface} cannot open while the host focus owner blocks global shortcuts.`)]);
+  };
+
   const update = (
     msg: AppShellMsg,
     model: AppShellModel,
-    context: AppShellContext<HostModel>,
-  ): AppShellUpdateResult => {
-    const diagnostics: AppShellDiagnostic[] = [
-      ...validateAppShellModel(model, store),
-    ];
-    if (!isRecord(context)) {
+    context: AppShellContext<HostModel>): AppShellUpdateResult => {
+    const normalizedModel = normalizeAppShellModel(model, store, config.registry.byId);
+    const diagnostics: AppShellDiagnostic[] = normalizedModel.ok ? [] : [...normalizedModel.diagnostics];
+
+    let contextSnapshot: AppShellContext<HostModel> | null = null;
+    try {
+      const captured = snapshotOwnDataRecord(context, 'context');
+      if (isRecord(captured.viewport)) {
+        captured.viewport = Object.freeze(snapshotOwnDataRecord(captured.viewport, 'context.viewport'));
+      }
+      contextSnapshot = Object.freeze(captured) as unknown as AppShellContext<HostModel>;
+    } catch (error) {
       diagnostics.push(
-        diagnostic('invalid-context', 'context', 'App shell context must be an object.'),
-      );
-    } else {
-      diagnostics.push(...validViewport(context.viewport));
+        diagnostic('invalid-context', 'context', `App shell context could not be snapshotted: ${describeAppShellError(error)}`));
     }
-    if (!isRecord(msg) || typeof msg.type !== 'string') {
+    if (contextSnapshot !== null) {
+      diagnostics.push(...validViewport(contextSnapshot.viewport));
+    }
+
+    let messageSnapshot: AppShellMsg | null = null;
+    try {
+      const captured = snapshotOwnDataRecord(msg, 'message');
+      for (const field of ['confirm', 'msg', 'notification', 'task'] as const) {
+        if (isRecord(captured[field])) {
+          const nested = snapshotOwnDataRecord(captured[field], `message.${field}`);
+          if (field === 'task' && isRecord(nested.state)) {
+            nested.state = Object.freeze(snapshotOwnDataRecord(nested.state, 'message.task.state'));
+          }
+          if (field === 'msg' && isRecord(nested.toast)) {
+            nested.toast = Object.freeze(
+              snapshotOwnDataRecord(nested.toast, 'message.msg.toast'),
+            );
+          }
+          captured[field] = Object.freeze(nested);
+        }
+      }
+      messageSnapshot = Object.freeze(captured) as unknown as AppShellMsg;
+    } catch (error) {
+      diagnostics.push(diagnostic('invalid-model', 'message', `App shell message could not be snapshotted: ${describeAppShellError(error)}`));
+    }
+    if (messageSnapshot !== null && typeof messageSnapshot.type !== 'string') {
       diagnostics.push(
         diagnostic(
           'invalid-model',
@@ -2310,57 +2995,94 @@ export function createAppShell<HostModel, HostMsg>(
         ),
       );
     }
+    if (messageSnapshot !== null && typeof messageSnapshot.type === 'string') {
+      diagnostics.push(
+        ...validateAppShellMessageBoundary(
+          messageSnapshot as unknown as Record<string, unknown>,
+        ),
+      );
+    }
     if (diagnostics.length > 0) {
       return frozenResult(model, [], dedupeDiagnostics(diagnostics));
     }
-
-    const canonicalNotifications = store.validateModel(model.notifications);
-    if (!canonicalNotifications.ok) {
+    if (!normalizedModel.ok || contextSnapshot === null || messageSnapshot === null) {
       return frozenResult(
-        model,
-        [],
-        canonicalNotifications.diagnostics.map(notificationDiagnostic),
-      );
+        model, [], [diagnostic('invalid-model', 'boundary', 'App shell boundary normalization failed.')]);
     }
-    const current = snapshotModel({
-      ...model,
-      notifications: canonicalNotifications.value,
-    });
+    const current = normalizedModel.value;
+    context = contextSnapshot;
+    msg = messageSnapshot;
 
     switch (msg.type) {
       case 'shell-open-palette': {
-        if (current.confirm !== null) return frozenResult(current);
-        const commands = [...projectActions(current, context.hostModel).commands];
+        if (current.confirm !== null || current.palette.open || current.helpOpen || current.notificationCenter.open) {
+          return frozenResult(
+            current,
+            [],
+            [diagnostic('unavailable-action', 'message.type', 'Command palette cannot open while another shell surface owns focus.')],
+          );
+        }
+        const focusDiagnostics = openingFocusDiagnostics(current, context.hostModel, 'Command palette');
+        if (focusDiagnostics.length > 0) {
+          return frozenResult(current, [], focusDiagnostics);
+        }
+        const cleared = clearToastOwnership(current);
+        if (!cleared.ok) {
+          return frozenResult(current, [], cleared.diagnostics);
+        }
+        const base = cleared.model;
+        const projection = projectActions(base, context.hostModel);
+        const commands = [...projection.commands];
         const center = makeCenter(context.hostModel).update(
           { type: 'close' },
-          current.notificationCenter,
-          current.notifications,
+          base.notificationCenter,
+          base.notifications,
           context.viewport,
         );
         return frozenResult(
-          withChanges(current, {
+          withChanges(base, {
             palette: snapshotPalette(
-              paletteUpdate({ type: 'pal-open' }, current.palette, commands),
+              paletteUpdate({ type: 'pal-open' }, base.palette, commands),
             ),
             helpOpen: false,
             notificationCenter: snapshotCenter(center.state),
           }),
+          [],
+          projection.diagnostics,
         );
       }
       case 'shell-toggle-help': {
-        if (current.confirm !== null) return frozenResult(current);
+        if (current.confirm !== null || current.palette.open) {
+          return frozenResult(current, [], [diagnostic('unavailable-action', 'message.type', 'Keyboard help cannot toggle while a higher-priority shell surface owns focus.')]);
+        }
         const opening = !current.helpOpen;
         if (!opening) {
           return frozenResult(withChanges(current, { helpOpen: false }));
         }
+        if (current.palette.open || current.notificationCenter.open) {
+          return frozenResult(
+            current,
+            [],
+            [diagnostic('unavailable-action', 'message.type', 'Keyboard help cannot open while another shell surface owns focus.')],
+          );
+        }
+        const focusDiagnostics = openingFocusDiagnostics(current, context.hostModel, 'Keyboard help');
+        if (focusDiagnostics.length > 0) {
+          return frozenResult(current, [], focusDiagnostics);
+        }
+        const cleared = clearToastOwnership(current);
+        if (!cleared.ok) {
+          return frozenResult(current, [], cleared.diagnostics);
+        }
+        const base = cleared.model;
         const center = makeCenter(context.hostModel).update(
           { type: 'close' },
-          current.notificationCenter,
-          current.notifications,
+          base.notificationCenter,
+          base.notifications,
           context.viewport,
         );
         return frozenResult(
-          withChanges(current, {
+          withChanges(base, {
             palette: snapshotPalette(createPaletteState()),
             helpOpen: true,
             notificationCenter: snapshotCenter(center.state),
@@ -2368,13 +3090,41 @@ export function createAppShell<HostModel, HostMsg>(
         );
       }
       case 'shell-toggle-notifications': {
-        if (current.confirm !== null) return frozenResult(current);
-        const base = current.notificationCenter.open
-          ? current
-          : withChanges(current, {
-              palette: snapshotPalette(createPaletteState()),
-              helpOpen: false,
-            });
+        if (
+          current.confirm !== null
+          || current.palette.open
+          || current.helpOpen
+        ) {
+          return frozenResult(
+            current,
+            [],
+            [diagnostic('unavailable-action', 'message.type', 'Notification center cannot toggle while a higher-priority shell surface owns focus.')],
+          );
+        }
+        if (!current.notificationCenter.open) {
+          if (current.palette.open || current.helpOpen) {
+            return frozenResult(
+              current,
+              [],
+              [diagnostic('unavailable-action', 'message.type', 'Notification center cannot open while another shell surface owns focus.')],
+            );
+          }
+          const focusDiagnostics = openingFocusDiagnostics(current, context.hostModel, 'Notification center');
+          if (focusDiagnostics.length > 0) {
+            return frozenResult(current, [], focusDiagnostics);
+          }
+        }
+        let base = current;
+        if (!current.notificationCenter.open) {
+          const cleared = clearToastOwnership(current);
+          if (!cleared.ok) {
+            return frozenResult(current, [], cleared.diagnostics);
+          }
+          base = withChanges(cleared.model, {
+            palette: snapshotPalette(createPaletteState()),
+            helpOpen: false,
+          });
+        }
         return applyCenterMessage(base, { type: 'toggle' }, context);
       }
       case 'shell-dismiss': {
@@ -2391,16 +3141,16 @@ export function createAppShell<HostModel, HostMsg>(
           );
         }
         if (current.palette.open) {
+          const projection = projectActions(current, context.hostModel);
           return frozenResult(
             withChanges(current, {
               palette: snapshotPalette(
                 paletteUpdate(
                   { type: 'pal-close' },
-                  current.palette,
-                  [...projectActions(current, context.hostModel).commands],
-                ),
-              ),
+                  current.palette, [...projection.commands])),
             }),
+            [],
+            projection.diagnostics,
           );
         }
         if (current.helpOpen) {
@@ -2433,11 +3183,7 @@ export function createAppShell<HostModel, HostMsg>(
                 ? error.diagnostics.map(notificationDiagnostic)
                 : [
                     diagnostic(
-                      'notification-store',
-                      'toast',
-                      error instanceof Error ? error.message : String(error),
-                    ),
-                  ];
+                      'notification-store', 'toast', describeAppShellError(error))];
             return frozenResult(current, [], toastDiagnostics);
           }
         }
@@ -2448,25 +3194,30 @@ export function createAppShell<HostModel, HostMsg>(
         if (confirmDiagnostics.length > 0) {
           return frozenResult(current, [], confirmDiagnostics);
         }
+        const cleared = clearToastOwnership(current);
+        if (!cleared.ok) {
+          return frozenResult(current, [], cleared.diagnostics);
+        }
+        const base = cleared.model;
         const center = makeCenter(context.hostModel).update(
           { type: 'close' },
-          current.notificationCenter,
-          current.notifications,
+          base.notificationCenter,
+          base.notifications,
           context.viewport,
         );
         return frozenResult(
-          withChanges(current, {
+          withChanges(base, {
             palette: snapshotPalette(createPaletteState()),
             helpOpen: false,
             confirm: snapshotConfirm(msg.confirm),
             notificationCenter: snapshotCenter(center.state),
           }),
-          current.confirm === null
+          base.confirm === null
             ? []
             : [
                 {
                   type: 'confirm-resolved',
-                  id: current.confirm.id,
+                  id: base.confirm.id,
                   confirmed: false,
                 },
               ],
@@ -2517,45 +3268,58 @@ export function createAppShell<HostModel, HostMsg>(
         ) {
           return frozenResult(current, [], [
             diagnostic(
-              'invalid-model',
-              'message.char',
-              'Palette input must be one printable Unicode scalar.',
+              'invalid-model', 'message.char', 'Palette input must be one printable Unicode scalar.')]);
+        }
+        if (current.confirm !== null) {
+          return frozenResult(current, [], [
+            diagnostic(
+              'unavailable-action',
+              'message.type',
+              'Palette input is blocked while confirmation owns focus.',
             ),
           ]);
         }
-        const commands = [...projectActions(current, context.hostModel).commands];
+        const projection = projectActions(current, context.hostModel);
+        const commands = [...projection.commands];
         return frozenResult(
           withChanges(current, {
             palette: snapshotPalette(
               paletteUpdate(
                 { type: 'pal-input', char: msg.char },
-                current.palette,
-                commands,
-              ),
-            ),
+                current.palette, commands)),
           }),
+          [],
+          projection.diagnostics,
         );
       }
       case 'shell-palette-backspace':
       case 'shell-palette-up':
       case 'shell-palette-down': {
+        if (current.confirm !== null) {
+          return frozenResult(current, [], [
+            diagnostic(
+              'unavailable-action',
+              'message.type',
+              'Palette navigation is blocked while confirmation owns focus.',
+            ),
+          ]);
+        }
         if (!current.palette.open) return frozenResult(current);
         const paletteType =
           msg.type === 'shell-palette-backspace'
             ? 'pal-backspace'
             : msg.type === 'shell-palette-up'
-              ? 'pal-up'
-              : 'pal-down';
+              ? 'pal-up' : 'pal-down';
+        const projection = projectActions(current, context.hostModel);
         return frozenResult(
           withChanges(current, {
             palette: snapshotPalette(
               paletteUpdate(
                 { type: paletteType },
-                current.palette,
-                [...projectActions(current, context.hostModel).commands],
-              ),
-            ),
+                current.palette, [...projection.commands])),
           }),
+          [],
+          projection.diagnostics,
         );
       }
       case 'shell-palette-select': {
@@ -2569,23 +3333,46 @@ export function createAppShell<HostModel, HostMsg>(
           ]);
         }
         if (!current.palette.open) return frozenResult(current);
-        const commands = [...projectActions(current, context.hostModel).commands];
+        const projection = projectActions(current, context.hostModel);
+        const commands = [...projection.commands];
         const selected = getSelectedCommand(current.palette, commands);
-        if (selected === null) return frozenResult(current);
+        if (selected === null) {
+          const staleId = current.palette.filteredIds[current.palette.selectedIndex];
+          return frozenResult(
+            withChanges(current, {
+              palette: reconcilePaletteCommands(current.palette, commands),
+            }),
+            [],
+            dedupeDiagnostics([
+              ...projection.diagnostics,
+              diagnostic(
+                'unavailable-action',
+                staleId === undefined ? 'palette.selectedIndex' : `actions.${staleId}`,
+                staleId === undefined ? 'Palette has no current command selection.' : 'The selected palette command is no longer available.',
+                {
+                  ...(staleId === undefined ? {} : { actionId: staleId }),
+                },
+              ),
+            ]),
+          );
+        }
         if (selected.disabled) {
-          return frozenResult(current, [], [
-            diagnostic(
-              'unavailable-action',
+          return frozenResult(current,
+            [],
+            dedupeDiagnostics([
+              ...projection.diagnostics,
+              diagnostic('unavailable-action',
               `actions.${selected.id}`,
               `Action ${JSON.stringify(selected.id)} is disabled.`,
-              { actionId: selected.id },
-            ),
-          ]);
+              { actionId: selected.id }),
+            ]),
+          );
         }
         const closedPalette = withChanges(current, {
           palette: snapshotPalette(createPaletteState()),
         });
-        return selected.msg.type === 'shell-request-action'
+        const selectedResult =
+          selected.msg.type === 'shell-request-action'
           ? requestActionResult(
               closedPalette,
               selected.msg.actionId,
@@ -2593,6 +3380,7 @@ export function createAppShell<HostModel, HostMsg>(
               context.hostModel,
             )
           : update(selected.msg, closedPalette, context);
+        return appendResultDiagnostics(selectedResult, projection.diagnostics);
       }
       case 'shell-request-action':
         if (
@@ -2620,6 +3408,55 @@ export function createAppShell<HostModel, HostMsg>(
             ),
           ]);
         }
+        if (msg.source === 'palette') {
+          if (!current.palette.open) {
+            return frozenResult(
+              current,
+              [],
+              [diagnostic('unavailable-action', 'message.source', 'Palette action requests require an open command palette.', { actionId: msg.actionId })],
+            );
+          }
+          const projection = projectActions(current, context.hostModel);
+          const selected = getSelectedCommand(current.palette, [...projection.commands]);
+          if (selected === null) {
+            return frozenResult(
+              withChanges(current, {
+                palette: reconcilePaletteCommands(current.palette, projection.commands),
+              }),
+              [],
+              dedupeDiagnostics([
+                ...projection.diagnostics,
+                diagnostic('unavailable-action', 'message.actionId', 'The selected palette command is no longer available.', { actionId: msg.actionId }),
+              ]),
+            );
+          }
+          if (selected.msg.type !== 'shell-request-action' || selected.msg.actionId !== msg.actionId) {
+            return frozenResult(
+              current,
+              [],
+              dedupeDiagnostics([
+                ...projection.diagnostics,
+                diagnostic('unavailable-action', 'message.actionId', 'Palette action request must match the current palette selection.', {
+                  actionId: msg.actionId,
+                }),
+              ]),
+            );
+          }
+          if (selected.disabled) {
+            return frozenResult(
+              current,
+              [],
+              dedupeDiagnostics([
+                ...projection.diagnostics,
+                diagnostic('unavailable-action', `actions.${selected.id}`, `Action ${JSON.stringify(selected.id)} is disabled.`, { actionId: selected.id }),
+              ]),
+            );
+          }
+          const closedPalette = withChanges(current, {
+            palette: snapshotPalette(createPaletteState()),
+          });
+          return appendResultDiagnostics(requestActionResult(closedPalette, msg.actionId, 'palette', context.hostModel), projection.diagnostics);
+        }
         if (msg.source === 'shortcut') {
           if (
             current.confirm !== null
@@ -2645,14 +3482,9 @@ export function createAppShell<HostModel, HostMsg>(
           } catch (error) {
             return frozenResult(current, [], [
               diagnostic(
-                'invalid-context',
-                'canUseGlobalShortcuts',
-                `Focus guard threw: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-                { actionId: msg.actionId },
-              ),
-            ]);
+                'invalid-context', 'canUseGlobalShortcuts', `Focus guard threw: ${describeAppShellError(error)}`,
+                { actionId: msg.actionId })],
+            );
           }
           if (typeof globalAllowed !== 'boolean') {
             return frozenResult(current, [], [
@@ -2682,12 +3514,15 @@ export function createAppShell<HostModel, HostMsg>(
           context.hostModel,
         );
       case 'shell-notification-center':
-        if (current.confirm !== null) {
+        if (
+          hasSurfaceAboveCenter(current)
+          && msg.msg.type !== 'close'
+        ) {
           return frozenResult(current, [], [
             diagnostic(
               'unavailable-action',
               'message.type',
-              'Notification-center interaction is blocked while confirmation owns focus.',
+              'Notification-center interaction is blocked while a higher-priority shell surface owns focus.',
             ),
           ]);
         }
@@ -2706,6 +3541,19 @@ export function createAppShell<HostModel, HostMsg>(
             ),
           ]);
         }
+        if (
+          !current.notificationCenter.open
+          && (
+            msg.msg.type === 'open'
+            || msg.msg.type === 'toggle'
+          )
+        ) {
+          const cleared = clearToastOwnership(current);
+          if (!cleared.ok) {
+            return frozenResult(current, [], cleared.diagnostics);
+          }
+          return applyCenterMessage(cleared.model, msg.msg, context);
+        }
         return applyCenterMessage(current, msg.msg, context);
       case 'shell-notify': {
         let enqueued: ReturnType<NotificationStore['enqueue']>;
@@ -2714,17 +3562,28 @@ export function createAppShell<HostModel, HostMsg>(
         } catch (error) {
           return frozenResult(current, [], [
             diagnostic(
-              'notification-store',
-              'notification',
-              error instanceof Error ? error.message : String(error),
-            ),
-          ]);
+              'notification-store', 'notification', describeAppShellError(error))]);
         }
         if (!enqueued.ok) {
           return frozenResult(
             current,
             [],
-            enqueued.diagnostics.map(notificationDiagnostic),
+            enqueued.diagnostics.map(notificationDiagnostic));
+        }
+        const unknownActionIndex = enqueued.value.entry.actionIds.findIndex((actionId) => !config.registry.byId.has(actionId));
+        if (unknownActionIndex >= 0) {
+          const actionId = enqueued.value.entry.actionIds[unknownActionIndex]!;
+          return frozenResult(
+            current,
+            [],
+            [
+              diagnostic(
+                'unknown-action',
+                `notification.actionIds[${String(unknownActionIndex)}]`,
+                `Notification references unknown action ${JSON.stringify(actionId)}.`,
+                { actionId },
+              ),
+            ],
           );
         }
         let projected: ReturnType<(typeof toastManager)['project']>;
@@ -2736,11 +3595,7 @@ export function createAppShell<HostModel, HostMsg>(
         } catch (error) {
           return frozenResult(current, [], [
             diagnostic(
-              'notification-store',
-              'notification',
-              error instanceof Error ? error.message : String(error),
-            ),
-          ]);
+              'notification-store', 'notification', describeAppShellError(error))]);
         }
         if (!projected.ok) {
           return frozenResult(
@@ -2773,11 +3628,7 @@ export function createAppShell<HostModel, HostMsg>(
         } catch (error) {
           return frozenResult(current, [], [
             diagnostic(
-              'notification-store',
-              'notification',
-              error instanceof Error ? error.message : String(error),
-            ),
-          ]);
+              'notification-store', 'notification', describeAppShellError(error))]);
         }
       }
       case 'shell-clear-notifications': {
@@ -2810,14 +3661,22 @@ export function createAppShell<HostModel, HostMsg>(
         } catch (error) {
           return frozenResult(current, [], [
             diagnostic(
-              'notification-store',
-              'notifications',
-              error instanceof Error ? error.message : String(error),
-            ),
-          ]);
+              'notification-store', 'notifications', describeAppShellError(error))]);
         }
       }
       case 'shell-toast': {
+        if (
+          hasSurfaceAboveToast(current)
+          && INTERACTIVE_TOAST_MESSAGES.has(msg.msg.type)
+        ) {
+          return frozenResult(current, [], [
+            diagnostic(
+              'unavailable-action',
+              'message.type',
+              'Toast interaction is blocked while a higher-priority shell surface owns focus.',
+            ),
+          ]);
+        }
         const projected = toastProjection(current);
         if (!projected.ok) {
           return frozenResult(current, [], projected.diagnostics);
@@ -2834,11 +3693,7 @@ export function createAppShell<HostModel, HostMsg>(
               ? error.diagnostics.map(notificationDiagnostic)
               : [
                   diagnostic(
-                    'notification-store',
-                    'toast',
-                    error instanceof Error ? error.message : String(error),
-                  ),
-                ];
+                    'notification-store', 'toast', describeAppShellError(error))];
           return frozenResult(current, [], toastDiagnostics);
         }
       }
@@ -2896,19 +3751,36 @@ export function createAppShell<HostModel, HostMsg>(
     model: AppShellModel,
     context: AppShellContext<HostModel>,
   ): Subscription<AppShellMsg> => {
-    if (
-      validateAppShellModel(model, store).length > 0
-      || !isRecord(context)
-      || validViewport(context.viewport).length > 0
-    ) {
-      return Sub.none();
+    const normalizedModel = normalizeAppShellModel(model, store, config.registry.byId);
+    if (!normalizedModel.ok) {
+      throw new AppShellValidationError('Cannot subscribe from invalid app shell model', normalizedModel.diagnostics);
     }
+    model = normalizedModel.value;
 
+    let capturedContext: Record<string, unknown>;
+    try {
+      capturedContext = snapshotOwnDataRecord(context, 'context');
+      if (isRecord(capturedContext.viewport)) {
+        capturedContext.viewport = Object.freeze(snapshotOwnDataRecord(capturedContext.viewport, 'context.viewport'));
+      }
+    } catch (error) {
+      throw new AppShellValidationError('Cannot subscribe from invalid app shell context', [
+        diagnostic('invalid-context', 'context', `App shell context could not be snapshotted: ${describeAppShellError(error)}`),
+      ]);
+    }
+    context = Object.freeze(capturedContext) as unknown as AppShellContext<HostModel>;
+    const contextDiagnostics = validViewport(context.viewport);
+    if (contextDiagnostics.length > 0) {
+      throw new AppShellValidationError('Cannot subscribe from invalid app shell context', contextDiagnostics);
+    }
     const projection = projectActions(model, context.hostModel);
+    if (projection.diagnostics.length > 0) {
+      throw new AppShellValidationError('Cannot subscribe from an invalid app shell projection', projection.diagnostics);
+    }
     const subscriptions: Subscription<AppShellMsg>[] = [
       keyMap(projection.keyBindings),
     ];
-    if (model.palette.open) {
+    if (model.palette.open && model.confirm === null) {
       subscriptions.push(
         Sub.filter(
           Sub.keyEvent((event): AppShellMsg => {
@@ -2922,32 +3794,66 @@ export function createAppShell<HostModel, HostMsg>(
       );
     }
 
-    let centerSubscriptions: Subscription<NotificationCenterMsg>;
-    try {
-      centerSubscriptions = makeCenter(context.hostModel).subscriptions(
-        model.notificationCenter,
-        model.notifications,
+    if (
+      !hasSurfaceAboveCenter(model)
+      && model.notificationCenter.open
+    ) {
+      let centerSubscriptions: Subscription<NotificationCenterMsg>;
+      try {
+        centerSubscriptions = makeCenter(context.hostModel).subscriptions(
+          model.notificationCenter,
+          model.notifications,
+        );
+      } catch (error) {
+        if (error instanceof AppShellValidationError) throw error;
+        throw new AppShellValidationError(
+          'Cannot subscribe to the notification center',
+          [
+            diagnostic(
+              'invalid-context',
+              'notificationCenter.subscriptions',
+              describeAppShellError(error),
+            ),
+          ],
+        );
+      }
+      subscriptions.push(
+        Sub.map(
+          removeEscapeSubscription(centerSubscriptions),
+          (centerMsg): AppShellMsg => ({
+            type: 'shell-notification-center',
+            msg: centerMsg,
+          }),
+        ),
       );
-    } catch {
-      centerSubscriptions = Sub.none();
     }
-    subscriptions.push(
-      Sub.map(
-        removeEscapeSubscription(centerSubscriptions),
-        (centerMsg): AppShellMsg => ({
-          type: 'shell-notification-center',
-          msg: centerMsg,
-        }),
-      ),
-    );
 
-    const projectedToast = toastProjection(model);
-    if (projectedToast.ok) {
+    if (!hasSurfaceAboveToast(model)) {
+      const projectedToast = toastProjection(model);
+      if (!projectedToast.ok) {
+        throw new AppShellValidationError(
+          'Cannot subscribe to invalid app shell toasts',
+          projectedToast.diagnostics,
+        );
+      }
       subscriptions.push(
         Sub.map(
           toastManager.subscriptions(projectedToast.value),
           (toastMsg): AppShellMsg => ({ type: 'shell-toast', msg: toastMsg }),
         ),
+      );
+    } else if (
+      model.notifications.visibleToastIds.some((id) =>
+        model.notifications.entries.some(
+          (entry) => entry.id === id && entry.expiresAt !== null,
+        ),
+      )
+    ) {
+      subscriptions.push(
+        Sub.timer(500, (): AppShellMsg => ({
+          type: 'shell-toast',
+          msg: { type: 'tick' },
+        })),
       );
     }
     return Sub.batch(...subscriptions);
@@ -2955,18 +3861,19 @@ export function createAppShell<HostModel, HostMsg>(
 
   const status = (
     model: AppShellModel,
-    options: AppShellStatusOptions = {},
-  ): AppShellStatusSections => {
-    const diagnostics = [...validateAppShellModel(model, store)];
-    if (!isRecord(options)) {
+    options: AppShellStatusOptions = {}): AppShellStatusSections => {
+    const normalizedModel = normalizeAppShellModel(model, store, config.registry.byId);
+    const diagnostics = normalizedModel.ok ? [] : [...normalizedModel.diagnostics];
+    let optionsSnapshotted = false;
+    try {
+      options = Object.freeze(snapshotOwnDataRecord(options, 'status.options')) as unknown as AppShellStatusOptions;
+      optionsSnapshotted = true;
+    } catch (error) {
       diagnostics.push(
         diagnostic(
-          'invalid-context',
-          'status.options',
-          'App shell status options must be an object.',
-        ),
-      );
-    } else {
+          'invalid-context', 'status.options', `App shell status options could not be snapshotted: ${describeAppShellError(error)}`));
+    }
+    if (optionsSnapshotted) {
       for (const field of ['mode', 'title'] as const) {
         const value = options[field];
         if (
@@ -2996,11 +3903,12 @@ export function createAppShell<HostModel, HostMsg>(
       }
     }
     if (diagnostics.length > 0) {
-      throw new AppShellValidationError(
-        'Cannot derive status from invalid app shell input',
-        diagnostics,
-      );
+      throw new AppShellValidationError('Cannot derive status from invalid app shell input', diagnostics);
     }
+    if (!normalizedModel.ok) {
+      throw new AppShellValidationError('Cannot derive status from invalid app shell input', normalizedModel.diagnostics);
+    }
+    model = normalizedModel.value;
 
     const surfaceMode =
       model.confirm !== null
@@ -3089,20 +3997,19 @@ export function createAppShell<HostModel, HostMsg>(
     notificationStore: store,
     init: initialize,
     validateModel(model: AppShellModel): readonly AppShellDiagnostic[] {
-      return validateAppShellModel(model, store);
+      const normalized = normalizeAppShellModel(model, store, config.registry.byId);
+      return normalized.ok ? Object.freeze([]) : normalized.diagnostics;
     },
     update,
     project: projectActions,
     subscriptions,
     notificationCenter: makeCenter,
     projectToasts(model: AppShellModel): ToastModel {
-      const modelDiagnostics = validateAppShellModel(model, store);
-      if (modelDiagnostics.length > 0) {
-        throw new AppShellValidationError(
-          'Cannot project invalid app shell model',
-          modelDiagnostics,
-        );
+      const normalized = normalizeAppShellModel(model, store, config.registry.byId);
+      if (!normalized.ok) {
+        throw new AppShellValidationError('Cannot project invalid app shell model', normalized.diagnostics);
       }
+      model = normalized.value;
       const projected = toastProjection(model);
       if (!projected.ok) {
         throw new AppShellValidationError(

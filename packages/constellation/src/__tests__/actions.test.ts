@@ -1,7 +1,7 @@
 import { type ActionDescriptor, Cmd, createActionRegistry, extractNodeText, text } from '@celestial/core/nebula';
 import { createTestApp } from '@celestial/test';
 import { describe, expect, it } from 'vitest';
-import { actionCommands, actionKeyBindings, formatActionShortcut, unbindableActionShortcuts } from '../actions.js';
+import { actionCommands, actionKeyBindings, createActionResolutionSnapshot, formatActionShortcut, unbindableActionShortcuts } from '../actions.js';
 import { helpView, keyMap } from '../keyboard.js';
 
 type Model = { readonly canSave: boolean };
@@ -28,10 +28,103 @@ describe('actionCommands', () => {
     expect(save?.keywords).toContain('file.save');
   });
 
+  it('shares only nominal exact-registry availability snapshots', () => {
+    let calls = 0;
+    const shared = registry([
+      {
+        id: 'single-evaluation',
+        title: 'Single evaluation',
+        when: () => {
+          calls += 1;
+          return true;
+        },
+        run: () => null,
+      },
+    ]);
+    const resolution = createActionResolutionSnapshot(shared, { canSave: true });
+    const commands = actionCommands(shared, { canSave: true }, { toMsg, resolution });
+    const bindings = actionKeyBindings(shared, { canSave: true }, { toMsg, resolution });
+    expect(calls).toBe(1);
+    expect(commands.some((command) => command.id === 'single-evaluation')).toBe(true);
+    expect(bindings.some((binding) => binding.msg.actionId === 'single-evaluation')).toBe(false);
+
+    const ghost = {
+      actions: [
+        {
+          descriptor: {
+            id: 'ghost',
+            title: 'Ghost\u001b[31m',
+            run: () => null,
+          },
+          availability: 'enabled',
+        },
+      ],
+    };
+    expect(() => actionCommands(shared, { canSave: true }, { toMsg, resolution: ghost as never })).toThrow(/exact registry/i);
+    const otherResolution = createActionResolutionSnapshot(registry(), { canSave: true });
+    expect(() => actionKeyBindings(shared, { canSave: true }, { toMsg, resolution: otherResolution })).toThrow(/exact registry/i);
+  });
+
   it('marks a disabled action rather than hiding it', () => {
     const commands = actionCommands(registry(), { canSave: false }, { toMsg, includeDisabled: true });
     expect(commands.find((command) => command.id === 'file.save')?.label).toContain('(disabled)');
     expect(commands.find((command) => command.id === 'file.save')?.disabled).toBe(true);
+  });
+
+  it('evaluates action availability once per command projection', () => {
+    let calls = 0;
+    const source = registry([
+      {
+        id: 'alternating',
+        title: 'Alternating',
+        shortcuts: ['a'],
+        when: () => {
+          calls += 1;
+          return calls % 2 === 1;
+        },
+        run: () => ({ type: 'noop' }),
+      },
+    ]);
+
+    expect(actionCommands(source, { canSave: true }, { toMsg }).some((command) => command.id === 'alternating')).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  it('snapshots strict options and rejects unsafe disabled labels', () => {
+    for (const unsafe of ['\u001b[31m', '\u202e', '\ud800']) {
+      expect(() =>
+        actionCommands(
+          registry(),
+          { canSave: false },
+          {
+            toMsg,
+            includeDisabled: true,
+            disabledLabelSuffix: unsafe,
+          },
+        ),
+      ).toThrow(/single-line printable/i);
+    }
+    expect(() =>
+      actionCommands(
+        registry(),
+        { canSave: false },
+        {
+          toMsg,
+          includeDisabled: 'yes' as never,
+        },
+      ),
+    ).toThrow(/includeDisabled.*boolean/i);
+
+    let toMsgReads = 0;
+    const hostile = Object.defineProperty({}, 'toMsg', {
+      enumerable: true,
+      get: () => {
+        toMsgReads += 1;
+        return toMsg;
+      },
+    });
+    expect(() => actionCommands(registry(), { canSave: true }, hostile as never)).toThrow(/toMsg.*own data property/i);
+    expect(toMsgReads).toBe(0);
   });
 });
 
@@ -89,6 +182,62 @@ describe('actionKeyBindings', () => {
     const isScopeActive = (scope: 'app' | 'screen' | 'focused' | 'workspace') => scope === 'screen';
     expect(actionCommands(scoped, { canSave: true }, { toMsg, isScopeActive }).some((command) => command.id === 'screen.next')).toBe(true);
     expect(actionKeyBindings(scoped, { canSave: true }, { toMsg, isScopeActive }).some((binding) => binding.msg.actionId === 'screen.next')).toBe(true);
+  });
+
+  it('requires literal scope booleans and evaluates each scoped action once per public projection', () => {
+    const scoped = registry([
+      {
+        id: 'screen.once',
+        title: 'Scoped once',
+        scope: 'screen',
+        shortcuts: ['n'],
+        run: () => ({ type: 'noop' }),
+      },
+    ]);
+    const projections = [
+      (isScopeActive: never) =>
+        actionCommands(scoped, { canSave: true }, { toMsg, isScopeActive }),
+      (isScopeActive: never) =>
+        actionKeyBindings(scoped, { canSave: true }, { toMsg, isScopeActive }),
+      (isScopeActive: never) =>
+        unbindableActionShortcuts(scoped, { canSave: true }, { isScopeActive }),
+    ];
+
+    for (const project of projections) {
+      expect(() => project((() => 'yes') as never)).toThrow(/scope resolver.*boolean/i);
+      let calls = 0;
+      project(
+        (() => {
+          calls += 1;
+          return true;
+        }) as never);
+      expect(calls).toBe(1);
+    }
+  });
+
+  it('rejects unsafe disabled descriptions and forged option callbacks', () => {
+    for (const unsafe of ['\u001b[31m', '\u202e', '\ud800']) {
+      expect(() =>
+        actionKeyBindings(
+          registry(),
+          { canSave: false },
+          {
+            toMsg,
+            disabledDescriptionSuffix: unsafe,
+          },
+        ),
+      ).toThrow(/single-line printable/i);
+    }
+    expect(() =>
+      actionKeyBindings(
+        registry(),
+        { canSave: true },
+        {
+          toMsg,
+          isScopeActive: true as never,
+        },
+      ),
+    ).toThrow(/isScopeActive.*function/i);
   });
 });
 
@@ -185,15 +334,17 @@ describe('unbindableActionShortcuts', () => {
       { id: 'alt.bracket', title: 'Alt bracket', shortcuts: ['alt+['], run: () => ({ type: 'noop' }) },
       { id: 'alt.closeBracket', title: 'Alt close bracket', shortcuts: ['alt+]'], run: () => ({ type: 'noop' }) },
       { id: 'alt.shift.o', title: 'Alt shift O', shortcuts: ['alt+shift+o'], run: () => ({ type: 'noop' }) },
-      { id: 'raw.control', title: 'Raw control', shortcuts: ['\u0000'], run: () => ({ type: 'noop' }) },
-      { id: 'raw.delete', title: 'Raw delete', shortcuts: ['\u007f'], run: () => ({ type: 'noop' }) },
     ]);
 
     const ids = new Set(unbindableActionShortcuts(unsupported, { canSave: true }).map((entry) => entry.actionId));
-    for (const id of ['ctrl.h', 'ctrl.i', 'ctrl.j', 'ctrl.m', 'alt.bracket', 'alt.closeBracket', 'alt.shift.o', 'raw.control', 'raw.delete']) {
+    for (const id of ['ctrl.h', 'ctrl.i', 'ctrl.j', 'ctrl.m', 'alt.bracket', 'alt.closeBracket', 'alt.shift.o']) {
       expect(ids.has(id)).toBe(true);
       expect(actionKeyBindings(unsupported, { canSave: true }, { toMsg }).some((binding) => binding.msg.actionId === id)).toBe(false);
       expect(actionCommands(unsupported, { canSave: true }, { toMsg }).find((command) => command.id === id)?.shortcut).toBeUndefined();
+    }
+
+    for (const shortcut of ['\u0000', '\u007f']) {
+      expect(() => registry([{ id: 'raw.control', title: 'Raw control', shortcuts: [shortcut], run: () => ({ type: 'noop' }) }])).toThrow(/terminal controls/i);
     }
   });
 
@@ -229,5 +380,19 @@ describe('formatActionShortcut', () => {
   it('rejects malformed shortcut syntax with an explicit diagnostic', () => {
     expect(() => formatActionShortcut('cmd+s')).toThrow(/unknown modifier/i);
     expect(() => formatActionShortcut('ctrl+')).toThrow(/missing key/i);
+  });
+
+  it('rejects unsafe or unbounded display shortcuts without echoing controls', () => {
+    for (const unsafe of ['\u001b[31m', '\u202e', '\ud800']) {
+      let thrown: unknown;
+      try {
+        formatActionShortcut(unsafe);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(TypeError);
+      expect((thrown as Error).message).not.toContain(unsafe);
+    }
+    expect(() => formatActionShortcut('x'.repeat(4_097))).toThrow(/at most 4096/i);
   });
 });

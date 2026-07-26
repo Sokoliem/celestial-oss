@@ -6,8 +6,9 @@
  * variables, browser storage, or an in-memory test adapter.
  */
 
-const UNSAFE_SINGLE_LINE_TEXT =
-  /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\uD800-\uDFFF]/u;
+import { segmentGraphemes } from '@celestial/rosetta';
+
+const UNSAFE_SINGLE_LINE_TEXT = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\uD800-\uDFFF]/u;
 const UNSAFE_DIAGNOSTIC_TEXT =
   /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\uD800-\uDFFF]/gu;
 const ILL_FORMED_UTF16 = /[\uD800-\uDFFF]/u;
@@ -137,8 +138,17 @@ function sanitizeDetail(error: unknown): string {
     // escape the loader's diagnostic boundary.
   }
 
-  const bounded = detail.length > MAX_DIAGNOSTIC_DETAIL_LENGTH ? `${detail.slice(0, MAX_DIAGNOSTIC_DETAIL_LENGTH - 1)}…` : detail;
-  return bounded.replace(UNSAFE_DIAGNOSTIC_TEXT, '\uFFFD');
+  const needsTruncation = detail.length > MAX_DIAGNOSTIC_DETAIL_LENGTH;
+  const boundedDetail = needsTruncation ? detail.slice(0, MAX_DIAGNOSTIC_DETAIL_LENGTH) : detail;
+  const sanitized = boundedDetail.replace(UNSAFE_DIAGNOSTIC_TEXT, '\uFFFD');
+  if (!needsTruncation) return sanitized;
+
+  let bounded = '';
+  for (const grapheme of segmentGraphemes(sanitized)) {
+    if (bounded.length + grapheme.length > MAX_DIAGNOSTIC_DETAIL_LENGTH - 1) break;
+    bounded += grapheme;
+  }
+  return `${bounded}…`;
 }
 
 function readPropertyOnce(target: object, key: PropertyKey, label: string): unknown {

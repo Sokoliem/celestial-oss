@@ -14,6 +14,7 @@ import {
   renderToLines,
 } from '@celestial/test';
 import { describe, expect, it } from 'vitest';
+import { MAX_RENDER_CELLS } from '../internal.js';
 import {
   createNotificationCenter,
   type NotificationCenterActionReceipt,
@@ -257,9 +258,59 @@ describe('createNotificationCenter', () => {
     expect(closed.store).toBe(model);
 
     const toastHidden = center.update({ type: 'escape' }, closed.state, closed.store, viewport);
-    expect(toastHidden.state).toBe(closed.state);
+    expect(toastHidden.state).toEqual(closed.state);
     expect(toastHidden.store.visibleToastIds).toEqual([]);
     expect(toastHidden.store.entries).toHaveLength(1);
+  });
+
+  it('closes before formatting, resolving, measuring, or validating a viewport', () => {
+    const store = createNotificationStore({ now: () => 1 });
+    const model = enqueue(
+      store,
+      store.init(),
+      inbox('Poisoned projection', { actionIds: ['retry'] }),
+    );
+    let timestampCalls = 0;
+    let resolverCalls = 0;
+    const center = createNotificationCenter({
+      initiallyOpen: true,
+      initiallyFocused: true,
+      store,
+      ownsToastEscape: false,
+      formatTimestamp: () => {
+        timestampCalls += 1;
+        throw new Error('formatter must not run');
+      },
+      resolveAction: () => {
+        resolverCalls += 1;
+        throw new Error('resolver must not run');
+      },
+    });
+    const initial = center.init(model);
+    const expanded = {
+      ...initial,
+      expandedId: model.entries[0]!.id,
+      actionCursor: {
+        notificationId: model.entries[0]!.id,
+        actionId: 'retry',
+      },
+    };
+
+    const closed = center.update({ type: 'close' }, expanded, model, null as never);
+    const toggledClosed = center.update({ type: 'toggle' }, expanded, model, null as never);
+    const escapedClosed = center.update({ type: 'escape' }, initial, model, null as never);
+
+    for (const result of [closed, toggledClosed, escapedClosed]) {
+      expect(result.state).toMatchObject({
+        open: false,
+        expandedId: null,
+        actionCursor: null,
+        hoveredTarget: null,
+        focusWithin: false,
+      });
+    }
+    expect(timestampCalls).toBe(0);
+    expect(resolverCalls).toBe(0);
   });
 
   it('marks an expanded inbox entry read and returns only enabled action receipts', () => {
@@ -278,6 +329,17 @@ describe('createNotificationCenter', () => {
     expect(activated.action).toEqual({ notificationId: id, actionId: 'retry' });
     expect(activated.store).toBe(cursor.store);
 
+    const skippedDisabled = center.update(
+      { type: 'action-next' },
+      activated.state,
+      activated.store,
+      viewport,
+    );
+    expect(skippedDisabled.state.actionCursor).toEqual({
+      notificationId: id,
+      actionId: 'retry',
+    });
+
     const disabled = center.update(
       { type: 'activate-action', id, actionId: 'disabled' },
       activated.state,
@@ -285,6 +347,37 @@ describe('createNotificationCenter', () => {
       viewport,
     );
     expect(disabled).not.toHaveProperty('action');
+  });
+
+  it('snapshots each action resolution once per public transition', () => {
+    const store = createNotificationStore({ now: () => 1 });
+    const model = enqueue(
+      store,
+      store.init(),
+      inbox('Resolve once', { actionIds: ['retry'] }),
+    );
+    const id = model.entries[0]!.id;
+    let calls = 0;
+    const center = createNotificationCenter({
+      initiallyOpen: true,
+      initiallyFocused: true,
+      store,
+      ownsToastEscape: false,
+      formatTimestamp: (timestamp) => String(timestamp),
+      resolveAction: () => {
+        calls += 1;
+        return { label: 'Retry', disabled: calls > 1 };
+      },
+    });
+    const state = {
+      ...center.init(model),
+      expandedId: id,
+      actionCursor: { notificationId: id, actionId: 'retry' },
+    };
+
+    const activated = center.update({ type: 'activate' }, state, model, viewport);
+    expect(calls).toBe(1);
+    expect(activated.action).toEqual({ notificationId: id, actionId: 'retry' });
   });
 
   it('renders deterministic timestamps, occurrence badges, and real multiline details', () => {
@@ -368,6 +461,62 @@ describe('createNotificationCenter', () => {
     });
     expect(bottomLines).toHaveLength(narrowViewport.rows);
     expect(bottomLines.join('\n')).toContain('Notification 7');
+  });
+
+  it('keeps an oversized expanded row scrollable through its final detail and mouse action', () => {
+    const store = createNotificationStore({ now: () => 1 });
+    const detail = Array.from(
+      { length: 24 },
+      (_, index) => `Detail line ${String(index).padStart(2, '0')}`,
+    ).join('\n');
+    const model = enqueue(
+      store,
+      store.init(),
+      inbox('Oversized disclosure', { detail, actionIds: ['retry'] }),
+    );
+    const id = model.entries[0]!.id;
+    const center = controller(store, { initiallyFocused: true });
+    const expanded = center.update(
+      { type: 'activate-row', id },
+      center.init(model),
+      model,
+      viewport,
+    );
+    const toMsg = elementMouseMapper(center, expanded.state, expanded.store);
+    const wheel = toMsg(
+      elementMouse(
+        'test-notification-center:scroll',
+        'test-notification-center:list',
+        100_000,
+      ),
+    );
+    const scrolled = center.update(wheel, expanded.state, expanded.store, viewport);
+    const rendered = renderToLines(
+      center.view(scrolled.state, scrolled.store, viewport),
+      { width: viewport.cols, height: viewport.rows },
+    ).join('\n');
+
+    expect(scrolled.state).toMatchObject({
+      selectedId: id,
+      expandedId: id,
+    });
+    expect(scrolled.state.rowScrollOffset).toBeGreaterThan(0);
+    expect(rendered).toContain('Detail line 23');
+    expect(rendered).toContain('Retry the operation');
+
+    const actionToMsg = elementMouseMapper(center, scrolled.state, scrolled.store);
+    const activated = center.update(
+      actionToMsg(
+        elementMouse(
+          'test-notification-center:action-click',
+          `test-notification-center:action:${String(id)}:retry`,
+        ),
+      ),
+      scrolled.state,
+      scrolled.store,
+      viewport,
+    );
+    expect(activated.action).toEqual({ notificationId: id, actionId: 'retry' });
   });
 
   it('reconciles the selected ID into view after external prepend, reorder, width, and expansion changes', () => {
@@ -598,7 +747,7 @@ describe('createNotificationCenter', () => {
     const escaped = center.update({ type: 'escape' }, closed, model, viewport);
 
     expect(keys).toEqual([]);
-    expect(escaped.state).toBe(closed);
+    expect(escaped.state).toEqual(closed);
     expect(escaped.store).toBe(model);
     expect(escaped.store.visibleToastIds).toHaveLength(1);
   });
@@ -735,6 +884,20 @@ describe('createNotificationCenter', () => {
     expect(() =>
       createNotificationCenter({
         ...required,
+        width: Number.MAX_SAFE_INTEGER,
+        resolveAction: (id) => ({ label: id }),
+      }),
+    ).toThrow('width');
+    expect(() =>
+      createNotificationCenter({
+        ...required,
+        maxHeight: Number.MAX_SAFE_INTEGER,
+        resolveAction: (id) => ({ label: id }),
+      }),
+    ).toThrow('maxHeight');
+    expect(() =>
+      createNotificationCenter({
+        ...required,
         title: 'Bad\nTitle',
         resolveAction: (id) => ({ label: id }),
       }),
@@ -742,10 +905,42 @@ describe('createNotificationCenter', () => {
     expect(() =>
       createNotificationCenter({
         ...required,
+        title: 't'.repeat(257),
+        resolveAction: (id) => ({ label: id }),
+      }),
+    ).toThrow('at most 256');
+    expect(() =>
+      createNotificationCenter({
+        ...required,
+        id: 'i'.repeat(257),
+        resolveAction: (id) => ({ label: id }),
+      }),
+    ).toThrow('at most 256');
+    for (const unsafeId of ['bad\u202eid', 'bad\ud800id']) {
+      expect(() =>
+        createNotificationCenter({
+          ...required,
+          id: unsafeId,
+          resolveAction: (id) => ({ label: id }),
+        }),
+      ).toThrow('id');
+    }
+    expect(() =>
+      createNotificationCenter({
+        ...required,
         title: null as never,
         resolveAction: (id) => ({ label: id }),
       }),
     ).toThrow('title');
+    for (const unsafe of ['\u2028', '\u2029', '\u202e', '\u2066', '\ud800']) {
+      expect(() =>
+        createNotificationCenter({
+          ...required,
+          title: `Bad${unsafe}Title`,
+          resolveAction: (id) => ({ label: id }),
+        }),
+      ).toThrow('title');
+    }
     expect(() =>
       createNotificationCenter({
         ...required,
@@ -770,9 +965,19 @@ describe('createNotificationCenter', () => {
     const id = model.entries[0]!.id;
     expect(() => center.view({ ...center.init(model), expandedId: id }, model, viewport)).toThrow('did not resolve');
     expect(() => center.update({ type: 'noop' }, center.init(model), model, { cols: Number.NaN, rows: 12 })).toThrow('cols');
+    expect(() => center.view(center.init(model), model, { cols: Number.MAX_SAFE_INTEGER, rows: 12 })).toThrow('cols');
+    expect(() => center.view(center.init(model), model, { cols: 44, rows: Number.MAX_SAFE_INTEGER })).toThrow('rows');
     expect(() => center.update({ type: 'noop' }, center.init(model), model, null as never)).toThrow('viewport');
     expect(() => center.update({ type: 'scroll', delta: Number.POSITIVE_INFINITY }, center.init(model), model, viewport)).toThrow('delta');
     expect(() => center.update({ type: 'select', id: Number.NaN }, center.init(model), model, viewport)).toThrow('id');
+    expect(() =>
+      center.update(
+        { type: 'activate-action', id, actionId: 'a'.repeat(257) },
+        center.init(model),
+        model,
+        viewport,
+      ),
+    ).toThrow('at most 256');
     expect(() => center.update({ type: 'unknown' } as never, center.init(model), model, viewport)).toThrow('Unknown');
     expect(() =>
       center.update(
@@ -782,6 +987,29 @@ describe('createNotificationCenter', () => {
         viewport,
       ),
     ).toThrow('rowScrollOffset');
+    expect(() =>
+      center.update(
+        { type: 'noop' },
+        {
+          ...center.init(model),
+          expandedId: id,
+          actionCursor: { notificationId: id, actionId: 'a'.repeat(257) },
+        },
+        model,
+        viewport,
+      ),
+    ).toThrow('actionCursor');
+    expect(() =>
+      center.update(
+        { type: 'noop' },
+        {
+          ...center.init(model),
+          hoveredTarget: `action:${String(id)}:${'a'.repeat(5_000)}` as unknown as NotificationCenterState['hoveredTarget'],
+        },
+        model,
+        viewport,
+      ),
+    ).toThrow('hoveredTarget');
 
     const invalidLabel = createNotificationCenter({
       ...required,
@@ -790,11 +1018,196 @@ describe('createNotificationCenter', () => {
     });
     expect(() => invalidLabel.view({ ...invalidLabel.init(model), expandedId: id }, model, viewport)).toThrow('controls');
 
+    const invalidUnicodeLabel = createNotificationCenter({
+      ...required,
+      initiallyOpen: true,
+      resolveAction: () => ({ label: 'Bad\u202eLabel' }),
+    });
+    expect(() => invalidUnicodeLabel.view({ ...invalidUnicodeLabel.init(model), expandedId: id }, model, viewport)).toThrow('controls');
+
+    const oversizedLabel = createNotificationCenter({
+      ...required,
+      initiallyOpen: true,
+      resolveAction: () => ({ label: 'l'.repeat(257) }),
+    });
+    expect(() =>
+      oversizedLabel.view(
+        { ...oversizedLabel.init(model), expandedId: id },
+        model,
+        viewport,
+      ),
+    ).toThrow('at most 256');
+
+    const invalidTimestamp = createNotificationCenter({
+      ...required,
+      initiallyOpen: true,
+      formatTimestamp: () => 'Bad\ud800time',
+      resolveAction: (actionId) => ({ label: actionId }),
+    });
+    expect(() => invalidTimestamp.view(invalidTimestamp.init(model), model, viewport)).toThrow('controls');
+    const oversizedTimestamp = createNotificationCenter({
+      ...required,
+      initiallyOpen: true,
+      formatTimestamp: () => 't'.repeat(257),
+      resolveAction: (actionId) => ({ label: actionId }),
+    });
+    expect(() =>
+      oversizedTimestamp.view(oversizedTimestamp.init(model), model, viewport),
+    ).toThrow('at most 256');
+
+    const hostileValue = {
+      toJSON: () => {
+        throw new Error('json\u001b escaped');
+      },
+      [Symbol.toPrimitive]: () => {
+        throw new Error('coercion\u001b escaped');
+      },
+    };
+    expect(() =>
+      createNotificationCenter({
+        ...required,
+        width: hostileValue as never,
+        resolveAction: (actionId) => ({ label: actionId }),
+      }),
+    ).toThrow(/<unprintable>/i);
+    expect(() => center.update({ type: 'noop' }, center.init(model), model, { cols: hostileValue as never, rows: 12 })).toThrow(/<unprintable>/i);
+    expect(() => center.update({ type: 'scroll', delta: hostileValue as never }, center.init(model), model, viewport)).toThrow(/<unprintable>/i);
+
     const invalidDisabled = createNotificationCenter({
       ...required,
       initiallyOpen: true,
       resolveAction: () => ({ label: 'Retry', disabled: 'no' as never }),
     });
     expect(() => invalidDisabled.view({ ...invalidDisabled.init(model), expandedId: id }, model, viewport)).toThrow('disabled');
+
+    const boundaryCenter = createNotificationCenter({
+      ...required,
+      initiallyOpen: false,
+      width: MAX_RENDER_CELLS,
+      maxHeight: MAX_RENDER_CELLS,
+      resolveAction: (actionId) => ({ label: actionId }),
+    });
+    const boundaryModel = store.init();
+    expect(() => boundaryCenter.view(boundaryCenter.init(boundaryModel), boundaryModel, { cols: MAX_RENDER_CELLS, rows: MAX_RENDER_CELLS })).not.toThrow();
+  });
+
+  it('snapshots config, messages, state, viewports, and callback descriptors exactly once', () => {
+    const store = createNotificationStore({ now: () => 1 });
+    const mutableConfig = {
+      id: 'snapshot-center',
+      initiallyOpen: false,
+      initiallyFocused: false,
+      store,
+      ownsToastEscape: true,
+      formatTimestamp: (timestamp: number) => String(timestamp),
+      resolveAction: (actionId: string) => ({ label: actionId }),
+    };
+    const center = createNotificationCenter(mutableConfig);
+    mutableConfig.initiallyOpen = true;
+    mutableConfig.initiallyFocused = true;
+    expect(center.init(store.init())).toMatchObject({ open: false, focusWithin: false });
+
+    let configReads = 0;
+    const accessorConfig = Object.defineProperty({ ...mutableConfig }, 'initiallyOpen', {
+      enumerable: true,
+      get: () => {
+        configReads += 1;
+        return true;
+      },
+    });
+    expect(() => createNotificationCenter(accessorConfig)).toThrow(/own data property/i);
+    expect(configReads).toBe(0);
+
+    const model = enqueue(store, store.init(), inbox('Snapshot target', { actionIds: ['retry'] }));
+    const state = center.init(model);
+    let messageReads = 0;
+    const alternatingMessage = Object.defineProperty({}, 'type', {
+      enumerable: true,
+      get: () => {
+        messageReads += 1;
+        return messageReads === 1 ? 'noop' : 'dismiss';
+      },
+    });
+    expect(() => center.update(alternatingMessage as NotificationCenterMsg, state, model, viewport)).toThrow(/own data property/i);
+    expect(messageReads).toBe(0);
+    expect(model.entries).toHaveLength(1);
+
+    let stateReads = 0;
+    const accessorState = Object.defineProperty({ ...state }, 'open', {
+      enumerable: true,
+      get: () => {
+        stateReads += 1;
+        return true;
+      },
+    });
+    expect(() => center.update({ type: 'noop' }, accessorState as NotificationCenterState, model, viewport)).toThrow(/own data property/i);
+    expect(stateReads).toBe(0);
+
+    let viewportReads = 0;
+    const accessorViewport = Object.defineProperty({ rows: 12 }, 'cols', {
+      enumerable: true,
+      get: () => {
+        viewportReads += 1;
+        return 44;
+      },
+    });
+    expect(() => center.update({ type: 'noop' }, state, model, accessorViewport as never)).toThrow(/own data property/i);
+    expect(viewportReads).toBe(0);
+
+    let labelReads = 0;
+    const accessorActionCenter = createNotificationCenter({
+      ...mutableConfig,
+      initiallyOpen: true,
+      resolveAction: () =>
+        Object.defineProperty({}, 'label', {
+          enumerable: true,
+          get: () => {
+            labelReads += 1;
+            return 'Retry';
+          },
+        }) as never,
+    });
+    expect(() => accessorActionCenter.view({ ...accessorActionCenter.init(model), expandedId: model.entries[0]!.id }, model, viewport)).toThrow(
+      /own data property/i,
+    );
+    expect(labelReads).toBe(0);
+  });
+
+  it('contains revoked proxies at every public notification-center boundary', () => {
+    const store = createNotificationStore({ now: () => 1 });
+    const center = controller(store);
+    const model = enqueue(store, store.init(), inbox('Revoked boundary'));
+    const state = center.init(model);
+
+    const revokedMessage = Proxy.revocable({ type: 'noop' }, {});
+    revokedMessage.revoke();
+    expect(() => center.update(revokedMessage.proxy as NotificationCenterMsg, state, model, viewport)).toThrow(TypeError);
+
+    const revokedState = Proxy.revocable(state, {});
+    revokedState.revoke();
+    expect(() => center.update({ type: 'noop' }, revokedState.proxy as NotificationCenterState, model, viewport)).toThrow(TypeError);
+
+    const revokedViewport = Proxy.revocable(viewport, {});
+    revokedViewport.revoke();
+    expect(() => center.update({ type: 'noop' }, state, model, revokedViewport.proxy)).toThrow(TypeError);
+
+    const revokedModel = Proxy.revocable(model, {});
+    revokedModel.revoke();
+    expect(() => center.init(revokedModel.proxy)).toThrow(TypeError);
+    expect(() => center.update({ type: 'noop' }, state, revokedModel.proxy, viewport)).toThrow(TypeError);
+    expect(() => center.view(state, revokedModel.proxy, viewport)).toThrow(TypeError);
+    expect(() => center.subscriptions(state, revokedModel.proxy)).toThrow(TypeError);
+
+    const revokedConfig = Proxy.revocable(
+      {
+        store,
+        ownsToastEscape: true,
+        formatTimestamp: (timestamp: number) => String(timestamp),
+        resolveAction: (actionId: string) => ({ label: actionId }),
+      },
+      {},
+    );
+    revokedConfig.revoke();
+    expect(() => createNotificationCenter(revokedConfig.proxy)).toThrow(TypeError);
   });
 });
