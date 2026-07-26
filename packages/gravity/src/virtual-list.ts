@@ -67,7 +67,16 @@ interface ControllerState {
   snapMode: VirtualListSnap;
 }
 
-const sharedControllers: ScrollController[] = [];
+/**
+ * Controllers that `clearVirtualListCache()` (no argument) should clear.
+ *
+ * A Set rather than an array, and paired with {@link disposeScrollController},
+ * because entries were previously appended and never removed: every controller
+ * ever created was retained for the lifetime of the process. A long-running app
+ * that builds lists dynamically leaked one controller — and its measure cache —
+ * per list.
+ */
+const sharedControllers = new Set<ScrollController>();
 
 export function createScrollController(initial: { offset?: number; viewportHeight?: number } = {}): ScrollController {
   const cache = createMeasureCache();
@@ -121,8 +130,19 @@ export function createScrollController(initial: { offset?: number; viewportHeigh
   // Stash internal state on the controller so renderers can refresh it without
   // forcing every helper to be a method.
   Object.defineProperty(controller, '__state', { value: state, enumerable: false, writable: false });
-  sharedControllers.push(controller);
+  sharedControllers.add(controller);
   return controller;
+}
+
+/**
+ * Stop tracking a controller and release its measure cache.
+ *
+ * Call this when a list is torn down. Without it the controller stays reachable
+ * from the module-level registry forever. Disposing twice is a no-op.
+ */
+export function disposeScrollController(controller: ScrollController): void {
+  sharedControllers.delete(controller);
+  controller.cache.clear();
 }
 
 export function clearVirtualListCache(controller?: ScrollController): void {
@@ -217,8 +237,15 @@ export function virtualList<T>(opts: VirtualListOptions<T>): ComponentNode {
         internalState.visibleEnd = endIdx;
       }
 
-      const aboveHeight = startIdx > 0 ? offsets[startIdx]! : 0;
-      const belowHeight = endIdx < totalCount ? totalHeight - (offsets[endIdx - 1]! + sizes[endIdx - 1]!) : 0;
+      const aboveHeight = startIdx > 0 ? (offsets[startIdx] ?? 0) : 0;
+      // When the window is empty (endIdx === 0) there is no previous row, and
+      // reading offsets[-1]/sizes[-1] behind non-null assertions yielded NaN.
+      // `NaN > 0` is false, so the spacer was dropped rather than rendered wrong
+      // and the list silently reported zero scroll extent. Measure from the top
+      // of the window instead, which is correct for both the empty and the
+      // populated case.
+      const consumedAbove = endIdx > 0 ? (offsets[endIdx - 1] ?? 0) + (sizes[endIdx - 1] ?? 0) : (offsets[startIdx] ?? 0);
+      const belowHeight = endIdx < totalCount ? Math.max(0, totalHeight - consumedAbove) : 0;
 
       const children: VNode[] = [];
       if (aboveHeight > 0) {

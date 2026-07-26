@@ -174,7 +174,7 @@ export type {
   WorkAreaScope,
 } from './types.js';
 export type { ScrollController, VirtualListOptions, VirtualListSnap } from './virtual-list.js';
-export { clearVirtualListCache, createScrollController, virtualList } from './virtual-list.js';
+export { clearVirtualListCache, createScrollController, disposeScrollController, virtualList } from './virtual-list.js';
 export type { WeightedStackEntry, WeightedStackItem, WeightedStackOptions, WeightedStackResult } from './weighted-stack.js';
 export { resolveWeightedStack } from './weighted-stack.js';
 export {
