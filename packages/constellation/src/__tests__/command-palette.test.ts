@@ -1,4 +1,4 @@
-import type { KeyEvent } from '@celestial/core/nebula';
+import { getVNodeMeta, type KeyEvent } from '@celestial/core/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { type CommandPaletteModel, commandPalette } from '../command-palette.js';
 import type { Command } from '../palette.js';
@@ -140,6 +140,23 @@ describe('commandPalette', () => {
       expect(onSelect).toHaveBeenCalled();
     });
 
+    it('keeps disabled commands inert for keyboard and pointer selection', () => {
+      const onSelect = vi.fn();
+      const disabledCommands: Command<string>[] = [{ id: 'disabled', label: 'Disabled command', msg: 'disabled', disabled: true }];
+      const component = commandPalette({ commands: disabledCommands, onSelect });
+      const [initial] = component.init();
+      let model: CommandPaletteModel;
+      [model] = component.update({ type: 'cp-open' }, initial);
+
+      [model] = component.update({ type: 'cp-select' }, model);
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(model.palette.open).toBe(true);
+
+      [model] = component.update({ type: 'cp-select-at', index: 0 }, model);
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(model.palette.open).toBe(true);
+    });
+
     it('should scroll visible window to include selected item when selectedIndex exceeds maxVisible', () => {
       // Fix (K4): visible window now follows selection, so the selected item
       // is always visible and highlighted even when selectedIndex >= maxVisible.
@@ -261,6 +278,18 @@ describe('commandPalette', () => {
       }
     });
 
+    it('renders a disabled command as a non-interactive, disabled menu item', () => {
+      const component = commandPalette({ commands: [{ id: 'disabled', label: 'Disabled command', msg: 'disabled', disabled: true }] });
+      const [initial] = component.init();
+      const [opened] = component.update({ type: 'cp-open' }, initial);
+      const disabledRow = findNode(component.view(opened), (node) => getVNodeMeta(node as any)?.states?.includes('disabled') === true);
+
+      expect(disabledRow?.kind).toBe('row');
+      expect(getVNodeMeta(disabledRow as any)?.a11y).toEqual(
+        expect.objectContaining({ role: 'menuitem', label: 'Disabled command', disabled: true, selected: true }),
+      );
+    });
+
     it('renders pointer hover and keyboard selection with the same active-row style', () => {
       const component = commandPalette({ commands: sampleCommands });
       const [initial] = component.init();
@@ -356,4 +385,13 @@ function findTextStyle(node: any, content: string): any {
     if (match) return match;
   }
   return node?.child ? findTextStyle(node.child, content) : undefined;
+}
+
+function findNode(node: any, predicate: (candidate: any) => boolean): any {
+  if (predicate(node)) return node;
+  for (const child of node?.children ?? []) {
+    const match = findNode(child, predicate);
+    if (match) return match;
+  }
+  return node?.child ? findNode(node.child, predicate) : undefined;
 }

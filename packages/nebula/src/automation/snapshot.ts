@@ -73,11 +73,12 @@ interface PositionedCollectedNode extends CollectedNode {
  */
 function collectPositionedNodes(
   entry: LayoutEntry,
-  inherited: { focused?: boolean; hidden?: boolean } = {},
+  inherited: { focused?: boolean; hidden?: boolean; disabled?: boolean } = {},
   acc = new Map<VNode, PositionedCollectedNode>(),
 ): Map<VNode, PositionedCollectedNode> {
   const meta = getVNodeMeta(entry.node);
   const hidden = inherited.hidden === true || meta?.a11y?.hidden === true;
+  const disabled = inherited.disabled === true || meta?.a11y?.disabled === true;
   const focused = entry.node.kind === 'focus' ? entry.node.focused : inherited.focused;
 
   if (meta?.testId || meta?.a11y) {
@@ -87,6 +88,7 @@ function collectPositionedNodes(
       a11y: meta.a11y,
       focused: inherited.focused,
       hidden,
+      disabled,
       textContent: extractNodeText(entry.node),
       rect: entry.rect,
     };
@@ -97,36 +99,47 @@ function collectPositionedNodes(
   }
 
   for (const child of entry.children) {
-    collectPositionedNodes(child, { focused, hidden }, acc);
+    collectPositionedNodes(child, { focused, hidden, disabled }, acc);
   }
   return acc;
 }
 
-function collectFocusCandidates(node: VNode, acc: FocusCandidate[] = []): FocusCandidate[] {
+function collectFocusCandidates(
+  node: VNode,
+  acc: FocusCandidate[] = [],
+  inheritedHidden = false,
+  inheritedDisabled = false,
+): FocusCandidate[] {
+  const nodeMeta = getVNodeMeta(node);
+  const hidden = inheritedHidden || nodeMeta?.a11y?.hidden === true;
+  const disabled = inheritedDisabled || nodeMeta?.a11y?.disabled === true;
   switch (node.kind) {
     case 'focus': {
-      const annotated = collectAnnotatedNodes(node.child, { focused: node.focused }).find((found) => found.a11y || found.testId);
+      const ownMeta = nodeMeta;
+      const annotated = collectAnnotatedNodes(node.child, { focused: node.focused, hidden }).find((found) => found.a11y || found.testId);
       const text = normalizeText(annotated?.textContent ?? extractNodeText(node.child));
+      const a11y = ownMeta?.a11y ? { ...annotated?.a11y, ...ownMeta.a11y } : annotated?.a11y;
 
-      if (text.length > 0 || annotated?.testId) {
+      const visibleAndEnabled = !hidden && !disabled && a11y?.hidden !== true && a11y?.disabled !== true;
+      if (visibleAndEnabled && (text.length > 0 || ownMeta?.testId || annotated?.testId)) {
         acc.push({
           focusId: node.id,
           text,
           focused: node.focused,
-          role: annotated?.a11y?.role,
-          a11y: annotated?.a11y,
-          testId: annotated?.testId,
+          role: a11y?.role,
+          a11y,
+          testId: ownMeta?.testId ?? annotated?.testId,
         });
       }
 
-      collectFocusCandidates(node.child, acc);
+      collectFocusCandidates(node.child, acc, hidden, disabled);
       return acc;
     }
     case 'row':
     case 'column':
     case 'box':
       for (const child of node.children) {
-        collectFocusCandidates(child, acc);
+        collectFocusCandidates(child, acc, hidden, disabled);
       }
       return acc;
     case 'scroll':
@@ -135,21 +148,21 @@ function collectFocusCandidates(node: VNode, acc: FocusCandidate[] = []): FocusC
     case 'overlay':
     case 'flex':
     case 'portal':
-      collectFocusCandidates(node.child, acc);
+      collectFocusCandidates(node.child, acc, hidden, disabled);
       return acc;
     case 'component':
     case 'memo':
-      collectFocusCandidates(node.render(), acc);
+      collectFocusCandidates(node.render(), acc, hidden, disabled);
       return acc;
     case 'suspense':
-      collectFocusCandidates(node.resolved ? node.child : node.fallback, acc);
+      collectFocusCandidates(node.resolved ? node.child : node.fallback, acc, hidden, disabled);
       return acc;
     case 'localState':
     case 'lazy':
       return acc;
     case 'tabGroup':
       for (const child of node.children) {
-        collectFocusCandidates(child, acc);
+        collectFocusCandidates(child, acc, hidden, disabled);
       }
       return acc;
     case 'text':
@@ -203,6 +216,7 @@ function buildElementSnapshot(node: CollectedNode, run: AutomationTextRun | null
     testId: node.testId,
     focused: node.focused === true,
     hidden: node.hidden === true,
+    disabled: node.disabled === true,
     selected: node.a11y?.selected,
     expanded: node.a11y?.expanded,
   };
@@ -234,6 +248,7 @@ function buildActionSnapshot(
     testId: options?.testId,
     focusId: options?.focusId,
     focused: options?.focused === true,
+    disabled: options?.a11y?.disabled,
     selected: options?.a11y?.selected,
     expanded: options?.a11y?.expanded,
     source,
@@ -299,10 +314,13 @@ function buildSnapshotElements(root: VNode, grid: CellGrid, cols: number, rows: 
 
 function buildSnapshotActions(root: VNode, elements: readonly AutomationElementSnapshot[]): AutomationActionSnapshot[] {
   const actions: AutomationActionSnapshot[] = [];
-  const interactiveElements = elements.filter((element) => element.role && INTERACTIVE_ROLES.includes(element.role)).filter(shouldKeepRoleElement);
+  const interactiveElements = elements
+    .filter((element) => element.disabled !== true && element.role && INTERACTIVE_ROLES.includes(element.role))
+    .filter(shouldKeepRoleElement);
   const usedElementIds = new Set<string>();
 
   for (const candidate of collectFocusCandidates(root)) {
+    if (candidate.a11y?.disabled === true || candidate.a11y?.hidden === true) continue;
     const label = normalizeText(candidate.a11y?.label ?? candidate.text);
     const match = interactiveElements.find((element) => {
       if (usedElementIds.has(element.id)) return false;

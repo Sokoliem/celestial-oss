@@ -55,6 +55,13 @@ describe('terminal input protocol decoder', () => {
     expect(decoder.flush()).toEqual([{ type: 'discarded', protocol: 'paste' }]);
   });
 
+  it('reserves ESC ] for OSC instead of releasing it as an Alt+] key', () => {
+    const decoder = createTerminalInputProtocolDecoder();
+    expect(decoder.push(Buffer.from('\x1b]'))).toEqual([]);
+    expect(decoder.pendingKind).toBe('osc');
+    expect(decoder.flush()).toEqual([{ type: 'discarded', protocol: 'osc' }]);
+  });
+
   it('consumes fragmented terminal capability responses instead of producing keys', () => {
     expect(bytewise(Buffer.from('\x1b[?1;2;4c'))).toEqual([{ type: 'discarded', protocol: 'query' }]);
     expect(bytewise(Buffer.from('\x1b[>1;4000;0c'))).toEqual([{ type: 'discarded', protocol: 'query' }]);

@@ -178,6 +178,9 @@ await import('@celestial/core/nexus');
 await import('@celestial/test/pty');
 const esmExports = {
   'core.app': core.app,
+  'ui.actionCommands': ui.actionCommands,
+  'ui.helpView': ui.helpView,
+  'ui.keyMap': ui.keyMap,
   'ui.modal': ui.modal,
   'test.createTestApp': test.createTestApp,
   'horizon.splitPane': horizon.splitPane,
@@ -198,6 +201,9 @@ require('@celestial/core/nebula');
 require('@celestial/test/pty');
 const cjsExports = {
   'core.app': core.app,
+  'ui.actionCommands': ui.actionCommands,
+  'ui.helpView': ui.helpView,
+  'ui.keyMap': ui.keyMap,
   'ui.modal': ui.modal,
   'test.createTestApp': test.createTestApp,
   'horizon.splitPane': horizon.splitPane,
@@ -211,7 +217,8 @@ for (const [name, value] of Object.entries(cjsExports)) {
     join(fixtureDirectory, 'smoke.ts'),
     `${moduleSpecifiers.map((specifier, index) => `import * as packedModule${index} from '${specifier}';`).join('\n')}
 import { type AppConfig, Cmd, Sub, text } from '@celestial/core';
-import { modal } from '@celestial/ui';
+import type { AriaAttrs } from '@celestial/core/nebula';
+import { actionCommands, helpView, keyMap, modal, type KeyBinding } from '@celestial/ui';
 import { createTestApp } from '@celestial/test';
 import '@celestial/test/vitest';
 import * as horizon from '@celestial/horizon';
@@ -224,9 +231,17 @@ const config: AppConfig<null, Message> = {
   subscriptions: () => Sub.key('q', { type: 'quit' }),
 };
 const surface = modal({ title: 'Ready', content: text('ready') });
+const binding: KeyBinding<Message> = { key: 'q', msg: { type: 'quit' }, description: 'Quit' };
+const mappedKeys = keyMap([binding]);
+const keyboardHelp = helpView([binding]);
+const disabledMenuitem: AriaAttrs = { role: 'menuitem', label: 'Unavailable', disabled: true };
 const handle = createTestApp(config);
 handle.stop();
 void surface;
+void actionCommands;
+void mappedKeys;
+void keyboardHelp;
+void disabledMenuitem;
 void horizon;
 void [${moduleSpecifiers.map((_specifier, index) => `packedModule${index}`).join(', ')}];
 `,

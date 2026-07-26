@@ -64,6 +64,7 @@ export interface AriaAttrs {
   describedBy?: string;
   live?: 'polite' | 'assertive' | 'off';
   hidden?: boolean;
+  disabled?: boolean;
   expanded?: boolean;
   selected?: boolean;
   checked?: boolean | 'mixed';
@@ -128,12 +129,12 @@ export function isInteractive(attrs: AriaAttrs): boolean {
  *   "element"
  */
 export function describeElement(attrs: AriaAttrs): string {
-  const { role, label, checked } = attrs;
+  const { role, label, checked, disabled } = attrs;
 
   // Determine the role prefix
   if (checked !== undefined) {
     const state = checked === true ? 'checked' : checked === false ? 'unchecked' : 'mixed';
-    const prefix = `checkbox (${state})`;
+    const prefix = `checkbox (${disabled === true ? `${state}, disabled` : state})`;
     return label !== undefined ? `${prefix}: ${label}` : prefix;
   }
 
@@ -141,7 +142,8 @@ export function describeElement(attrs: AriaAttrs): string {
     return label !== undefined ? label : 'element';
   }
 
-  return label !== undefined ? `${role}: ${label}` : role;
+  const prefix = disabled === true ? `${role} (disabled)` : role;
+  return label !== undefined ? `${prefix}: ${label}` : prefix;
 }
 
 /**

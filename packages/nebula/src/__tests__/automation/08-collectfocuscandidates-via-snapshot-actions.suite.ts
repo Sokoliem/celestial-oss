@@ -117,4 +117,15 @@ describe('collectFocusCandidates (via snapshot actions)', () => {
 
     expect(snap.actions.some((a) => a.focusId === 'nested-f')).toBe(true);
   });
+
+  it('excludes focus nodes inside an aria-disabled ancestor', () => {
+    const focus = focusNode('disabled-descendant', textNode('Disabled descendant'), true);
+    const disabledAncestor = columnNode(focus);
+    setVNodeMeta(disabledAncestor, { a11y: { disabled: true } });
+
+    const grid = makeCellGrid(['Disabled descendant']);
+    const snap = buildAutomationSnapshot(disabledAncestor, grid, 19, 1);
+
+    expect(snap.actions.some((action) => action.focusId === 'disabled-descendant')).toBe(false);
+  });
 });

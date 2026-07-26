@@ -264,6 +264,9 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
 
       if (msg.type === 'cp-select') {
         const selected = getSelectedCommand(model.palette, commands);
+        if (selected?.disabled) {
+          return [model, Cmd.none()];
+        }
         if (selected) {
           config.onSelect?.(selected.msg);
         }
@@ -275,6 +278,9 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
         if (!Number.isInteger(msg.index) || msg.index < 0 || msg.index >= model.palette.filteredIds.length) return [model, Cmd.none()];
         const pointedPalette = { ...model.palette, selectedIndex: msg.index };
         const selected = getSelectedCommand(pointedPalette, commands);
+        if (selected?.disabled) {
+          return [{ ...model, palette: pointedPalette, hoveredIndex: msg.index }, Cmd.none()];
+        }
         if (selected) config.onSelect?.(selected.msg);
         return [
           { palette: paletteUpdate({ type: 'pal-close' }, pointedPalette, commands), keybindings: resetChord(model.keybindings), hoveredIndex: null },
@@ -356,7 +362,9 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
         const prefix = isSelected ? '▸ ' : '  ';
         const isActive = isHovered || isSelected;
         const rowBackground = isActive ? tokens.selectedBg : undefined;
-        const labelStyle = isActive
+        const labelStyle = cmd.disabled
+          ? style({ color: tokens.muted, background: rowBackground })
+          : isActive
           ? style({ color: tokens.text, bold: true, background: rowBackground })
           : style({ color: tokens.text, background: rowBackground });
 
@@ -365,13 +373,24 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
           parts.push(text(`  ${cmd.shortcut}`, style({ color: tokens.textSoft, background: rowBackground })));
         }
 
-        const commandRow = event(
-          `${surfaceId}:command:${index}`,
-          row(...parts),
-          { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
-          { label: cmd.label, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: cmd.shortcut },
-        );
-        setVNodeMeta(commandRow, { a11y: { role: 'menuitem', label: cmd.label, selected: isSelected } });
+        const content = row(...parts);
+        const commandRow = cmd.disabled
+          ? content
+          : event(
+              `${surfaceId}:command:${index}`,
+              content,
+              { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+              { label: cmd.label, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: cmd.shortcut },
+            );
+        setVNodeMeta(commandRow, {
+          ...(cmd.disabled ? { states: ['disabled'] } : {}),
+          a11y: {
+            role: 'menuitem',
+            label: cmd.label,
+            disabled: cmd.disabled === true,
+            selected: isSelected,
+          },
+        });
         lines.push(commandRow);
       });
 
