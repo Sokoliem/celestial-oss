@@ -1,4 +1,5 @@
-import { text, type VNode } from '@celestial/core/nebula';
+import { color } from '@celestial/core/corona';
+import { createThemeContext, text, type VNode } from '@celestial/core/nebula';
 import { describe, expect, it } from 'vitest';
 import { createScrollRegionModel, type ScrollRegionMsg, scrollRegionUpdate } from '../scroll.js';
 import {
@@ -97,6 +98,20 @@ describe('scrollablePane', () => {
       showIndicator: false,
     });
     expect(children).toHaveLength(1);
+  });
+
+  it('reads border and indicator chrome from the live theme context', () => {
+    const themeCtx = createThemeContext();
+    themeCtx.patch({ colors: { border: color.hex('#123456'), text: color.hex('#fedcba') } });
+    const node = scrollablePane({
+      body: text('body'),
+      scrollY: 0,
+      viewportHeight: 2,
+      contentHeight: 5,
+      themeCtx,
+    });
+    if (node.kind !== 'box') throw new Error('expected box');
+    expect(node.style?.fg).toBe(themeCtx.current().elevation.raised.border?.fg() ?? themeCtx.current().colors.border.fg());
   });
 });
 

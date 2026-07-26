@@ -19,7 +19,7 @@ import type { Color, SemanticTheme, ThemeInput, TokenContract } from '@celestial
 import { style } from '@celestial/corona';
 import { Cmd, column, event, type Msg, row, Sub, setVNodeMeta, type ThemeContext, text, type VNode } from '@celestial/nebula';
 import { generateFocusGroupId } from './focus-group.js';
-import { boundedInteger, MAX_RENDER_CELLS, positiveInteger } from './internal.js';
+import { boundedInteger, MAX_RENDER_CELLS, positiveInteger, wheelDirection } from './internal.js';
 import { resolveTheme, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
@@ -159,6 +159,7 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
   const interactionId = generateFocusGroupId('option-list');
   const clickTag = `${interactionId}:click`;
   const hoverTag = `${interactionId}:hover`;
+  const scrollTag = `${interactionId}:scroll`;
   const items = config.items.slice(0, MAX_RENDER_CELLS).map((item) => ({ ...item, id: String(item.id), label: String(item.label) }));
   const ids = new Set<string>();
   for (const item of items) {
@@ -330,8 +331,13 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
           event(
             `${interactionId}:item:${id}`,
             optionRow,
-            { onClick: clickTag, onMouseEnter: hoverTag },
-            { label: item.label, intent: 'select', affordances: ['hover', 'click'], cursor: isDisabled ? 'default' : 'pointer' },
+            isDisabled ? { onScroll: scrollTag } : { onClick: clickTag, onMouseEnter: hoverTag, onScroll: scrollTag },
+            {
+              label: item.label,
+              intent: isDisabled ? 'scroll' : 'select',
+              affordances: isDisabled ? ['scroll'] : ['hover', 'click', 'scroll'],
+              cursor: isDisabled ? 'default' : 'pointer',
+            },
           ),
         );
       }
@@ -341,6 +347,14 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
 
     subscriptions(_model: OptionListModel<T>): Sub<OptionListMsg> {
       return Sub.elementMouse<OptionListMsg>((mouseEvent) => {
+        if (mouseEvent.handlerTag === scrollTag) {
+          const direction = wheelDirection(mouseEvent.deltaY);
+          return direction < 0
+            ? { type: 'opt-arrow', direction: 'up' }
+            : direction > 0
+              ? { type: 'opt-arrow', direction: 'down' }
+              : { type: 'opt-noop' };
+        }
         if (!mouseEvent.elementId.startsWith(`${interactionId}:item:`)) return { type: 'opt-noop' };
         const id = mouseEvent.elementId.slice(`${interactionId}:item:`.length);
         if (mouseEvent.handlerTag === clickTag) return { type: 'opt-click', id };

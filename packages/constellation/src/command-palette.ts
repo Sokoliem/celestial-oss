@@ -31,7 +31,7 @@ import {
   text,
 } from '@celestial/core/nebula';
 import { generateFocusGroupId } from './focus-group.js';
-import { positiveInteger } from './internal.js';
+import { positiveInteger, wheelDirection } from './internal.js';
 import { type Command, createPaletteState, getSelectedCommand, type PaletteMsg, type PaletteState, paletteUpdate } from './palette.js';
 import { useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
@@ -236,6 +236,7 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
   const selectTag = `${surfaceId}:select-command`;
   const hoverTag = `${surfaceId}:hover-command`;
   const leaveTag = `${surfaceId}:leave-command`;
+  const scrollTag = `${surfaceId}:scroll`;
 
   return {
     init(): [CommandPaletteModel, Cmd<CommandPaletteMsg>] {
@@ -379,8 +380,14 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
           : event(
               `${surfaceId}:command:${index}`,
               content,
-              { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
-              { label: cmd.label, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: cmd.shortcut },
+              { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag, onScroll: scrollTag },
+              {
+                label: cmd.label,
+                intent: 'select',
+                affordances: ['hover', 'click', 'scroll'],
+                cursor: 'pointer',
+                keyboardHint: cmd.shortcut,
+              },
             );
         setVNodeMeta(commandRow, {
           ...(cmd.disabled ? { states: ['disabled'] } : {}),
@@ -416,6 +423,10 @@ export function commandPalette<M>(config: CommandPaletteConfig<M>): ComponentDes
       return Sub.batch<CommandPaletteMsg>(
         Sub.keyEvent<CommandPaletteMsg>((event: KeyEvent) => ({ type: 'cp-key', event })),
         Sub.elementMouse<CommandPaletteMsg>((mouseEvent) => {
+          if (mouseEvent.handlerTag === scrollTag) {
+            const direction = wheelDirection(mouseEvent.deltaY);
+            return direction < 0 ? { type: 'cp-up' } : direction > 0 ? { type: 'cp-down' } : { type: 'cp-noop' };
+          }
           if (!mouseEvent.elementId.startsWith(`${surfaceId}:command:`)) return { type: 'cp-noop' };
           const index = Number(mouseEvent.elementId.slice(`${surfaceId}:command:`.length));
           if (!Number.isInteger(index)) return { type: 'cp-noop' };

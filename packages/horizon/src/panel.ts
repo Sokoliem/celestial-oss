@@ -5,17 +5,22 @@
  * These components return VNodes ready for use in splitPane(), tabbedPane(), etc.
  */
 
-import { type Border, border, type Color, color, defaultTheme, style } from '@celestial/core/corona';
-import { box, column, flex, text, type VNode } from '@celestial/core/nebula';
+import { type Border, border, type Color, color, createTheme, defaultTheme, type SemanticTheme, style, type ThemeInput } from '@celestial/core/corona';
+import { box, column, flex, text, type ThemeContext, type VNode } from '@celestial/core/nebula';
 import { splitPane } from './split.js';
 
-const PANEL_BORDER_COLOR = defaultTheme.elevation.raised.border ?? defaultTheme.colors.border;
-const PANEL_TITLE_COLOR = defaultTheme.typography.title.color;
-const PANEL_FOCUS_COLOR = defaultTheme.states.focus.border ?? defaultTheme.colors.borderActive;
-const PANEL_EXPAND_GLYPH = defaultTheme.glyphs.pointer;
-const PANEL_COLLAPSE_GLYPH = defaultTheme.glyphs.menuArrow;
+interface PanelThemeConfig {
+  /** Static theme override for this pane. */
+  theme?: ThemeInput;
+  /** Reactive host theme. Takes precedence over `theme`. */
+  themeCtx?: ThemeContext;
+}
 
-export interface PanelStyle {
+function resolvePanelTheme(config: PanelThemeConfig): SemanticTheme {
+  return config.themeCtx?.current() ?? (config.theme ? createTheme(config.theme) : defaultTheme);
+}
+
+export interface PanelStyle extends PanelThemeConfig {
   /** Optional title displayed in the top */
   title?: string;
   /** Border style (default: border.rounded) */
@@ -52,17 +57,18 @@ export interface PanelConfig extends PanelStyle {
  * })
  */
 export function panel(config: PanelConfig): VNode {
+  const theme = resolvePanelTheme(config);
   const {
     content,
     title,
     borderStyle = border.rounded,
-    borderColor = PANEL_BORDER_COLOR,
-    titleColor = PANEL_TITLE_COLOR,
+    borderColor = theme.elevation.raised.border ?? theme.colors.border,
+    titleColor = theme.typography.title.color,
     focused = false,
-    focusColor = PANEL_FOCUS_COLOR,
+    focusColor = theme.states.focus.border ?? theme.colors.borderActive,
     padding = 0,
     fill = false,
-    fillColor = defaultTheme.elevation.raised.surface ?? defaultTheme.colors.surface,
+    fillColor = theme.elevation.raised.surface ?? theme.colors.surface,
   } = config;
 
   const activeColor = focused ? focusColor : borderColor;
@@ -96,6 +102,7 @@ export interface TitledPaneConfig extends PanelConfig {
  * })
  */
 export function titledPane(config: TitledPaneConfig): VNode {
+  const theme = resolvePanelTheme(config);
   const {
     content,
     title,
@@ -103,13 +110,13 @@ export function titledPane(config: TitledPaneConfig): VNode {
     footer,
     headerDivider = true,
     borderStyle = border.rounded,
-    borderColor = PANEL_BORDER_COLOR,
-    titleColor = PANEL_TITLE_COLOR,
+    borderColor = theme.elevation.raised.border ?? theme.colors.border,
+    titleColor = theme.typography.title.color,
     focused = false,
-    focusColor = PANEL_FOCUS_COLOR,
+    focusColor = theme.states.focus.border ?? theme.colors.borderActive,
     padding = 0,
     fill = false,
-    fillColor = defaultTheme.elevation.raised.surface ?? defaultTheme.colors.surface,
+    fillColor = theme.elevation.raised.surface ?? theme.colors.surface,
   } = config;
 
   const activeColor = focused ? focusColor : borderColor;
@@ -138,7 +145,7 @@ export function titledPane(config: TitledPaneConfig): VNode {
   return box(column(...children), s, fill ? { overflow: 'hidden' } : undefined);
 }
 
-export interface CollapsiblePaneConfig {
+export interface CollapsiblePaneConfig extends PanelThemeConfig {
   /** Unique ID for this pane */
   id: string;
   /** Title shown in header */
@@ -171,15 +178,16 @@ export interface CollapsiblePaneConfig {
  * })
  */
 export function collapsiblePane(config: CollapsiblePaneConfig): VNode {
+  const theme = resolvePanelTheme(config);
   const {
     title,
     content,
     collapsed,
     borderStyle = border.rounded,
-    borderColor = PANEL_BORDER_COLOR,
-    titleColor = PANEL_TITLE_COLOR,
-    expandChar = PANEL_EXPAND_GLYPH,
-    collapseChar = PANEL_COLLAPSE_GLYPH,
+    borderColor = theme.elevation.raised.border ?? theme.colors.border,
+    titleColor = theme.typography.title.color,
+    expandChar = theme.glyphs.pointer,
+    collapseChar = theme.glyphs.menuArrow,
   } = config;
 
   if (collapsed) {
@@ -192,6 +200,8 @@ export function collapsiblePane(config: CollapsiblePaneConfig): VNode {
     borderStyle,
     borderColor,
     titleColor,
+    theme: config.theme,
+    themeCtx: config.themeCtx,
   });
 }
 

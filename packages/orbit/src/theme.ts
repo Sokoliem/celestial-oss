@@ -20,17 +20,15 @@ export interface ThemedConfig {
 }
 
 /**
- * Resolve a `SemanticTheme` from a themed config. `themeCtx` wins when it
- * carries a `theme`; otherwise `theme` is run through `createTheme`; otherwise
+ * Resolve a `SemanticTheme` from a themed config. `themeCtx` wins and is read
+ * at render time; otherwise `theme` is run through `createTheme`; otherwise
  * the package-level default is returned. The result is always a fully
  * materialised theme — never `undefined` — so callers can read colors
  * directly.
  */
 export function resolveOrbitTheme(config: ThemedConfig | undefined): SemanticTheme {
-  const ctxTheme = (config?.themeCtx as { theme?: SemanticTheme } | undefined)?.theme;
-  if (ctxTheme && typeof ctxTheme === 'object' && 'colors' in ctxTheme) {
-    return ctxTheme as SemanticTheme;
-  }
+  const ctxTheme = config?.themeCtx?.current();
+  if (ctxTheme) return ctxTheme;
   if (config?.theme !== undefined) {
     return createTheme(config.theme);
   }

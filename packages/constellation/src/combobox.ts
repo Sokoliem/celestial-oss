@@ -4,7 +4,7 @@ import type { KeyEvent, Msg, ThemeContext, VNode } from '@celestial/nebula';
 import { Cmd, column, event, row, Sub, text } from '@celestial/nebula';
 import { applySingleLineKey, graphemes, insertSingleLinePaste, replaceSelection } from './editable-text.js';
 import { generateFocusGroupId } from './focus-group.js';
-import { boundedInteger, positiveInteger } from './internal.js';
+import { boundedInteger, positiveInteger, wheelDirection } from './internal.js';
 import { moveOptionHighlight } from './option-list-view.js';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
@@ -108,6 +108,7 @@ export function combobox(config: ComboboxConfig): ComponentDescriptor<ComboboxMo
   const selectTag = `${interactionId}:select`;
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
+  const scrollTag = `${interactionId}:scroll`;
 
   function normalizeFiltered(indices: readonly number[]): number[] {
     const result: number[] = [];
@@ -296,7 +297,7 @@ export function combobox(config: ComboboxConfig): ComponentDescriptor<ComboboxMo
         return event(
           `${interactionId}:option:${i}`,
           text(prefix + opt.label, isHighlighted ? hlStyle : applyTypography(tokens.labelStyle)),
-          { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+          { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag, onScroll: scrollTag },
           { label: opt.label, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Enter' },
         );
       });
@@ -306,6 +307,10 @@ export function combobox(config: ComboboxConfig): ComponentDescriptor<ComboboxMo
 
     subscriptions(model: ComboboxModel): Sub<ComboboxMsg> {
       const pointer = Sub.elementMouse<ComboboxMsg>((mouseEvent) => {
+        if (mouseEvent.handlerTag === scrollTag) {
+          const direction = wheelDirection(mouseEvent.deltaY);
+          return direction < 0 ? { type: 'up' } : direction > 0 ? { type: 'down' } : { type: 'noop' };
+        }
         if (mouseEvent.elementId === `${interactionId}:input` && mouseEvent.handlerTag === focusTag) return { type: 'focus' };
         if (!mouseEvent.elementId.startsWith(`${interactionId}:option:`)) return { type: 'noop' };
         const index = Number(mouseEvent.elementId.slice(`${interactionId}:option:`.length));

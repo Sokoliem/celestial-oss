@@ -1,4 +1,5 @@
-import { defaultTheme } from '@celestial/corona';
+import { color, defaultTheme } from '@celestial/corona';
+import { createThemeContext } from '@celestial/nebula';
 import { describe, expect, it } from 'vitest';
 import { feedbackColor, formColor, orbitToneColor, resolveOrbitTheme } from '../theme.js';
 
@@ -9,8 +10,15 @@ describe('resolveOrbitTheme', () => {
   });
 
   it('uses a theme supplied via themeCtx when one is present', () => {
-    const fakeTheme = { colors: defaultTheme.colors };
-    expect(resolveOrbitTheme({ themeCtx: { theme: fakeTheme } })).toBe(fakeTheme);
+    const themeCtx = createThemeContext();
+    expect(resolveOrbitTheme({ themeCtx })).toBe(themeCtx.current());
+  });
+
+  it('reads the live theme context instead of capturing its initial theme', () => {
+    const themeCtx = createThemeContext();
+    const customMuted = color.hex('#abcdef');
+    themeCtx.patch({ colors: { muted: customMuted } });
+    expect(resolveOrbitTheme({ themeCtx }).colors.muted.rgb).toEqual(customMuted.rgb);
   });
 
   it('routes theme overrides through createTheme', () => {
@@ -37,13 +45,9 @@ describe('feedbackColor / formColor / orbitToneColor', () => {
   });
 
   it('returns the muted color from a themeCtx-provided theme', () => {
-    const customMuted = '#abcdef';
-    const fakeTheme = {
-      colors: {
-        ...defaultTheme.colors,
-        muted: customMuted,
-      },
-    };
-    expect(formColor({ themeCtx: { theme: fakeTheme } }, 'muted')).toBe(customMuted);
+    const themeCtx = createThemeContext();
+    const customMuted = color.hex('#abcdef');
+    themeCtx.patch({ colors: { muted: customMuted } });
+    expect(formColor({ themeCtx }, 'muted').rgb).toEqual(customMuted.rgb);
   });
 });
