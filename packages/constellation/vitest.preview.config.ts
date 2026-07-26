@@ -32,6 +32,7 @@ export default defineConfig({
       'src/__tests__/keyboard.test.ts',
       'src/__tests__/status-bar.test.ts',
       'src/__tests__/actions.test.ts',
+      'src/__tests__/app-shell.test.ts',
       'src/__tests__/command-palette.test.ts',
       'src/__tests__/data-table.test.ts',
       'src/__tests__/tree.test.ts',

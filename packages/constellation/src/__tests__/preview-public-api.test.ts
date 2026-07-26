@@ -16,6 +16,7 @@ import {
   combobox,
   commandPalette,
   confirmDialog,
+  createAppShell,
   createNotificationCenter,
   createNotificationStore,
   createToastManager,
@@ -128,5 +129,9 @@ describe('@celestial/ui preview surface', () => {
   it('exports one canonical notification store for toast and inbox projections', () => {
     expect(createNotificationStore).toBeTypeOf('function');
     expect(createNotificationCenter).toBeTypeOf('function');
+  });
+
+  it('exports the headless application-shell coordinator without adding a builder', () => {
+    expect(createAppShell).toBeTypeOf('function');
   });
 });

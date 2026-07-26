@@ -12,6 +12,38 @@ export type { ActionCommandOptions, ActionKeyBindingOptions, UnbindableShortcut,
 export { actionCommands, actionKeyBindings, formatActionShortcut, unbindableActionShortcuts } from './actions.js';
 export type { AlertConfig, AlertModel, AlertMsg, AlertSize, AlertTokens, AlertVariant } from './alert.js';
 export { alert, alertContract } from './alert.js';
+export type {
+  AppShell,
+  AppShellActionSource,
+  AppShellConfig,
+  AppShellConfirmState,
+  AppShellContext,
+  AppShellDiagnostic,
+  AppShellDiagnosticCode,
+  AppShellModel,
+  AppShellModelSeed,
+  AppShellMsg,
+  AppShellNotificationOptions,
+  AppShellProjection,
+  AppShellReceipt,
+  AppShellShortcut,
+  AppShellShortcutName,
+  AppShellShortcuts,
+  AppShellStatusOptions,
+  AppShellStatusSections,
+  AppShellTaskMessage,
+  AppShellTaskMessages,
+  AppShellTaskRecord,
+  AppShellTaskSummary,
+  AppShellToastOptions,
+  AppShellUpdateResult,
+} from './app-shell.js';
+export {
+  AppShellValidationError,
+  createAppShell,
+  getAppShellTaskMessage,
+  summarizeAppShellTasks,
+} from './app-shell.js';
 export type { AutocompleteConfig, AutocompleteModel, AutocompleteMsg, AutocompleteTokens } from './autocomplete.js';
 export { autocomplete, autocompleteContract } from './autocomplete.js';
 // Feedback

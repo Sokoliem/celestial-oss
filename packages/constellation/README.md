@@ -43,6 +43,15 @@ by notification and action ID, and emits action receipts for the host to resolve
 through its command model. Explicit Escape ownership prevents composed surfaces
 from dismissing two layers for one key press.
 
+`createAppShell` is the optional headless coordinator for these composition
+primitives. It requires one host-owned action registry and the exact shared
+notification store, projects the registry into palette commands and canonical
+keyboard help, and returns immutable receipts instead of executing host actions.
+It has no `view()`; applications keep control of screen layout and rendering.
+The shell owns one dismissal chain—confirmation, palette, help, notification
+internals, notification center, then the latest toast—and always preserves one
+unmodified Escape binding even when an additional close shortcut is configured.
+
 Modal title rows include a pointer-accessible `[x]` control, and every modal
 also retains Escape dismissal with a visible keyboard hint.
 
