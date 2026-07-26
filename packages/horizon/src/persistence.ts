@@ -17,13 +17,17 @@ import type { WorkspaceDescriptor, WorkspaceModel } from './workspace.js';
 // We define a compatible PersistenceConfig type locally because nebula
 // does not export it from its public index.ts barrel. This matches the
 // shape in @celestial/core/nebula/src/persistence.ts.
+/**
+ * Storage is caller-owned — layouts serialize to and from strings and this
+ * module never touches the filesystem. (A `storagePath` field used to be
+ * declared here and was read by nothing.)
+ */
 export interface HorizonPersistenceConfig<Model> {
   key: string;
   version: number;
   select?: (model: Model) => unknown;
   merge?: (persisted: unknown, fresh: Model) => Model;
   migrations?: Record<number, (old: unknown) => unknown>;
-  storagePath?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -312,6 +312,13 @@ export {
   rgbToFgAnsi,
   shaders,
 } from './shader.js';
+export {
+  deserializeFromStorage,
+  migrateData,
+  type PersistedData,
+  type PersistenceConfig,
+  serializeForStorage,
+} from './persistence.js';
 export { batch, computed, createSignalContext, derived, effect, history, previous, type Signal, type SignalContext, signal } from './signals.js';
 export type { TaskDescriptor, TaskState, TaskStatus } from './tasks.js';
 export {

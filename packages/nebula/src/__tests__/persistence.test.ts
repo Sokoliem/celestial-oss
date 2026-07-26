@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { deserializeFromStorage, migrateData, type PersistedData, type PersistenceConfig, serializeForStorage } from '../persistence.js';
 
 describe('serializeForStorage', () => {
@@ -192,5 +192,38 @@ describe('migrateData', () => {
     const result = migrateData({ count: 5 }, 1, 2, migrations);
 
     expect(result).toEqual({ count: 10 });
+  });
+});
+
+describe('persistence reachability and failure reporting', () => {
+  it('is reachable from the public barrel', async () => {
+    // The serializers were implemented and tested but never re-exported, so no
+    // consumer of @celestial/nebula could reach them.
+    const barrel = (await import('../index.js')) as Record<string, unknown>;
+
+    expect(typeof barrel['serializeForStorage']).toBe('function');
+    expect(typeof barrel['deserializeFromStorage']).toBe('function');
+    expect(typeof barrel['migrateData']).toBe('function');
+  });
+
+  it('reports a corrupt payload instead of silently discarding it', () => {
+    const written: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      written.push(String(chunk));
+      return true;
+    });
+
+    try {
+      const fresh = { count: 0 };
+      const result = deserializeFromStorage({ key: 'app', version: 1 }, '{not json', fresh);
+
+      // Still resilient — a corrupt file must not crash the app.
+      expect(result).toBe(fresh);
+      // ...but it must not be indistinguishable from "nothing was ever saved".
+      // The sibling version-skew branch already reports; parse failure did not.
+      expect(written.join('')).toContain('persistence');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

@@ -1,12 +1,19 @@
 // Persistent state: save/restore model state across sessions
 
+/**
+ * Storage is caller-owned: these helpers convert a model to and from a string,
+ * and never touch the filesystem. That keeps the runtime platform-neutral —
+ * the same serializers work against a file, a keychain, or browser storage.
+ *
+ * (A `storagePath` field used to be declared here and was read by nothing,
+ * implying a capability this module does not have.)
+ */
 export interface PersistenceConfig<Model> {
   key: string;
   version: number;
   select?: (model: Model) => unknown;
   merge?: (persisted: unknown, fresh: Model) => Model;
   migrations?: Record<number, (old: unknown) => unknown>;
-  storagePath?: string; // default ~/.config/celestui/
 }
 
 export interface PersistedData {
@@ -45,7 +52,15 @@ export function deserializeFromStorage<Model>(config: PersistenceConfig<Model>, 
   let persisted: PersistedData;
   try {
     persisted = JSON.parse(raw) as PersistedData;
-  } catch {
+  } catch (error) {
+    // Resilient but not silent. Returning freshModel alone made a corrupt or
+    // truncated save indistinguishable from "nothing was ever saved", so a user
+    // whose state was discarded had no way to tell. The version-skew branch
+    // below already reports; this one now matches it.
+    if (typeof process !== 'undefined' && process.stderr) {
+      const detail = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[nebula] persistence: could not parse stored data for key "${config.key}" (${detail}). Returning fresh model.\n`);
+    }
     return freshModel;
   }
 
