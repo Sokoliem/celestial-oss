@@ -7,6 +7,7 @@ export const requiredPreviewPackages = Object.freeze([
   '@celestial/gravity',
   '@celestial/nexus',
   '@celestial/core',
+  '@celestial/compass',
   '@celestial/ui',
   '@celestial/orbit',
   '@celestial/spectrum',
@@ -30,6 +31,7 @@ export const previewPackageDirectories = Object.freeze({
   '@celestial/gravity': 'packages/gravity',
   '@celestial/nexus': 'packages/nexus',
   '@celestial/core': 'packages/core',
+  '@celestial/compass': 'packages/compass',
   '@celestial/ui': 'packages/constellation',
   '@celestial/orbit': 'packages/orbit',
   '@celestial/spectrum': 'packages/spectrum',
@@ -61,6 +63,7 @@ export const previewDemos = Object.freeze({
   '@celestial/demo-showcase': Object.freeze({
     directory: 'examples/celestial-showcase',
     runtimePackages: Object.freeze([
+      '@celestial/compass',
       '@celestial/core',
       '@celestial/ui',
       '@celestial/horizon',

@@ -13,6 +13,7 @@
     "test:pty": "vitest run src/__tests__/pty.test.ts"
   },
   "dependencies": {
+    "@celestial/compass": "workspace:*",
     "@celestial/core": "workspace:*",
     "@celestial/horizon": "workspace:*",
     "@celestial/mirage": "workspace:*",

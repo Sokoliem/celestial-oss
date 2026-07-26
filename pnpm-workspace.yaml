@@ -7,6 +7,7 @@ packages:
   - "packages/gravity"
   - "packages/nexus"
   - "packages/core"
+  - "packages/compass"
   - "packages/constellation"
   - "packages/orbit"
   - "packages/spectrum"

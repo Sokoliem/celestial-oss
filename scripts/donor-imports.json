@@ -73,6 +73,14 @@
       "reviews": ["license", "dependencies", "public-api", "tests", "security"]
     },
     {
+      "package": "@celestial/compass",
+      "publicPath": "packages/compass",
+      "donorPath": "packages/compass",
+      "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
+      "importedAt": "2026-07-25",
+      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+    },
+    {
       "package": "@celestial/ui",
       "publicPath": "packages/constellation",
       "donorPath": "packages/constellation",

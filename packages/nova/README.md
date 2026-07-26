@@ -771,7 +771,7 @@ function styleEffect(type: StyleType, opts?: StyleEffectOpts): StyleEffect
 ## Related Packages
 
 - `@celestial/aurora` - numeric animation primitives, spring physics, easing, and tweens
-- `@celestial/compass` - animated routing built on Nova transitions (supports all 7 strategies)
+- `@celestial/compass` - dependency-free headless routing and immutable screen navigation that applications can pair with Nova transitions
 - `@celestial/mirage` - text styling effects (shimmer, glow, breathe, color cycle)
 - `@celestial/nexus` - mouse and gesture recognition primitives (drag, swipe)
 
