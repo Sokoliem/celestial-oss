@@ -116,7 +116,12 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
   smoke: {
     purpose: 'Turn the interaction history into a repeatable acceptance check.',
     mouse: 'Click any incomplete receipt to jump to its relevant lab.',
-    verify: 'Complete all twelve receipts, then run the README headless and PTY commands.',
+    verify: 'Complete all thirteen receipts, then run the README headless and PTY commands.',
+  },
+  'app-shell': {
+    purpose: 'Compose Compass navigation with one headless action, task, status, help, confirmation, and notification coordinator.',
+    mouse: 'Navigate screens, confirm a release, start or cancel the background task, and open the shared inbox.',
+    verify: 'Confirm the route and screen stack agree, shell receipts stay explicit, and one notification entry powers both inbox and toast views.',
   },
 };
 
@@ -134,7 +139,7 @@ function helpContent(lab: LabId): VNode {
     text('Smoke receipt', labelStyle),
     text(copy.verify, undefined, { wrap: true }),
     text(''),
-    text('Global: 1-8 labs | ?/F1 help | Esc dismiss | Ctrl+P commands | Q quit', mutedStyle, { wrap: true }),
+    text('Global: 1-9 labs | ?/F1 help | Esc dismiss | Ctrl+P commands | Q quit', mutedStyle, { wrap: true }),
   );
 }
 
@@ -237,7 +242,7 @@ export function createShowcaseComponents() {
   });
   const wizardComponent = wizard({
     steps: [
-      { name: 'scope', title: 'Scope', description: 'Choose the public package boundary.', component: workflowStep('17 packages pass the allowlist gate.') },
+      { name: 'scope', title: 'Scope', description: 'Choose the public package boundary.', component: workflowStep('18 packages pass the allowlist gate.') },
       {
         name: 'verify',
         title: 'Verify',
@@ -394,6 +399,7 @@ export function createShowcaseComponents() {
       { id: 'layers', label: 'Open Layers lab', category: 'Labs', shortcut: '6', msg: { type: 'switch-lab', lab: 'layers' } },
       { id: 'windows', label: 'Open Windows lab', category: 'Labs', shortcut: '7', msg: { type: 'switch-lab', lab: 'windows' } },
       { id: 'smoke', label: 'Open Smoke lab', category: 'Labs', shortcut: '8', msg: { type: 'switch-lab', lab: 'smoke' } },
+      { id: 'app-shell', label: 'Open App shell lab', category: 'Labs', shortcut: '9', msg: { type: 'switch-lab', lab: 'app-shell' } },
       { id: 'help', label: 'Open contextual help', category: 'Actions', shortcut: '?', msg: { type: 'open-help' } },
       { id: 'reset', label: 'Reset all receipts', category: 'Actions', shortcut: 'R', msg: { type: 'reset' } },
     ],

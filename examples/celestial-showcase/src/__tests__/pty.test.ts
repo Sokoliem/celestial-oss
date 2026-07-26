@@ -11,7 +11,7 @@ describe('Celestial Flight Deck PTY', () => {
       cwd: packageRoot,
       cols: 140,
       rows: 42,
-      timeoutMs: 15_000,
+      timeoutMs: 25_000,
       env: { CELESTIAL_DEMO_FAST: '1' },
     });
 
@@ -72,6 +72,70 @@ describe('Celestial Flight Deck PTY', () => {
       await harness.waitForText('snap zone and tile layout.');
       harness.write('8');
       await harness.waitForText('Component changed');
+      const appShell = harness.mark();
+      harness.write('9');
+      await harness.waitForText('Config receipt: not loaded', { since: appShell });
+      const appShellJobs = harness.mark();
+      harness.write('j');
+      await harness.waitForText(
+        'Compass route receipt: /jobs/flight-42?view=queue -> jobs.',
+        { since: appShellJobs },
+      );
+      const appShellPalette = harness.mark();
+      harness.write('\u0010');
+      await harness.waitForText('[Close]', { since: appShellPalette });
+      const appShellPaletteClosed = harness.mark();
+      harness.write('\u001b');
+      await harness.waitForText(/SHARED\s*TOAST\s*PROJECTION/u, {
+        since: appShellPaletteClosed,
+      });
+      const appShellHelp = harness.mark();
+      harness.write('?');
+      await harness.waitForText('[Close]', { since: appShellHelp });
+      const appShellHelpClosed = harness.mark();
+      harness.write('\u001b');
+      await harness.waitForText(/SHARED\s*TOAST\s*PROJECTION/u, {
+        since: appShellHelpClosed,
+      });
+      const appShellConfirm = harness.mark();
+      harness.write('x');
+      await harness.waitForText('Compass modal screen remains locked', { since: appShellConfirm });
+      const appShellApproved = harness.mark();
+      harness.write('\r');
+      await harness.waitForText(
+        'Confirmation receipt: preview release approved.',
+        { since: appShellApproved },
+      );
+      const appShellTask = harness.mark();
+      harness.write('s');
+      await harness.waitForText('Background verification is running.', {
+        since: appShellTask,
+      });
+      await harness.waitForText('Background task: success', {
+        since: appShellTask,
+      });
+      await harness.waitForText(
+        'Config receipt: workspace-config | 2 checked | first-listed-wins',
+        { since: appShellTask },
+      );
+      const appShellSecondTask = harness.mark();
+      harness.write('s');
+      await harness.waitForText('Background task: running', {
+        since: appShellSecondTask,
+      });
+      const appShellCancelled = harness.mark();
+      harness.write('c');
+      await harness.waitForText('Background task: cancelled', {
+        since: appShellCancelled,
+      });
+      const appShellInbox = harness.mark();
+      harness.write('i');
+      await harness.waitForText('Release approved from the modal receipt.', { since: appShellInbox });
+      const appShellInboxClosed = harness.mark();
+      harness.write('\u001b');
+      await harness.waitForText(/SHARED\s*TOAST\s*PROJECTION/u, {
+        since: appShellInboxClosed,
+      });
       // 'Live instrument bus' is already in the transcript from the earlier visit to
       // this lab, so a plain waitForText would resolve instantly and synchronise
       // nothing. Marking first makes this wait mean "painted again, now", which
@@ -82,6 +146,20 @@ describe('Celestial Flight Deck PTY', () => {
       await harness.waitForText('Live instrument bus', { since: backToWindows });
       harness.resize(70, 32);
       await harness.waitForText('COMPACT / single');
+      const narrowAppShell = harness.mark();
+      harness.write('9');
+      await harness.waitForText('Diagnostics: none', { since: narrowAppShell });
+      const narrowAppShellHelp = harness.mark();
+      harness.write('?');
+      await harness.waitForText('[Close]', { since: narrowAppShellHelp });
+      const narrowAppShellHelpClosed = harness.mark();
+      harness.write('\u001b');
+      await harness.waitForText(/SHARED\s*TOAST\s*PROJECTION/u, {
+        since: narrowAppShellHelpClosed,
+      });
+      const narrowWindows = harness.mark();
+      harness.write('7');
+      await harness.waitForText('Live instrument bus', { since: narrowWindows });
       harness.write('?');
       await harness.waitForText('Windows help');
       harness.write('\u001b');
@@ -101,5 +179,5 @@ describe('Celestial Flight Deck PTY', () => {
     } finally {
       harness.dispose();
     }
-  }, 20_000);
+  }, 30_000);
 });

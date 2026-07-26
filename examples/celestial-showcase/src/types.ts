@@ -73,6 +73,10 @@ import type {
   TreeModel,
   TreeMsg,
 } from '@celestial/ui';
+import type {
+  AppShellLabModel,
+  AppShellLabMsg,
+} from './app-shell-lab.js';
 
 export interface ShowcaseGalleryModels {
   checkboxGroup: CheckboxGroupModel;
@@ -113,7 +117,16 @@ export type ShowcaseGalleryComponentMsg =
   | { id: 'popoverGroup'; msg: PopoverMsg }
   | { id: 'hovercard'; msg: HovercardMsg };
 
-export type LabId = 'core' | 'components' | 'workflows' | 'visuals' | 'mouse' | 'layers' | 'windows' | 'smoke';
+export type LabId =
+  | 'core'
+  | 'components'
+  | 'workflows'
+  | 'visuals'
+  | 'mouse'
+  | 'layers'
+  | 'windows'
+  | 'smoke'
+  | 'app-shell';
 export type ViewportTier = 'compact' | 'medium' | 'wide';
 export type CorePage = 'foundations' | 'locale' | 'ledger';
 export type ComponentFocus = 'none' | 'text' | 'textarea' | 'checkbox' | 'radio' | 'select' | 'toggle' | 'slider' | 'tabs' | 'pagination' | 'table' | 'tree';
@@ -130,6 +143,7 @@ export type SmokeId =
   | 'layer'
   | 'adaptive'
   | 'window'
+  | 'app-shell'
   | 'help';
 
 export interface SmokeEvidence {
@@ -144,6 +158,7 @@ export interface SmokeEvidence {
   layersOpened: number;
   breakpointCrossings: number;
   windowChanges: number;
+  appShellActions: number;
   helpOpens: number;
 }
 
@@ -242,6 +257,7 @@ export interface CelestialShowcaseModel {
   confirm: ConfirmDialogModel;
   drawer: DrawerModel;
   palette: CommandPaletteModel;
+  appShellLab: AppShellLabModel;
 }
 
 export type CelestialShowcaseMsg =
@@ -288,6 +304,7 @@ export type CelestialShowcaseMsg =
   | { type: 'confirm'; msg: ConfirmDialogMsg }
   | { type: 'drawer'; msg: DrawerMsg }
   | { type: 'palette'; msg: CommandPaletteMsg }
+  | { type: 'app-shell-lab'; msg: AppShellLabMsg }
   | { type: 'help-surface'; msg: DrawerMsg }
   | { type: 'open-help' }
   | { type: 'open-surface'; surface: SurfaceId }

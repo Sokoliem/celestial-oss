@@ -16,12 +16,13 @@ export interface ShowcaseBuilderCoverage {
 export const SHOWCASE_PACKAGE_COVERAGE = [
   { packageName: '@celestial/atlas', lab: 'Core', evidence: 'live', capabilities: ['capabilities', 'terminal size', 'motion policy'] },
   { packageName: '@celestial/aurora', lab: 'Core', evidence: 'live', capabilities: ['tween', 'spring', 'easing'] },
+  { packageName: '@celestial/compass', lab: 'App shell', evidence: 'live', capabilities: ['local URLs', 'route matching', 'history', 'modal-safe screens'] },
   { packageName: '@celestial/core', lab: 'Core', evidence: 'live', capabilities: ['facade', 'Elm runtime', 'namespaces'] },
   { packageName: '@celestial/corona', lab: 'Core', evidence: 'live', capabilities: ['theme contrast', 'glyphs', 'terminal text'] },
   { packageName: '@celestial/gravity', lab: 'Core', evidence: 'live', capabilities: ['flex', 'responsive tiers', 'density'] },
   { packageName: '@celestial/horizon', lab: 'Windows', evidence: 'live', capabilities: ['workspaces', 'windows', 'shelf', 'snap', 'tiling', 'session'] },
   { packageName: '@celestial/mirage', lab: 'Visuals', evidence: 'live', capabilities: ['gradient', 'shimmer', 'effects'] },
-  { packageName: '@celestial/nebula', lab: 'Core/Layers', evidence: 'live', capabilities: ['Elm loop', 'VDOM', 'signals', 'layers'] },
+  { packageName: '@celestial/nebula', lab: 'Core/Layers/App shell', evidence: 'live', capabilities: ['Elm loop', 'VDOM', 'signals', 'layers', 'explicit config loading', 'config diagnostics'] },
   { packageName: '@celestial/nexus', lab: 'Mouse', evidence: 'live', capabilities: ['HitMap', 'drag and drop', 'context routing'] },
   { packageName: '@celestial/nova', lab: 'Visuals', evidence: 'live', capabilities: ['fade', 'slide', 'morph'] },
   { packageName: '@celestial/orbit', lab: 'Workflows', evidence: 'live', capabilities: ['schema form', 'wizard', 'validation', 'schema parsing', 'prompts'] },
@@ -30,7 +31,12 @@ export const SHOWCASE_PACKAGE_COVERAGE = [
   { packageName: '@celestial/spectrum', lab: 'Visuals', evidence: 'live', capabilities: ['highlighting', 'language detection', 'tokenization'] },
   { packageName: '@celestial/stellar', lab: 'Visuals', evidence: 'live', capabilities: ['line', 'area', 'heatmap', 'sparkline'] },
   { packageName: '@celestial/test', lab: 'Smoke', evidence: 'test', capabilities: ['headless app', 'screen queries', 'PTY harness'] },
-  { packageName: '@celestial/ui', lab: 'Components/Layers', evidence: 'live', capabilities: ['47 builders', 'context menu helper', 'responsive surfaces'] },
+  {
+    packageName: '@celestial/ui',
+    lab: 'Components/Layers/App shell',
+    evidence: 'live',
+    capabilities: ['47 builders', 'context menu helper', 'responsive surfaces', 'headless app shell'],
+  },
 ] as const satisfies readonly ShowcasePackageCoverage[];
 
 export const UI_BUILDER_COVERAGE = [

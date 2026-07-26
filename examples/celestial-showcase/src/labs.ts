@@ -71,6 +71,7 @@ export const LABS: Array<{ id: LabId; label: string; key: string; summary: strin
   { id: 'layers', label: 'Layers', key: '6', summary: 'Stacked transient surfaces' },
   { id: 'windows', label: 'Windows', key: '7', summary: 'Horizon beta management' },
   { id: 'smoke', label: 'Smoke', key: '8', summary: 'Live verification receipts' },
+  { id: 'app-shell', label: 'App shell', key: '9', summary: 'Compass + coordinated surfaces' },
 ];
 
 export const SMOKE_STEPS: Array<{ id: SmokeId; label: string; lab: LabId; instruction: string }> = [
@@ -85,6 +86,12 @@ export const SMOKE_STEPS: Array<{ id: SmokeId; label: string; lab: LabId; instru
   { id: 'layer', label: 'Layer composed', lab: 'layers', instruction: 'Open and dismiss any transient surface.' },
   { id: 'adaptive', label: 'Breakpoint crossed', lab: 'windows', instruction: 'Resize across 120 or 80 columns.' },
   { id: 'window', label: 'Window managed', lab: 'windows', instruction: 'Focus, minimize, maximize, restore, or close a window.' },
+  {
+    id: 'app-shell',
+    label: 'App shell coordinated',
+    lab: 'app-shell',
+    instruction: 'Run a Compass route or a coordinated app-shell action.',
+  },
   { id: 'help', label: 'Context help opened', lab: 'smoke', instruction: 'Open help with ? or the Help button.' },
 ];
 
@@ -268,10 +275,10 @@ export const VISUAL_PAGE_LABELS = ['Overview', 'Text + motion', 'Charts', 'Markd
 export const WINDOW_PAGE_LABELS = ['Manager', 'Layout systems'] as const;
 
 const localeSamples = [
-  { id: 'en-US', label: 'English', currency: 'USD', text: 'Release 17 Celestial packages' },
-  { id: 'de-DE', label: 'Deutsch', currency: 'EUR', text: '17 Celestial-Pakete veröffentlichen' },
-  { id: 'ar-EG', label: 'العربية', currency: 'EGP', text: 'إطلاق ١٧ حزمة Celestial' },
-  { id: 'ja-JP', label: '日本語', currency: 'JPY', text: 'Celestial 17 パッケージを公開' },
+  { id: 'en-US', label: 'English', currency: 'USD', text: 'Release 18 Celestial packages' },
+  { id: 'de-DE', label: 'Deutsch', currency: 'EUR', text: '18 Celestial-Pakete veröffentlichen' },
+  { id: 'ar-EG', label: 'العربية', currency: 'EGP', text: 'إطلاق ١٨ حزمة Celestial' },
+  { id: 'ja-JP', label: '日本語', currency: 'JPY', text: 'Celestial 18 パッケージを公開' },
 ] as const;
 
 export const LOCALE_SAMPLE_COUNT = localeSamples.length;
@@ -630,7 +637,7 @@ function renderVisualOverview(model: CelestialShowcaseModel, caps: AtlasCapabili
 }
 
 function renderTextMotionLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
-  const source = 'const deck = release({ packages: 17, safe: true });';
+  const source = 'const deck = release({ packages: 18, safe: true });';
   const language = detectLanguage('flight-deck.ts') ?? 'plaintext';
   const tokens = tokenizeCode(source, language) ?? [];
   const highlighted = highlightCode(source, { language, theme: 'dracula' });
@@ -690,7 +697,7 @@ function renderChartLab(model: CelestialShowcaseModel): VNode {
 
 function renderMarkdownLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
   const width = Math.max(20, Math.min(54, model.cols - 18));
-  const source = `---\ntitle: Flight Deck\nchannel: preview\n---\n# Release ledger\n\nThe **release** keeps terminal cells safe.\n\n## Checks\n\n- Build\n- PTY\n- Packed install\n\n\`\`\`ts\nconst release = validate(17);\n\`\`\``;
+  const source = `---\ntitle: Flight Deck\nchannel: preview\n---\n# Release ledger\n\nThe **release** keeps terminal cells safe.\n\n## Checks\n\n- Build\n- PTY\n- Packed install\n\n\`\`\`ts\nconst release = validate(18);\n\`\`\``;
   const frontmatter = extractFrontmatter(source);
   const toc = extractToc(frontmatter.body);
   const tokens = parseMarkdown(frontmatter.body);

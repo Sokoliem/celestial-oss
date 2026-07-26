@@ -1,10 +1,16 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { currentScreen } from '@celestial/compass';
 import { createSessionStore, saveSession } from '@celestial/horizon';
 import { createScreen, createTestApp, fireMouse, type TestAppHandle } from '@celestial/test';
 import * as ui from '@celestial/ui';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
+import {
+  appShellLabPaletteWindow,
+  loadAppShellLabConfig,
+  projectAppShellLabToasts,
+} from '../app-shell-lab.js';
 import { GALLERY_PAGE_COUNT, UI_BUILDER_COUNT, UI_BUILDER_NAMES } from '../components.js';
 import { SHOWCASE_PACKAGE_COVERAGE, UI_BUILDER_COVERAGE, validateShowcaseCoverage } from '../coverage.js';
 import {
@@ -68,8 +74,47 @@ describe('Celestial Flight Deck', () => {
     expect(UI_BUILDER_COVERAGE.filter((entry) => entry.evidence === 'interactive').length).toBeGreaterThan(30);
   });
 
+  it('loads the deterministic app-shell config with an explicit source receipt', async () => {
+    const result = await loadAppShellLabConfig();
+
+    expect(result).toMatchObject({
+      ok: true,
+      sourceId: 'workspace-config',
+      checkedSources: ['project-config', 'workspace-config'],
+      value: {
+        profile: 'preview',
+        verificationChecks: 2,
+      },
+    });
+  });
+
+  it('treats a malformed highest-priority app-shell config as terminal', async () => {
+    let lowerReads = 0;
+    const result = await loadAppShellLabConfig([
+      {
+        id: 'project-config',
+        read: () => '{"profile":',
+      },
+      {
+        id: 'workspace-config',
+        read: () => {
+          lowerReads += 1;
+          return '{"profile":"preview","verificationChecks":2}';
+        },
+      },
+    ]);
+
+    expect(result).toMatchObject({
+      ok: false,
+      sourceId: 'project-config',
+      checkedSources: ['project-config'],
+      diagnostics: [{ code: 'config-parse-failed' }],
+    });
+    expect(lowerReads).toBe(0);
+  });
+
   // The ledger exists to prove coverage, so it has to be checked against the repo
-  // rather than against itself. These two tests are what make the 17/47 counts in
+  // rather than against itself. These two tests are what make the 18/47 counts in
   // coverage.ts derived facts instead of restated ones.
   it('matches the ledger against the public packages actually present in the workspace', () => {
     const packagesDir = fileURLToPath(new URL('../../../../packages/', import.meta.url));
@@ -174,6 +219,7 @@ describe('Celestial Flight Deck', () => {
       expect(frame).toContain('Atlas + Corona');
       expect(frame).toContain('Aurora + Nebula');
       expect(frame).toContain('Gravity + Nexus');
+      expect(frame).toContain('9 App shell');
       expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
       expect(handle.snapshot().audit.violations.filter((violation) => violation.rule === 'color-contrast')).toEqual([]);
     });
@@ -209,6 +255,7 @@ describe('Celestial Flight Deck', () => {
       ['layers', 'surface.'],
       ['windows', 'windows.'],
       ['smoke', 'Help button.'],
+      ['app-shell', 'Diagnostics: none'],
     ] as const) {
       handle.dispatch({ type: 'switch-lab', lab });
       await handle.waitForUpdate();
@@ -267,6 +314,565 @@ describe('Celestial Flight Deck', () => {
     expect(handle.lastFrame()).toContain(tail);
     expect(handle.model.cols).toBe(SHOWCASE_MIN_COLS);
     expect(handle.model.rows).toBe(SHOWCASE_MIN_ROWS);
+  });
+
+  it('drives real Compass history and screen state through the coordinated app shell', async () => {
+    const handle = flightDeck(100, 40);
+    handle.pressKey('9');
+    await handle.waitForUpdate();
+
+    expect(handle.model.activeLab).toBe('app-shell');
+    expect(handle.lastFrame()).toContain('Route receipt: /overview -> overview');
+    expect(handle.lastFrame()).toContain('Diagnostics: none');
+    expect(handle.model.appShellLab.router.history.entries).toHaveLength(1);
+    expect(currentScreen(handle.model.appShellLab.screens).id).toBe('overview');
+
+    handle.pressKey('j');
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.router.history.entries).toHaveLength(2);
+    expect(
+      handle.model.appShellLab.router.history.entries[
+        handle.model.appShellLab.router.history.index
+      ]?.href,
+    ).toBe('/jobs/flight-42?view=queue');
+    expect(currentScreen(handle.model.appShellLab.screens)).toMatchObject({
+      id: 'jobs',
+      params: { href: '/jobs/flight-42?view=queue' },
+    });
+    expect(handle.model.completed.has('app-shell')).toBe(true);
+
+    handle.pressKey('b');
+    await handle.waitForUpdate();
+    expect(
+      handle.model.appShellLab.router.history.entries[
+        handle.model.appShellLab.router.history.index
+      ]?.href,
+    ).toBe('/overview');
+    expect(currentScreen(handle.model.appShellLab.screens).id).toBe('overview');
+  });
+
+  it('projects live shell status and supports an enabled Jobs and Back pointer round trip', async () => {
+    const handle = flightDeck(100, 40);
+    handle.pressKey('9');
+    await handle.waitForUpdate();
+
+    const statusLabel = () =>
+      handle.snapshot().elements.find(
+        (element) =>
+          element.role === 'status'
+          && element.a11y?.label?.startsWith('Status: APP SHELL'),
+      )?.a11y?.label;
+
+    expect(statusLabel()).toContain('/overview');
+    expect(statusLabel()).toContain('1 idle');
+    expect(statusLabel()).toContain('1 unread');
+
+    const jobs = findText(handle.lastFrame(), '[Jobs]');
+    handle.click(jobs.col + 1, jobs.row);
+    await handle.waitForUpdate();
+    expect(currentScreen(handle.model.appShellLab.screens).id).toBe('jobs');
+    expect(statusLabel()).toContain('/jobs/flight-42?view=queue');
+
+    const back = findText(handle.lastFrame(), '[Back]');
+    handle.click(back.col + 1, back.row);
+    await handle.waitForUpdate();
+    expect(currentScreen(handle.model.appShellLab.screens).id).toBe('overview');
+    expect(statusLabel()).toContain('/overview');
+  });
+
+  it.each([
+    ['compact', SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS],
+    ['medium', 100, 40],
+    ['wide', 140, 42],
+  ] as const)(
+    'keeps the app-shell base and blocking surfaces accessible at the %s breakpoint',
+    async (_tier, cols, rows) => {
+      const handle = flightDeck(cols, rows);
+      handle.pressKey('9');
+      await handle.waitForUpdate();
+
+      const expectAccessible = (dialogLabel?: string) => {
+        const snapshot = handle.snapshot();
+        if (dialogLabel !== undefined) {
+          expect(
+            snapshot.elements.some(
+              (element) =>
+                element.role === 'dialog'
+                && element.a11y?.label === dialogLabel,
+            ),
+          ).toBe(true);
+        }
+        expect(
+          snapshot.audit.violations.filter(
+            (violation) => violation.severity === 'error',
+          ),
+        ).toEqual([]);
+        expect(
+          snapshot.audit.violations.filter(
+            (violation) => violation.rule === 'color-contrast',
+          ),
+        ).toEqual([]);
+      };
+
+      expectAccessible();
+      handle.pressKey('i');
+      await handle.waitForUpdate();
+      expectAccessible('Shared notification center');
+      handle.pressKey('escape');
+      await handle.waitForUpdate();
+
+      handle.pressKey('?');
+      await handle.waitForUpdate();
+      expectAccessible('CANONICAL KEYBOARD HELP');
+      handle.pressKey('escape');
+      await handle.waitForUpdate();
+
+      handle.pressKey('p', { ctrl: true });
+      await handle.waitForUpdate();
+      expectAccessible('ACTION PALETTE');
+      handle.pressKey('escape');
+      await handle.waitForUpdate();
+
+      handle.pressKey('x');
+      await handle.waitForUpdate();
+      expectAccessible('MODAL CONFIRMATION');
+    },
+  );
+
+  it('projects one shell registry into palette, canonical help, modal receipts, status, inbox, and toasts', async () => {
+    const handle = flightDeck(100, 40);
+    handle.pressKey('9');
+    await handle.waitForUpdate();
+
+    handle.pressKey('p', { ctrl: true });
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.palette.open).toBe(true);
+    expect(handle.lastFrame()).toContain('Type to filter; Enter runs the selected action.');
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.palette.open).toBe(false);
+
+    handle.pressKey('?');
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.helpOpen).toBe(true);
+    expect(handle.lastFrame()).toContain('CANONICAL KEYBOARD HELP');
+    expect(handle.lastFrame()).toContain('Open job queue');
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.helpOpen).toBe(false);
+
+    handle.pressKey('x');
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.confirm?.id).toBe('release-preview');
+    expect(currentScreen(handle.model.appShellLab.screens)).toMatchObject({
+      id: 'release-confirm',
+      modal: true,
+    });
+    expect(handle.lastFrame()).toContain('Compass modal screen remains locked');
+
+    handle.pressKey('enter');
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.confirm).toBeNull();
+    expect(handle.model.appShellLab.releaseApproved).toBe(true);
+    expect(handle.model.appShellLab.screens.lastDismissal).toMatchObject({
+      screen: { id: 'release-confirm', modal: true },
+      result: true,
+    });
+
+    const projected = projectAppShellLabToasts(handle.model.appShellLab);
+    expect(projected.entries.map((entry) => entry.id)).toEqual(
+      handle.model.appShellLab.shell.notifications.entries.map(
+        (entry) => entry.id,
+      ),
+    );
+    expect(
+      projected.toasts.some(
+        (entry) =>
+          entry.message === 'Release approved from the modal receipt.',
+      ),
+    ).toBe(true);
+
+    handle.pressKey('i');
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.notificationCenter.open).toBe(true);
+    expect(handle.lastFrame()).toContain('Shared notification center');
+    expect(handle.lastFrame()).toContain('Release approved from');
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.notificationCenter.open).toBe(false);
+  });
+
+  it('records only truthful app-shell interaction receipts and rejects hidden palette dispatch', async () => {
+    const handle = flightDeck(100, 40);
+    handle.pressKey('9');
+    await handle.waitForUpdate();
+
+    expect(handle.model.evidence.appShellActions).toBe(0);
+    expect(handle.model.appShellLab.evidenceVersion).toBe(0);
+    expect(handle.model.lastAction).toBe('Opened app-shell lab.');
+
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.notifications.visibleToastIds).toEqual([]);
+    expect(handle.model.evidence.appShellActions).toBe(1);
+    expect(handle.model.lastAction).toBe('Dismissed the latest shared toast.');
+
+    const afterDismiss = handle.model.evidence.appShellActions;
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+    expect(handle.model.evidence.appShellActions).toBe(afterDismiss);
+    expect(handle.model.lastAction).toBe('Dismissed the latest shared toast.');
+
+    handle.pressKey('p', { ctrl: true });
+    await handle.waitForUpdate();
+    const afterOpen = handle.model.evidence.appShellActions;
+    const filteredIds = handle.model.appShellLab.shell.palette.filteredIds;
+    const window = appShellLabPaletteWindow(handle.model.appShellLab);
+    const hiddenIndex = filteredIds.length - 1;
+    const hiddenId = filteredIds[hiddenIndex];
+    expect(hiddenIndex).toBeGreaterThanOrEqual(window.end);
+    expect(hiddenId).toBeDefined();
+
+    handle.dispatch({
+      type: 'app-shell-lab',
+      msg: {
+        type: 'palette-select-visible',
+        index: hiddenIndex,
+        actionId: hiddenId!,
+      },
+    });
+    await handle.waitForUpdate();
+
+    expect(handle.model.appShellLab.shell.palette.open).toBe(true);
+    expect(currentScreen(handle.model.appShellLab.screens).id).toBe('overview');
+    expect(handle.model.evidence.appShellActions).toBe(afterOpen);
+    expect(handle.model.lastAction).toBe('Opened the coordinated action palette.');
+  });
+
+  it('keeps the palette selection visible and gives palette and help real pointer close controls', async () => {
+    const handle = flightDeck(100, 40);
+    handle.pressKey('9');
+    await handle.waitForUpdate();
+
+    const overview = findText(handle.lastFrame(), '[Overview]');
+    handle.pressKey('p', { ctrl: true });
+    await handle.waitForUpdate();
+
+    const paletteSnapshot = handle.snapshot();
+    expect(
+      paletteSnapshot.actions.some((action) => action.label === 'Overview'),
+    ).toBe(false);
+    expect(
+      paletteSnapshot.actions.some((action) => action.label === 'Close'),
+    ).toBe(true);
+
+    handle.click(overview.col + 1, overview.row);
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.palette.open).toBe(true);
+    expect(currentScreen(handle.model.appShellLab.screens).id).toBe('overview');
+
+    for (let index = 0; index < 8; index += 1) {
+      handle.pressKey('down');
+      await handle.waitForUpdate();
+    }
+    const window = appShellLabPaletteWindow(handle.model.appShellLab);
+    expect(handle.model.appShellLab.shell.palette.selectedIndex).toBe(8);
+    expect(window).toEqual({ start: 1, end: 9 });
+    expect(handle.lastFrame()).toContain('Showing 2-9 of 10 | selected 9');
+    expect(handle.lastFrame()).not.toContain('Open overview screen');
+
+    const paletteClose = findText(handle.lastFrame(), '[Close]');
+    handle.click(paletteClose.col + 1, paletteClose.row);
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.palette.open).toBe(false);
+
+    handle.pressKey('p', { ctrl: true });
+    await handle.waitForUpdate();
+    const jobs = findText(handle.lastFrame(), 'Open job queue');
+    fireMouse(handle.terminal, {
+      type: 'move',
+      col: jobs.col + 1,
+      row: jobs.row,
+    });
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.palette.selectedIndex).toBe(1);
+    handle.click(jobs.col + 1, jobs.row);
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.palette.open).toBe(false);
+    expect(currentScreen(handle.model.appShellLab.screens).id).toBe('jobs');
+
+    handle.pressKey('?');
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.helpOpen).toBe(true);
+    const helpClose = findText(handle.lastFrame(), '[Close]');
+    handle.click(helpClose.col + 1, helpClose.row);
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.helpOpen).toBe(false);
+  });
+
+  it('removes toast roles and pointer targets beneath every blocking app-shell dialog at 70x32', async () => {
+    const handle = flightDeck(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
+    handle.pressKey('9');
+    await handle.waitForUpdate();
+
+    const initial = handle.snapshot();
+    const toastClose = initial.elements.find(
+      (element) =>
+        element.role === 'button'
+        && element.a11y?.label?.startsWith('Dismiss App shell ready'),
+    );
+    const toastAction = initial.elements.find(
+      (element) =>
+        element.role === 'button'
+        && element.a11y?.label === 'Open job queue',
+    );
+    expect(toastClose).toBeDefined();
+    expect(toastAction).toBeDefined();
+    const expectBlockedDialog = (
+      label: string,
+      expectedJobActions: number,
+    ) => {
+      const snapshot = handle.snapshot();
+      const dialog = snapshot.elements.find(
+        (element) =>
+          element.role === 'dialog'
+          && element.a11y?.label === label,
+      );
+      expect(dialog).toBeDefined();
+      expect(
+        snapshot.elements.some(
+          (element) =>
+            element.role === 'status'
+            && element.a11y?.label?.startsWith('info: App shell ready'),
+        ),
+      ).toBe(false);
+      expect(
+        snapshot.elements.some(
+          (element) =>
+            element.role === 'button'
+            && element.a11y?.label?.startsWith('Dismiss App shell ready'),
+        ),
+      ).toBe(false);
+      expect(
+        snapshot.actions.some((action) => action.label === '[x]'),
+      ).toBe(false);
+
+      const jobActions = snapshot.elements.filter(
+        (element) =>
+          element.role === 'button'
+          && element.a11y?.label === 'Open job queue',
+      );
+      expect(jobActions).toHaveLength(expectedJobActions);
+      for (const action of jobActions) {
+        expect(action.col).toBeGreaterThanOrEqual(dialog!.col);
+        expect(action.col + action.width).toBeLessThanOrEqual(
+          dialog!.col + dialog!.width,
+        );
+        expect(action.row).toBeGreaterThanOrEqual(dialog!.row);
+        expect(action.row + action.height).toBeLessThanOrEqual(
+          dialog!.row + dialog!.height,
+        );
+      }
+    };
+
+    const clickSuppressedToastTargets = async (
+      expectedScreen: 'overview' | 'release-confirm',
+    ) => {
+      const visibleToastIds = [
+        ...handle.model.appShellLab.shell.notifications.visibleToastIds,
+      ];
+      handle.click(toastClose!.col + 1, toastClose!.row);
+      await handle.waitForUpdate();
+      handle.click(toastAction!.col + 1, toastAction!.row);
+      await handle.waitForUpdate();
+      expect(
+        handle.model.appShellLab.shell.notifications.visibleToastIds,
+      ).toEqual(visibleToastIds);
+      expect(currentScreen(handle.model.appShellLab.screens).id).toBe(
+        expectedScreen,
+      );
+    };
+
+    handle.pressKey('p', { ctrl: true });
+    await handle.waitForUpdate();
+    expectBlockedDialog('ACTION PALETTE', 1);
+    await clickSuppressedToastTargets('overview');
+    expect(handle.model.appShellLab.shell.palette.open).toBe(true);
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+
+    handle.pressKey('?');
+    await handle.waitForUpdate();
+    expectBlockedDialog('CANONICAL KEYBOARD HELP', 0);
+    await clickSuppressedToastTargets('overview');
+    expect(handle.model.appShellLab.shell.helpOpen).toBe(true);
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+
+    handle.pressKey('i');
+    await handle.waitForUpdate();
+    expectBlockedDialog('Shared notification center', 0);
+    await clickSuppressedToastTargets('overview');
+    expect(handle.model.appShellLab.shell.notificationCenter.open).toBe(true);
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+
+    handle.pressKey('x');
+    await handle.waitForUpdate();
+    expectBlockedDialog('MODAL CONFIRMATION', 0);
+    await clickSuppressedToastTargets('release-confirm');
+    expect(handle.model.appShellLab.shell.confirm?.id).toBe('release-preview');
+  });
+
+  it('makes the persistent 70x32 toast close and action pointer-operable without covering controls', async () => {
+    const handle = flightDeck(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
+    handle.pressKey('9');
+    await handle.waitForUpdate();
+
+    const snapshot = handle.snapshot();
+    const toastStatus = snapshot.elements.find(
+      (element) =>
+        element.role === 'status'
+        && element.a11y?.label?.startsWith('info: App shell ready'),
+    );
+    expect(toastStatus).toBeDefined();
+    for (const label of ['Overview', 'Jobs', 'Confirm', 'Start task', 'Notify', 'Inbox', 'Keys', 'Palette']) {
+      const control = snapshot.elements.find(
+        (element) => element.role === 'button' && element.a11y?.label === label,
+      );
+      expect(control).toBeDefined();
+      expect(
+        control!.col < toastStatus!.col + toastStatus!.width
+        && control!.col + control!.width > toastStatus!.col
+        && control!.row < toastStatus!.row + toastStatus!.height
+        && control!.row + control!.height > toastStatus!.row,
+      ).toBe(false);
+    }
+    expect(
+      snapshot.elements.some(
+        (element) =>
+          element.role === 'button'
+          && element.a11y?.label?.startsWith('Dismiss App shell ready'),
+      ),
+    ).toBe(true);
+    expect(
+      snapshot.actions.some((action) => action.label === '[x]'),
+    ).toBe(true);
+    expect(
+      snapshot.actions.some((action) => action.label === 'Open job queue'),
+    ).toBe(true);
+
+    const action = findText(handle.lastFrame(), '[Open job queue]');
+    handle.click(action.col + 1, action.row);
+    await handle.waitForUpdate();
+    expect(currentScreen(handle.model.appShellLab.screens).id).toBe('jobs');
+    expect(handle.model.appShellLab.shell.notifications.visibleToastIds).toEqual([]);
+    expect(handle.model.appShellLab.shell.notifications.entries).toHaveLength(1);
+
+    handle.pressKey('n');
+    await handle.waitForUpdate();
+    const entryCount = handle.model.appShellLab.shell.notifications.entries.length;
+    const close = findText(handle.lastFrame(), '[x]');
+    handle.click(close.col + 1, close.row);
+    await handle.waitForUpdate();
+    expect(handle.model.appShellLab.shell.notifications.visibleToastIds).toEqual([]);
+    expect(handle.model.appShellLab.shell.notifications.entries).toHaveLength(entryCount);
+    expect(handle.model.lastAction).toBe('Dismissed the latest shared toast.');
+  });
+
+  it('keeps disabled Back and Cancel controls inert and unavailable to automation', async () => {
+    const handle = flightDeck(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
+    handle.pressKey('9');
+    await handle.waitForUpdate();
+
+    const initial = handle.snapshot();
+    for (const label of ['Back', 'Cancel task']) {
+      const element = initial.elements.find(
+        (candidate) =>
+          candidate.role === 'button'
+          && candidate.a11y?.label === label,
+      );
+      expect(element).toMatchObject({ disabled: true });
+      expect(initial.actions.some((action) => action.label === label)).toBe(false);
+    }
+
+    const evidence = handle.model.evidence.appShellActions;
+    const back = findText(handle.lastFrame(), '[Back disabled]');
+    handle.click(back.col + 1, back.row);
+    await handle.waitForUpdate();
+    handle.pressKey('b');
+    await handle.waitForUpdate();
+    expect(currentScreen(handle.model.appShellLab.screens).id).toBe('overview');
+    expect(handle.model.evidence.appShellActions).toBe(evidence);
+
+    const cancel = findText(handle.lastFrame(), '[Cancel task disabled]');
+    handle.click(cancel.col + 1, cancel.row);
+    await handle.waitForUpdate();
+    handle.pressKey('c');
+    await handle.waitForUpdate();
+    expect(
+      handle.model.appShellLab.shell.tasks.find(
+        (task) => task.id === 'app-shell-preview-validation',
+      )?.state.status,
+    ).toBe('idle');
+    expect(handle.model.evidence.appShellActions).toBe(evidence);
+
+    handle.pressKey('j');
+    await handle.waitForUpdate();
+    expect(
+      handle.snapshot().actions.some((action) => action.label === 'Back'),
+    ).toBe(true);
+    handle.pressKey('s');
+    await handle.waitForUpdate();
+    expect(
+      handle.snapshot().actions.some((action) => action.label === 'Cancel task'),
+    ).toBe(true);
+  });
+
+  it('starts and cancels an actual background task without breaking the 70x32 surface', async () => {
+    const handle = flightDeck(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
+    handle.pressKey('9');
+    await handle.waitForUpdate();
+
+    expect(handle.lastFrame()).toContain('App shell ready: one entry powers');
+    expect(handle.lastFrame()).toContain('[9 App shell]');
+    expect(
+      handle.snapshot().audit.violations.filter(
+        (violation) => violation.severity === 'error',
+      ),
+    ).toEqual([]);
+
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+    expect(handle.lastFrame()).toContain('Background task: idle');
+    expect(
+      handle.lastFrame().split('\n').find((line) => line.includes('completion')),
+    ).toMatch(/completion \[░+\]/u);
+
+    handle.pressKey('s');
+    expect(
+      handle.model.appShellLab.shell.tasks.find(
+        (task) => task.id === 'app-shell-preview-validation',
+      )?.state.status,
+    ).toBe('running');
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+    expect(handle.lastFrame()).toContain('Background task: running');
+    expect(
+      handle.lastFrame().split('\n').find((line) => line.includes('completion')),
+    ).toMatch(/completion \[░+\]/u);
+
+    handle.pressKey('c');
+    await handle.waitForUpdate();
+    expect(
+      handle.model.appShellLab.shell.tasks.find(
+        (task) => task.id === 'app-shell-preview-validation',
+      )?.state.status,
+    ).toBe('cancelled');
+    handle.pressKey('escape');
+    await handle.waitForUpdate();
+    expect(handle.lastFrame()).toContain('Background task: cancelled');
+    expect(handle.lastFrame()).toContain('Diagnostics: none');
   });
 
   it('applies workflow density to spacing and responsive composition', async () => {
@@ -792,10 +1398,10 @@ describe('Celestial Flight Deck', () => {
 
     handle.dispatch({ type: 'open-surface', surface: 'palette' });
     await handle.waitForUpdate();
-    const paletteAction = findText(handle.lastFrame(), 'Open Windows lab');
+    const paletteAction = findText(handle.lastFrame(), 'Open App shell lab');
     handle.click(paletteAction.col, paletteAction.row);
     await handle.waitForUpdate();
-    expect(handle.model.activeLab).toBe('windows');
+    expect(handle.model.activeLab).toBe('app-shell');
     handle.pressKey('6');
     await handle.waitForUpdate();
 
