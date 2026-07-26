@@ -17,6 +17,32 @@ the canonical `helpView` inside an existing modal or drawer. Both derive from
 the same executable `KeyBinding` list, including action categories, so help does
 not require a second shortcut registry.
 
+Toasts and the durable notification center project one immutable
+`NotificationModel`. Inject the exact same store into both surfaces; the center
+is a controlled composition helper rather than a second component-owned inbox:
+
+```ts
+import {
+  createNotificationCenter,
+  createNotificationStore,
+  createToastManager,
+} from '@celestial/ui';
+
+const store = createNotificationStore();
+const toasts = createToastManager({ store, dismissalOwner: 'host' });
+const center = createNotificationCenter({
+  store,
+  ownsToastEscape: false,
+  formatTimestamp: (timestamp) => new Date(timestamp).toISOString(),
+  resolveAction: (actionId) => ({ label: actionId }),
+});
+```
+
+`createNotificationCenter` measures variable-height rows, preserves selection
+by notification and action ID, and emits action receipts for the host to resolve
+through its command model. Explicit Escape ownership prevents composed surfaces
+from dismissing two layers for one key press.
+
 Modal title rows include a pointer-accessible `[x]` control, and every modal
 also retains Escape dismissal with a visible keyboard hint.
 

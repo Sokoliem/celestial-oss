@@ -6,6 +6,10 @@
  * absent from this package's declarations and tarball.
  */
 
+// Command spine: one action registry drives palette entries and key bindings,
+// so a shortcut and the command that advertises it cannot disagree.
+export type { ActionCommandOptions, ActionKeyBindingOptions, UnbindableShortcut, UnbindableShortcutReason } from './actions.js';
+export { actionCommands, actionKeyBindings, formatActionShortcut, unbindableActionShortcuts } from './actions.js';
 export type { AlertConfig, AlertModel, AlertMsg, AlertSize, AlertTokens, AlertVariant } from './alert.js';
 export { alert, alertContract } from './alert.js';
 export type { AutocompleteConfig, AutocompleteModel, AutocompleteMsg, AutocompleteTokens } from './autocomplete.js';
@@ -97,6 +101,8 @@ export type { FormFieldConfig, FormFieldTokens } from './form-field.js';
 export { formField, formFieldContract } from './form-field.js';
 export type { HovercardConfig, HovercardModel, HovercardMsg } from './hovercard.js';
 export { hovercard } from './hovercard.js';
+export type { HelpViewOptions, KeyBinding } from './keyboard.js';
+export { formatDisplayKey, formatKeyBinding, getMatchingKeyBinding, helpView, keyMap, matchesKeyBinding } from './keyboard.js';
 export type { ListConfig, ListItem, ListTokens } from './list.js';
 export { list, listContract } from './list.js';
 // Layered surfaces
@@ -104,6 +110,37 @@ export type { ModalConfig, ModalModel, ModalMsg, ModalTokens } from './modal.js'
 export { modal, modalContract } from './modal.js';
 export type { MultiSelectConfig, MultiSelectModel, MultiSelectMsg, MultiSelectOption, MultiSelectTokens } from './multi-select.js';
 export { multiSelect, multiSelectContract } from './multi-select.js';
+export type {
+  NotificationCenter,
+  NotificationCenterAction,
+  NotificationCenterActionCursor,
+  NotificationCenterActionReceipt,
+  NotificationCenterConfig,
+  NotificationCenterHoverTarget,
+  NotificationCenterMsg,
+  NotificationCenterState,
+  NotificationCenterTokens,
+  NotificationCenterUpdate,
+  NotificationCenterViewport,
+} from './notification-center.js';
+export { createNotificationCenter, notificationCenterContract } from './notification-center.js';
+export type {
+  NotificationDelivery,
+  NotificationDiagnostic,
+  NotificationDiagnosticCode,
+  NotificationEnqueueInput,
+  NotificationEnqueueValue,
+  NotificationEntry,
+  NotificationId,
+  NotificationLevel,
+  NotificationModel,
+  NotificationModelSeed,
+  NotificationPausedToast,
+  NotificationStore,
+  NotificationStoreConfig,
+  NotificationStoreResult,
+} from './notification-store.js';
+export { createNotificationStore } from './notification-store.js';
 export type { NumberInputConfig, NumberInputModel, NumberInputMsg, NumberInputTokens } from './number-input.js';
 export { numberInput, numberInputContract } from './number-input.js';
 export type { OptionListConfig, OptionListFilter, OptionListItem, OptionListModel, OptionListMsg, OptionListTokens } from './option-list-view.js';
@@ -137,6 +174,8 @@ export type { SelectConfig, SelectDisplay, SelectModel, SelectMsg, SelectOption,
 export { select, selectContract } from './select.js';
 export type { SliderConfig, SliderModel, SliderMsg, SliderTokens } from './slider.js';
 export { slider, sliderContract } from './slider.js';
+export type { StatusBarConfig, StatusBarModel, StatusBarMsg, StatusBarSection, StatusBarTokens } from './status-bar.js';
+export { statusBar, statusBarContract } from './status-bar.js';
 // Navigation
 export type { TabsConfig, TabsModel, TabsMsg, TabsTokens } from './tabs.js';
 export { tabs, tabsContract } from './tabs.js';
@@ -176,17 +215,21 @@ export {
 } from './theme.js';
 export type {
   Toast,
+  ToastEnqueueResult,
+  ToastEnqueueValue,
   ToastEntry,
+  ToastInteractionState,
   ToastLayerOptions,
   ToastLevel,
   ToastManagerConfig,
   ToastModel,
   ToastMsg,
   ToastPlacement,
+  ToastProjectionResult,
   ToastTokens,
   ToastViewOptions,
 } from './toast.js';
-export { createToastManager, toastContract } from './toast.js';
+export { createToastManager, ToastValidationError, toastContract } from './toast.js';
 export type { ToggleConfig, ToggleGroupConfig, ToggleGroupModel, ToggleGroupMsg, ToggleModel, ToggleMsg, ToggleTokens } from './toggle.js';
 export { toggle, toggleContract, toggleGroup } from './toggle.js';
 export type {
@@ -200,20 +243,8 @@ export type {
   TooltipVariant,
 } from './tooltip.js';
 export { measureTooltipBubble, renderTooltipBubble, tooltip, tooltipContract } from './tooltip.js';
-// Command spine: one action registry drives palette entries and key bindings,
-// so a shortcut and the command that advertises it cannot disagree.
-export type { ActionCommandOptions, ActionKeyBindingOptions, UnbindableShortcut, UnbindableShortcutReason } from './actions.js';
-export { actionCommands, actionKeyBindings, formatActionShortcut, unbindableActionShortcuts } from './actions.js';
-export type { HelpViewOptions, KeyBinding } from './keyboard.js';
-export { formatDisplayKey, formatKeyBinding, getMatchingKeyBinding, helpView, keyMap, matchesKeyBinding } from './keyboard.js';
-export type { StatusBarConfig, StatusBarModel, StatusBarMsg, StatusBarSection, StatusBarTokens } from './status-bar.js';
-export { statusBar, statusBarContract } from './status-bar.js';
 export type { TreeConfig, TreeModel, TreeMsg, TreeNode, TreeNodeInfo, TreeTokens } from './tree.js';
 export { tree, treeContract } from './tree.js';
-// The hardened uniform-windowing kernel. Implemented, guarded and unit-tested,
-// but never re-exported, so no consumer of @celestial/ui could reach it.
-export type { VirtualScrollConfig, VirtualScrollMsg, VirtualScrollState, VisibleRange } from './virtual-scroll.js';
-export { createVirtualScrollState, getVisibleRange, scrollToIndex, virtualScrollUpdate } from './virtual-scroll.js';
 export type {
   ComponentDescriptor,
   FocusState,
@@ -223,3 +254,7 @@ export type {
 export { normalizeContent } from './types.js';
 export type { ValidationResult, Validator } from './validation.js';
 export { compose, composeAll, custom, isValid, maxLength, minLength, pattern, required, validate } from './validation.js';
+// The hardened uniform-windowing kernel. Implemented, guarded and unit-tested,
+// but never re-exported, so no consumer of @celestial/ui could reach it.
+export type { VirtualScrollConfig, VirtualScrollMsg, VirtualScrollState, VisibleRange } from './virtual-scroll.js';
+export { createVirtualScrollState, getVisibleRange, scrollToIndex, virtualScrollUpdate } from './virtual-scroll.js';

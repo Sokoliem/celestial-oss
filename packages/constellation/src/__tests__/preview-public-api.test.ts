@@ -16,6 +16,8 @@ import {
   combobox,
   commandPalette,
   confirmDialog,
+  createNotificationCenter,
+  createNotificationStore,
   createToastManager,
   dataTable,
   datePicker,
@@ -23,12 +25,12 @@ import {
   drawer,
   emptyState,
   formField,
-  hovercard,
   helpView,
+  hovercard,
   indeterminateProgress,
+  keyMap,
   list,
   modal,
-  keyMap,
   multiSelect,
   numberInput,
   optionListView,
@@ -121,5 +123,10 @@ describe('@celestial/ui preview surface', () => {
     for (const helper of [actionCommands, actionKeyBindings, unbindableActionShortcuts, keyMap, helpView]) {
       expect(helper).toBeTypeOf('function');
     }
+  });
+
+  it('exports one canonical notification store for toast and inbox projections', () => {
+    expect(createNotificationStore).toBeTypeOf('function');
+    expect(createNotificationCenter).toBeTypeOf('function');
   });
 });
