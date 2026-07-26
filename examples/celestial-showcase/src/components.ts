@@ -42,6 +42,7 @@ import {
   select,
   slider,
   spinner,
+  statusBar,
   tabs,
   tagInput,
   textarea,
@@ -681,9 +682,16 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
         named('emptyState()', emptyState({ title: 'No private dependencies', description: 'The supported demo stays inside the focused preview.', width: 42 })),
       );
     }
-    case 6:
+    case 6: {
+      const shellStatus = statusBar({
+        width: Math.max(1, Math.min(42, model.cols - 18)),
+        left: [{ text: 'FLIGHT DECK', mode: true }],
+        center: [{ text: 'Components' }],
+        right: [{ text: `${UI_BUILDER_COUNT} ready` }],
+      });
+      const [shellStatusModel] = shellStatus.init();
       return column(
-        galleryHeader(6, 'Feedback and layers - 7 builders'),
+        galleryHeader(6, 'Feedback and layers - 8 builders'),
         row(
           named('badge()', badge({ label: `${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} curated`, variant: 'success', size: 'sm' }).view({ visible: true })),
           text('    '),
@@ -704,8 +712,10 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           text('  '),
           action(model, 'drawer', 'drawer()', 'info'),
         ),
+        named('statusBar()', shellStatus.view(shellStatusModel)),
         text('Each layered builder opens as a real stacked surface; Escape always dismisses.', mutedStyle, { wrap: true }),
       );
+    }
     default: {
       const contextNode = contextMenuView({
         state: model.galleryContextMenu,

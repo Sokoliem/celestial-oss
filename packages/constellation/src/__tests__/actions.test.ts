@@ -1,8 +1,8 @@
-import { type ActionDescriptor, Cmd, createActionRegistry, text } from '@celestial/core/nebula';
+import { type ActionDescriptor, Cmd, createActionRegistry, extractNodeText, text } from '@celestial/core/nebula';
 import { createTestApp } from '@celestial/test';
 import { describe, expect, it } from 'vitest';
 import { actionCommands, actionKeyBindings, formatActionShortcut, unbindableActionShortcuts } from '../actions.js';
-import { keyMap } from '../keyboard.js';
+import { helpView, keyMap } from '../keyboard.js';
 
 type Model = { readonly canSave: boolean };
 type Msg = { readonly type: 'noop'; readonly actionId?: string };
@@ -44,6 +44,17 @@ describe('actionKeyBindings', () => {
     expect(save?.modifiers?.ctrl).toBe(true);
     // Registered but guarded off, so the help screen can still list it.
     expect(save?.when?.()).toBe(false);
+  });
+
+  it('projects the canonical action category into both executable bindings and generated help', () => {
+    const source = registry();
+    const bindings = actionKeyBindings(source, { canSave: true }, { toMsg });
+    const commands = actionCommands(source, { canSave: true }, { toMsg });
+    const saveBinding = bindings.find((binding) => binding.msg.actionId === 'file.save');
+
+    expect(saveBinding?.category).toBe('File');
+    expect(commands.find((command) => command.id === 'file.save')?.category).toBe(saveBinding?.category);
+    expect(extractNodeText(helpView(bindings))).toContain('File:');
   });
 
   it('normalizes shifted alphabetic shortcuts to the emitted terminal key', () => {

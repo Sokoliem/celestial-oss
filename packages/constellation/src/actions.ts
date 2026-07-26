@@ -330,6 +330,7 @@ export function actionKeyBindings<Model, Msg, M>(
         // Recompute this projection when the model's availability changes.
         ...(disabled ? { when: () => false } : {}),
         description: disabled ? `${action.descriptor.title} ${disabledDescriptionSuffix}` : action.descriptor.title,
+        ...(action.descriptor.category === undefined ? {} : { category: action.descriptor.category }),
         discoverable: action.descriptor.discoverable !== false,
       });
     }

@@ -206,6 +206,8 @@ export type { ActionCommandOptions, ActionKeyBindingOptions, UnbindableShortcut,
 export { actionCommands, actionKeyBindings, formatActionShortcut, unbindableActionShortcuts } from './actions.js';
 export type { HelpViewOptions, KeyBinding } from './keyboard.js';
 export { formatDisplayKey, formatKeyBinding, getMatchingKeyBinding, helpView, keyMap, matchesKeyBinding } from './keyboard.js';
+export type { StatusBarConfig, StatusBarModel, StatusBarMsg, StatusBarSection, StatusBarTokens } from './status-bar.js';
+export { statusBar, statusBarContract } from './status-bar.js';
 export type { TreeConfig, TreeModel, TreeMsg, TreeNode, TreeNodeInfo, TreeTokens } from './tree.js';
 export { tree, treeContract } from './tree.js';
 // The hardened uniform-windowing kernel. Implemented, guarded and unit-tested,

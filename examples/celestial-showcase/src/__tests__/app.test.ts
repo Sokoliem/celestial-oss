@@ -69,7 +69,7 @@ describe('Celestial Flight Deck', () => {
   });
 
   // The ledger exists to prove coverage, so it has to be checked against the repo
-  // rather than against itself. These two tests are what make the 17/46 counts in
+  // rather than against itself. These two tests are what make the 17/47 counts in
   // coverage.ts derived facts instead of restated ones.
   it('matches the ledger against the public packages actually present in the workspace', () => {
     const packagesDir = fileURLToPath(new URL('../../../../packages/', import.meta.url));
@@ -193,7 +193,7 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.componentPage).toBe(6);
 
     screen.fireResize(SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS);
-    expect(handle.lastFrame()).toContain('Feedback and layers - 7 builders');
+    expect(handle.lastFrame()).toContain('Feedback and layers - 8 builders');
     expect(handle.model.activeLab).toBe('components');
     expect(handle.model.componentPage).toBe(6);
   });
@@ -331,7 +331,7 @@ describe('Celestial Flight Deck', () => {
     handle.pressKey('2');
     await handle.waitForUpdate();
 
-    expect(UI_BUILDER_COUNT).toBe(46);
+    expect(UI_BUILDER_COUNT).toBe(47);
     expect([...UI_BUILDER_NAMES]).toEqual(expect.arrayContaining(['indeterminateProgress', 'cardGrid', 'popoverGroup']));
 
     const builders = new Set<string>();

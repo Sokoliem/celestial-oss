@@ -232,4 +232,31 @@ describe('helpView', () => {
     expect(lines).toContain('First close');
     expect(lines).not.toContain('Second close');
   });
+
+  it('never exceeds the requested width, even below the normal indentation width', () => {
+    const lines = textLines(helpView([{ key: 'x', msg: 'x', description: 'Execute action' }], { width: 2 }));
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.every((line) => measureTextWidth(line) <= 2)).toBe(true);
+  });
+
+  it('keeps non-ASCII printable keys identical to the executable chord', () => {
+    const binding: KeyBinding<string> = { key: 'ß', msg: 'eszett', description: 'Insert eszett' };
+    expect(matchesKeyBinding(binding, press('ß'))).toBe(true);
+    expect(textLines(helpView([binding])).join('\n')).toContain('ß');
+    expect(textLines(helpView([binding])).join('\n')).not.toContain('SS');
+  });
+
+  it('rejects terminal controls in measured headings, categories, and descriptions', () => {
+    const binding: KeyBinding<string> = { key: 'x', msg: 'x', description: 'Execute' };
+
+    expect(() => helpView([binding], { title: 'Keys\tNow' })).toThrow(/printable/i);
+    expect(() => helpView([{ ...binding, category: 'Shell\u001b' }])).toThrow(/printable/i);
+    expect(() => helpView([{ ...binding, description: 'Execute\u009fnow' }])).toThrow(/printable/i);
+  });
+
+  it('retains intentional line feeds in wrapped descriptions', () => {
+    const output = textLines(helpView([{ key: 'x', msg: 'x', description: 'First line\nSecond line' }], { width: 24 })).join('\n');
+    expect(output).toContain('First line');
+    expect(output).toContain('Second line');
+  });
 });

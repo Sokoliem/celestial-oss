@@ -43,6 +43,7 @@ import {
   select,
   slider,
   spinner,
+  statusBar,
   tabs,
   tagInput,
   textarea,
@@ -101,13 +102,14 @@ const componentBuilders = [
   popoverGroup,
   hovercard,
   toggleGroup,
+  statusBar,
 ];
 
 const excludedBuilders = ['fileExplorer', 'markdownViewer', 'terminal', 'kanbanBoard', 'imageViewer', 'notificationCenter'] as const;
 
 describe('@celestial/ui preview surface', () => {
-  it('exports the curated 46 component builders', () => {
-    expect(componentBuilders).toHaveLength(46);
+  it('exports the curated 47 component builders', () => {
+    expect(componentBuilders).toHaveLength(47);
     for (const builder of componentBuilders) expect(builder).toBeTypeOf('function');
   });
 

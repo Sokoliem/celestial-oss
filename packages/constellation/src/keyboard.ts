@@ -9,10 +9,14 @@
 
 import type { KeyEvent, KeyModifiers, VNode } from '@celestial/core/nebula';
 import { column, setVNodeMeta, Sub, text } from '@celestial/core/nebula';
-import { measureTextWidth, segmentGraphemes, truncateText } from '@celestial/rosetta';
+import { measureTextWidth, segmentGraphemes, truncateText, wrapCellText } from '@celestial/rosetta';
+import { positiveInteger } from './internal.js';
 
 /** Upper bound on the key column so one pathological label cannot blow up the layout. */
 const MAX_KEY_COLUMN_CELLS = 32;
+const DEFAULT_HELP_WIDTH = 80;
+const TERMINAL_CONTROL = /[\u0000-\u001f\u007f-\u009f]/u;
+const TERMINAL_CONTROL_EXCEPT_LINE_FEED = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u;
 
 const NAMED_KEYS = new Set([
   'enter',
@@ -55,6 +59,8 @@ export interface KeyBinding<M> {
   when?: () => boolean;
   /** Human-readable description, used for help-screen generation. */
   description: string;
+  /** Optional grouping used by the generated keyboard guide. */
+  category?: string;
   /** Hide this binding from generated help while keeping it executable. */
   discoverable?: boolean;
 }
@@ -227,16 +233,18 @@ export function formatDisplayKey(key: string): string {
   const graphemes = segmentGraphemes(key);
   const first = graphemes[0];
   if (first === undefined) return key;
-  if (graphemes.length === 1) return key.toUpperCase();
-  return first.toUpperCase() + graphemes.slice(1).join('');
+  const displayFirst = /^[a-z]$/i.test(first) ? first.toUpperCase() : first;
+  if (graphemes.length === 1) return displayFirst;
+  return displayFirst + graphemes.slice(1).join('');
 }
 
 /**
  * Format a key plus modifiers for display, e.g. `Ctrl+C`, `Shift+Tab`, `Enter`.
  *
- * Single-grapheme keys are upper-cased whole; longer names are capitalized.
- * Counting graphemes rather than code units keeps an emoji or combining
- * sequence from being treated as several characters.
+ * ASCII letters are upper-cased while non-ASCII printable keys retain the
+ * exact scalar used by the executable binding. Counting graphemes rather than
+ * code units keeps an emoji or combining sequence from being treated as
+ * several characters.
  */
 export function formatKeyBinding(key: string, modifiers?: KeyModifiers): string {
   const parts: string[] = [];
@@ -261,9 +269,20 @@ export interface HelpViewOptions {
   readonly includeInactive?: boolean;
   /** Include bindings explicitly hidden from generated help. */
   readonly includeUndiscoverable?: boolean;
+  /** Maximum terminal-cell width of every rendered line. */
+  readonly width?: number;
+  /** Heading text. Use an empty string when a host surface already renders one. */
+  readonly title?: string;
+  /** Group bindings under their category labels. Defaults to true when any binding has a category. */
+  readonly groupByCategory?: boolean;
 }
 
 export function helpView<M>(bindings: readonly KeyBinding<M>[], options: HelpViewOptions = {}): VNode {
+  const width = positiveInteger(options.width, DEFAULT_HELP_WIDTH);
+  const title = options.title ?? 'Key Bindings:';
+  if (typeof title !== 'string' || TERMINAL_CONTROL.test(title)) {
+    throw new TypeError('Key binding help titles must be single-line printable text.');
+  }
   const evaluated = bindings.map((binding) => {
     const normalized = normalizeBinding(binding);
     return { ...normalized, active: binding.when === undefined || binding.when() };
@@ -285,24 +304,73 @@ export function helpView<M>(bindings: readonly KeyBinding<M>[], options: HelpVie
   });
 
   if (visible.length === 0) {
-    const empty = text('No key bindings defined.');
+    const empty = text(truncateText('No key bindings defined.', width));
     setVNodeMeta(empty, { a11y: { role: 'region', label: 'Key bindings, none defined' } });
     return empty;
   }
 
   const formatted = visible.map(({ binding, key, modifiers }) => {
-    const label = truncateText(formatKeyBinding(key, modifiers), MAX_KEY_COLUMN_CELLS);
-    return { label, width: measureTextWidth(label), description: binding.description };
+    if (binding.category !== undefined && (typeof binding.category !== 'string' || TERMINAL_CONTROL.test(binding.category))) {
+      throw new TypeError(`Key binding category ${JSON.stringify(binding.category)} must be single-line printable text.`);
+    }
+    if (typeof binding.description !== 'string' || TERMINAL_CONTROL_EXCEPT_LINE_FEED.test(binding.description)) {
+      throw new TypeError(`Key binding descriptions must contain printable text and optional line feeds.`);
+    }
+    const category = binding.category?.trim() || 'General';
+    return { label: formatKeyBinding(key, modifiers), description: binding.description, category };
   });
 
-  const columnWidth = Math.max(...formatted.map((entry) => entry.width));
+  const columnWidth = Math.min(
+    MAX_KEY_COLUMN_CELLS,
+    Math.max(...formatted.map((entry) => measureTextWidth(entry.label))),
+    Math.max(1, width - 4),
+  );
+  const shouldGroup = options.groupByCategory ?? formatted.some((entry) => entry.category !== 'General');
+  const groups = new Map<string, typeof formatted>();
+  for (const entry of formatted) {
+    const group = groups.get(entry.category);
+    if (group) group.push(entry);
+    else groups.set(entry.category, [entry]);
+  }
 
-  const rows = formatted.map((entry) => {
-    const padding = ' '.repeat(Math.max(0, columnWidth - entry.width) + 2);
-    return text(`  ${entry.label}${padding}${entry.description}`);
-  });
+  const rows: VNode[] = [];
+  const renderEntry = (entry: (typeof formatted)[number]) => {
+    const label = truncateText(entry.label, columnWidth);
+    const labelWidth = measureTextWidth(label);
+    const inlineDescriptionWidth = width - 2 - columnWidth - 2;
+    if (inlineDescriptionWidth < 1) {
+      rows.push(text(truncateText(`  ${label}`, width)));
+      const descriptionIndent = width > 2 ? '  ' : '';
+      const descriptionWidth = Math.max(1, width - measureTextWidth(descriptionIndent));
+      for (const line of wrapCellText(entry.description, descriptionWidth)) {
+        rows.push(text(`${descriptionIndent}${line}`));
+      }
+      return;
+    }
 
-  const view = column(text('Key Bindings:'), text(''), ...rows);
+    const descriptionLines = wrapCellText(entry.description, inlineDescriptionWidth);
+    const firstDescription = descriptionLines[0] ?? '';
+    rows.push(text(`  ${label}${' '.repeat(columnWidth - labelWidth + 2)}${firstDescription}`));
+    const continuationPrefix = ' '.repeat(2 + columnWidth + 2);
+    for (const line of descriptionLines.slice(1)) {
+      rows.push(text(`${continuationPrefix}${line}`));
+    }
+  };
+
+  if (shouldGroup) {
+    let groupIndex = 0;
+    for (const [category, entries] of groups) {
+      if (groupIndex > 0) rows.push(text(''));
+      rows.push(text(truncateText(`${category}:`, width)));
+      entries.forEach(renderEntry);
+      groupIndex += 1;
+    }
+  } else {
+    formatted.forEach(renderEntry);
+  }
+
+  const heading = title.length > 0 ? [text(truncateText(title, width)), text('')] : [];
+  const view = column(...heading, ...rows);
   setVNodeMeta(view, { a11y: { role: 'region', label: `Key bindings, ${visible.length} entries` } });
   return view;
 }

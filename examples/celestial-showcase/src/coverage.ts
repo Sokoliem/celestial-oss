@@ -30,7 +30,7 @@ export const SHOWCASE_PACKAGE_COVERAGE = [
   { packageName: '@celestial/spectrum', lab: 'Visuals', evidence: 'live', capabilities: ['highlighting', 'language detection', 'tokenization'] },
   { packageName: '@celestial/stellar', lab: 'Visuals', evidence: 'live', capabilities: ['line', 'area', 'heatmap', 'sparkline'] },
   { packageName: '@celestial/test', lab: 'Smoke', evidence: 'test', capabilities: ['headless app', 'screen queries', 'PTY harness'] },
-  { packageName: '@celestial/ui', lab: 'Components/Layers', evidence: 'live', capabilities: ['46 builders', 'context menu helper', 'responsive surfaces'] },
+  { packageName: '@celestial/ui', lab: 'Components/Layers', evidence: 'live', capabilities: ['47 builders', 'context menu helper', 'responsive surfaces'] },
 ] as const satisfies readonly ShowcasePackageCoverage[];
 
 export const UI_BUILDER_COVERAGE = [
@@ -80,6 +80,7 @@ export const UI_BUILDER_COVERAGE = [
   { name: 'popover', evidence: 'interactive' },
   { name: 'popoverGroup', evidence: 'interactive' },
   { name: 'hovercard', evidence: 'interactive' },
+  { name: 'statusBar', evidence: 'rendered' },
 ] as const satisfies readonly ShowcaseBuilderCoverage[];
 
 export const UI_BUILDER_NAMES = UI_BUILDER_COVERAGE.map((entry) => entry.name);

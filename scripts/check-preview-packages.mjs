@@ -218,7 +218,7 @@ for (const [name, value] of Object.entries(cjsExports)) {
     `${moduleSpecifiers.map((specifier, index) => `import * as packedModule${index} from '${specifier}';`).join('\n')}
 import { type AppConfig, Cmd, Sub, text } from '@celestial/core';
 import type { AriaAttrs } from '@celestial/core/nebula';
-import { actionCommands, helpView, keyMap, modal, type KeyBinding } from '@celestial/ui';
+import { actionCommands, helpView, keyMap, modal, statusBar, type KeyBinding } from '@celestial/ui';
 import { createTestApp } from '@celestial/test';
 import '@celestial/test/vitest';
 import * as horizon from '@celestial/horizon';
@@ -234,6 +234,7 @@ const surface = modal({ title: 'Ready', content: text('ready') });
 const binding: KeyBinding<Message> = { key: 'q', msg: { type: 'quit' }, description: 'Quit' };
 const mappedKeys = keyMap([binding]);
 const keyboardHelp = helpView([binding]);
+const status = statusBar({ left: [{ text: 'READY', mode: true }] });
 const disabledMenuitem: AriaAttrs = { role: 'menuitem', label: 'Unavailable', disabled: true };
 const handle = createTestApp(config);
 handle.stop();
@@ -241,6 +242,7 @@ void surface;
 void actionCommands;
 void mappedKeys;
 void keyboardHelp;
+void status;
 void disabledMenuitem;
 void horizon;
 void [${moduleSpecifiers.map((_specifier, index) => `packedModule${index}`).join(', ')}];
