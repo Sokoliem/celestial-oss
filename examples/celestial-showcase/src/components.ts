@@ -1,4 +1,5 @@
 import { Cmd, type Cmd as Command, column, defaultTheme, event, row, runtime, style, text, type VNode } from '@celestial/core';
+import type { ThemeContext } from '@celestial/core/nebula';
 import { schemaForm, wizard } from '@celestial/orbit';
 import {
   alert,
@@ -143,10 +144,10 @@ function helpContent(lab: LabId): VNode {
   );
 }
 
-export function createShowcaseComponents() {
-  const textInputComponent = textInput({ value: 'celestial-flight-deck', placeholder: 'Mission name' });
-  const textareaComponent = textarea({ value: 'Mouse-first\nAdaptive by default', rows: 2, maxLines: 4, showLineNumbers: true });
-  const checkboxComponent = checkbox({ label: 'Run headless checks', checked: true });
+export function createShowcaseComponents(themeCtx: ThemeContext) {
+  const textInputComponent = textInput({ value: 'celestial-flight-deck', placeholder: 'Mission name', themeCtx });
+  const textareaComponent = textarea({ value: 'Mouse-first\nAdaptive by default', rows: 2, maxLines: 4, showLineNumbers: true, themeCtx });
+  const checkboxComponent = checkbox({ label: 'Run headless checks', checked: true, themeCtx });
   const radioComponent = radioGroup({
     options: [
       { label: 'Compact', value: 'compact' },
@@ -154,6 +155,7 @@ export function createShowcaseComponents() {
       { label: 'Dense', value: 'dense' },
     ],
     selected: 1,
+    themeCtx,
   });
   const selectComponent = select({
     options: [
@@ -163,14 +165,17 @@ export function createShowcaseComponents() {
     ],
     selected: 0,
     placeholder: 'Render target',
+    maxVisibleOptions: 3,
+    themeCtx,
   });
-  const toggleComponent = toggle({ label: 'Live motion', checked: true, variant: 'success' });
-  const sliderComponent = slider({ min: 0, max: 100, step: 10, value: 70, width: 16, label: 'Density' });
+  const toggleComponent = toggle({ label: 'Live motion', checked: true, variant: 'success', themeCtx });
+  const sliderComponent = slider({ min: 0, max: 100, step: 10, value: 70, width: 16, label: 'Density', themeCtx });
   const checkboxGroupComponent = checkboxGroup({
     options: [
       { label: 'Unit', value: 'unit', checked: true },
       { label: 'PTY', value: 'pty' },
     ],
+    themeCtx,
   });
   const toggleGroupComponent = toggleGroup({
     options: [
@@ -178,34 +183,45 @@ export function createShowcaseComponents() {
       { label: 'Keys', value: 'keys', checked: true },
     ],
     layout: 'row',
+    themeCtx,
   });
   const autocompleteComponent = autocomplete({
-    source: (query) => ['release', 'resize', 'render'].filter((value) => value.startsWith(query)),
+    source: (query) => ['release', 'resize', 'render', 'reactive', 'receipt', 'region'].filter((value) => value.startsWith(query)),
     placeholder: 'Search APIs',
+    maxSuggestions: 3,
+    themeCtx,
   });
   const comboboxComponent = combobox({
     options: [
       { label: 'Pulsar', value: 'pulsar' },
       { label: 'Stellar', value: 'stellar' },
       { label: 'Spectrum', value: 'spectrum' },
+      { label: 'Horizon', value: 'horizon' },
+      { label: 'Orbit', value: 'orbit' },
     ],
     value: 'Stellar',
+    maxVisibleOptions: 3,
+    themeCtx,
   });
-  const datePickerComponent = datePicker({ selected: { year: 2026, month: 7, day: 19 } });
+  const datePickerComponent = datePicker({ selected: { year: 2026, month: 7, day: 19 }, themeCtx });
   const multiSelectComponent = multiSelect({
     options: [
       { label: 'Unicode', value: 'unicode' },
       { label: 'Mouse', value: 'mouse' },
       { label: 'Motion', value: 'motion' },
+      { label: 'Layers', value: 'layers' },
+      { label: 'Windows', value: 'windows' },
     ],
     selected: [0, 1],
+    maxVisibleOptions: 3,
+    themeCtx,
   });
-  const numberInputComponent = numberInput({ value: UI_BUILDER_COUNT, min: 1, max: 99, label: 'Builders' });
-  const rangeSliderComponent = rangeSlider({ min: 40, max: 160, low: 70, high: 120, width: 18 });
-  const ratingComponent = rating({ value: 4, max: 5, interactive: true });
-  const segmentedControlComponent = segmentedControl({ options: ['Compact', 'Wide'], selected: 1 });
-  const tagInputComponent = tagInput({ tags: ['unicode', 'mouse'], placeholder: 'Add capability' });
-  const colorPickerComponent = colorPicker({ value: '#5FD7FF' });
+  const numberInputComponent = numberInput({ value: UI_BUILDER_COUNT, min: 1, max: 99, label: 'Builders', themeCtx });
+  const rangeSliderComponent = rangeSlider({ min: 40, max: 160, low: 70, high: 120, width: 18, themeCtx });
+  const ratingComponent = rating({ value: 4, max: 5, interactive: true, themeCtx });
+  const segmentedControlComponent = segmentedControl({ options: ['Compact', 'Wide'], selected: 1, themeCtx });
+  const tagInputComponent = tagInput({ tags: ['unicode', 'mouse'], placeholder: 'Add capability', themeCtx });
+  const colorPickerComponent = colorPicker({ value: '#5FD7FF', themeCtx });
   const schemaFormComponent = schemaForm({
     schema: {
       fields: [
@@ -234,6 +250,7 @@ export function createShowcaseComponents() {
     },
     value: {},
     onChange: () => undefined,
+    themeCtx,
   });
   const workflowStep = (summary: string) => ({
     init: (): [string, Command<unknown>] => [summary, Cmd.none<unknown>()],
@@ -257,6 +274,7 @@ export function createShowcaseComponents() {
       },
     ],
     focusGroup: 'showcase-release-wizard',
+    themeCtx,
   });
   const tabsComponent = tabs({
     tabs: [
@@ -264,6 +282,7 @@ export function createShowcaseComponents() {
       { key: 'view', label: 'View' },
       { key: 'test', label: 'Test', badge: '3' },
     ],
+    themeCtx,
   });
   const breadcrumbComponent = breadcrumb({
     id: 'showcase-breadcrumb',
@@ -272,15 +291,19 @@ export function createShowcaseComponents() {
       { label: 'Preview', key: 'preview' },
       { label: 'Flight Deck', key: 'flight-deck' },
     ],
+    themeCtx,
   });
-  const paginationComponent = pagination({ total: 50, pageSize: 10, current: 1 });
+  const paginationComponent = pagination({ total: 50, pageSize: 10, current: 1, themeCtx });
   const optionListComponent = optionListView({
     items: [
       { id: 'preview', label: 'Preview', value: 'preview' },
       { id: 'beta', label: 'Beta', value: 'beta' },
       { id: 'private', label: 'Private', value: 'private', disabled: true },
+      { id: 'canary', label: 'Canary', value: 'canary' },
+      { id: 'stable', label: 'Stable', value: 'stable' },
     ],
     maxVisible: 3,
+    themeCtx,
   });
   const tableComponent = dataTable<CapabilityRow>({
     columns: [
@@ -295,6 +318,7 @@ export function createShowcaseComponents() {
     multiSelect: true,
     rowNumbers: true,
     title: 'Preview contract',
+    themeCtx,
   });
   const treeComponent = tree({
     nodes: [
@@ -310,9 +334,10 @@ export function createShowcaseComponents() {
       { key: 'ui', label: '@celestial/ui' },
       { key: 'horizon', label: '@celestial/horizon (beta)' },
     ],
+    themeCtx,
   });
-  const spinnerComponent = spinner({ style: 'arc', speed: 120 });
-  const indeterminateProgressComponent = indeterminateProgress({ width: 16, speed: 120 });
+  const spinnerComponent = spinner({ style: 'arc', speed: 120, themeCtx });
+  const indeterminateProgressComponent = indeterminateProgress({ width: 16, speed: 120, themeCtx });
   const cardGridComponent = cardGrid({
     cards: [
       { title: 'Runtime', content: text('Elm loop', mutedStyle), variant: 'outlined', size: 'sm', width: 15, onClick: () => undefined },
@@ -320,6 +345,7 @@ export function createShowcaseComponents() {
     ],
     columns: 2,
     gap: 1,
+    themeCtx,
   });
   const tooltipComponent = tooltip({
     content: 'Tooltip content is tokenized, capability-aware, animated, and Escape-dismissible.',
@@ -327,6 +353,7 @@ export function createShowcaseComponents() {
     variant: 'info',
     caret: false,
     children: text('[ Tooltip target ]', labelStyle),
+    themeCtx,
   });
   const toastManager = createToastManager({ id: 'celestial-showcase-toasts' });
   const modalComponent = modal({
@@ -338,6 +365,7 @@ export function createShowcaseComponents() {
     ),
     width: 52,
     open: false,
+    themeCtx,
   });
   const confirmComponent = confirmDialog({
     title: 'Confirm launch receipt',
@@ -345,6 +373,7 @@ export function createShowcaseComponents() {
     confirmLabel: 'Record',
     cancelLabel: 'Not yet',
     open: false,
+    themeCtx,
   });
   const drawerComponent = drawer({
     title: 'Layer stack',
@@ -368,6 +397,7 @@ export function createShowcaseComponents() {
     variant: 'overlay',
     width: 42,
     height: 22,
+    themeCtx,
   });
   const popoverComponent = popover({
     trigger: text('[ Inspect release ]', labelStyle),
@@ -375,18 +405,21 @@ export function createShowcaseComponents() {
     content: text('Only allowlisted packages ship.', undefined, { wrap: true }),
     position: 'bottom',
     width: 34,
+    themeCtx,
   });
   const popoverGroupComponent = popoverGroup({
     popovers: [
       { trigger: '[ Runtime ]', content: 'Elm state remains explicit.', variant: 'info', position: 'bottom' },
       { trigger: '[ Render ]', content: 'Terminal cells remain width-safe.', variant: 'success', position: 'bottom' },
     ],
+    themeCtx,
   });
   const hovercardComponent = hovercard({
     id: 'showcase-package-card',
     trigger: text('[ Hover package ]', labelStyle),
     content: column(text('@celestial/pulsar', labelStyle), text('Markdown + Spectrum + Stellar', mutedStyle)),
     width: 36,
+    themeCtx,
   });
   const paletteComponent = commandPalette<CelestialShowcaseMsg>({
     placeholder: 'Jump to a lab or run an action...',
@@ -403,6 +436,8 @@ export function createShowcaseComponents() {
       { id: 'help', label: 'Open contextual help', category: 'Actions', shortcut: '?', msg: { type: 'open-help' } },
       { id: 'reset', label: 'Reset all receipts', category: 'Actions', shortcut: 'R', msg: { type: 'reset' } },
     ],
+    maxVisible: 10,
+    themeCtx,
   });
   const helpDrawers = Object.fromEntries(
     (Object.keys(helpCopy) as LabId[]).map((lab) => [
@@ -414,6 +449,7 @@ export function createShowcaseComponents() {
         variant: 'overlay',
         width: 46,
         height: 28,
+        themeCtx,
       }),
     ]),
   ) as Record<LabId, ReturnType<typeof drawer>>;

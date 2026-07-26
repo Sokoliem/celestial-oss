@@ -4,6 +4,7 @@ import { currentScreen } from '@celestial/compass';
 import { createSessionStore, saveSession } from '@celestial/horizon';
 import { createScreen, createTestApp, fireMouse, type TestAppHandle } from '@celestial/test';
 import * as ui from '@celestial/ui';
+import { applyVariant, defaultTheme, validateThemeContrast } from '@celestial/core/corona';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
 import {
@@ -23,6 +24,7 @@ import {
   WORKFLOW_PAGE_LABELS,
 } from '../labs.js';
 import type { CelestialShowcaseModel, CelestialShowcaseMsg, ShowcaseGalleryComponentMsg } from '../types.js';
+import { SHOWCASE_LAB_THEMES } from '../themes.js';
 
 function findText(frame: string, needle: string): { col: number; row: number } {
   const lines = frame.split('\n');
@@ -72,6 +74,27 @@ describe('Celestial Flight Deck', () => {
     expect(new Set(SHOWCASE_PACKAGE_COVERAGE.map((entry) => entry.packageName)).size).toBe(SHOWCASE_PACKAGE_COVERAGE.length);
     expect(UI_BUILDER_COVERAGE.map((entry) => entry.name)).toEqual(UI_BUILDER_NAMES);
     expect(UI_BUILDER_COVERAGE.filter((entry) => entry.evidence === 'interactive').length).toBeGreaterThan(30);
+  });
+
+  it('assigns every lab a distinct, contrast-safe tokenized theme and exposes the active theme', async () => {
+    const entries = Object.entries(SHOWCASE_LAB_THEMES);
+    expect(entries).toHaveLength(9);
+    expect(new Set(entries.map(([, entry]) => entry.variant.name)).size).toBe(entries.length);
+
+    const accentColors = entries.map(([, entry]) => {
+      const theme = applyVariant(defaultTheme, entry.variant);
+      expect(validateThemeContrast(theme).pass, entry.label).toBe(true);
+      return theme.colors.tones.accent.rgb?.join(',') ?? theme.colors.tones.accent.fg();
+    });
+    expect(new Set(accentColors).size).toBe(entries.length);
+
+    const handle = flightDeck(140, 42);
+    for (const [lab, entry] of entries) {
+      handle.dispatch({ type: 'switch-lab', lab: lab as keyof typeof SHOWCASE_LAB_THEMES });
+      await handle.waitForUpdate();
+      expect(handle.lastFrame()).toContain(`${entry.label} theme`);
+      expect(handle.snapshot().audit.violations.filter((violation) => violation.rule === 'color-contrast'), entry.label).toEqual([]);
+    }
   });
 
   it('loads the deterministic app-shell config with an explicit source receipt', async () => {

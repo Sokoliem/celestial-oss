@@ -21,6 +21,7 @@ import {
   type VNode,
   validateThemeContrast,
 } from '@celestial/core';
+import type { SemanticTheme } from '@celestial/core/corona';
 import {
   applySnapZone,
   computeSnapZones,
@@ -53,7 +54,7 @@ import {
   selectPrompt,
   validateArgSchema,
 } from '@celestial/orbit';
-import { createMarkdownStream, extractFrontmatter, extractToc, findMatches, parseMarkdown, renderMarkdown } from '@celestial/pulsar';
+import { createMarkdownStream, extractFrontmatter, extractToc, findMatches, fromSemanticTheme, parseMarkdown, renderMarkdown } from '@celestial/pulsar';
 import { createLocaleContext, detectDirection, formatList, formatRelativeTime, measureTextWidth, segmentGraphemes } from '@celestial/rosetta';
 import { detectLanguage, highlightCode, tokenizeCode } from '@celestial/spectrum';
 import { areaChart, chart, heatmap, sparkline } from '@celestial/stellar';
@@ -588,7 +589,7 @@ export function renderWorkflowsLab(components: ShowcaseComponents, model: Celest
   );
 }
 
-function renderVisualOverview(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+function renderVisualOverview(model: CelestialShowcaseModel, caps: AtlasCapabilities, theme: SemanticTheme): VNode {
   const width = Math.max(12, Math.min(46, model.cols - 18));
   const motionTick = caps.reducedMotion ? 0 : model.tick;
   const highlighted = highlightCode('const release = validate({ unicode: true });', { language: 'typescript', theme: 'dracula' });
@@ -608,6 +609,7 @@ function renderVisualOverview(model: CelestialShowcaseModel, caps: AtlasCapabili
   const markdown = renderMarkdown('**Pulsar** renders safely\n\n- CRLF normalized\n- Unicode width aware\n- Spectrum highlighted', {
     width,
     reduceMotion: caps.reducedMotion,
+    theme: fromSemanticTheme(theme),
   });
   const textPanel = panel({
     title: 'Spectrum + Mirage + Nova',
@@ -695,7 +697,7 @@ function renderChartLab(model: CelestialShowcaseModel): VNode {
   );
 }
 
-function renderMarkdownLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+function renderMarkdownLab(model: CelestialShowcaseModel, caps: AtlasCapabilities, theme: SemanticTheme): VNode {
   const width = Math.max(20, Math.min(54, model.cols - 18));
   const source = `---\ntitle: Flight Deck\nchannel: preview\n---\n# Release ledger\n\nThe **release** keeps terminal cells safe.\n\n## Checks\n\n- Build\n- PTY\n- Packed install\n\n\`\`\`ts\nconst release = validate(18);\n\`\`\``;
   const frontmatter = extractFrontmatter(source);
@@ -706,7 +708,7 @@ function renderMarkdownLab(model: CelestialShowcaseModel, caps: AtlasCapabilitie
   stream.append('# Streaming receipt\n\n');
   const pending = stream.append('A partial **release');
   const committed = stream.append('** update.\n\n- deterministic\n');
-  const rendered = renderMarkdown(frontmatter.body, { width, reduceMotion: caps.reducedMotion });
+  const rendered = renderMarkdown(frontmatter.body, { width, reduceMotion: caps.reducedMotion, theme: fromSemanticTheme(theme) });
 
   return column(
     row(text('PULSAR DOCUMENT INSTRUMENT', headingStyle), text('  parser, search, TOC, stream', mutedStyle)),
@@ -726,7 +728,7 @@ function renderMarkdownLab(model: CelestialShowcaseModel, caps: AtlasCapabilitie
   );
 }
 
-export function renderVisualsLab(model: CelestialShowcaseModel, caps: AtlasCapabilities): VNode {
+export function renderVisualsLab(model: CelestialShowcaseModel, caps: AtlasCapabilities, theme: SemanticTheme): VNode {
   const pageCount = VISUAL_PAGE_LABELS.length;
   const page = ((model.visualPage % pageCount) + pageCount) % pageCount;
   const labels = VISUAL_PAGE_LABELS;
@@ -736,8 +738,8 @@ export function renderVisualsLab(model: CelestialShowcaseModel, caps: AtlasCapab
       : page === 2
         ? renderChartLab(model)
         : page === 3
-          ? renderMarkdownLab(model, caps)
-          : renderVisualOverview(model, caps);
+          ? renderMarkdownLab(model, caps, theme)
+          : renderVisualOverview(model, caps, theme);
   return column(
     row(
       action(model, 'visual-prev', 'Previous visual', 'neutral'),

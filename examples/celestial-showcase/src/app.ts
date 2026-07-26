@@ -91,6 +91,7 @@ import {
   WINDOW_PAGE_LABELS,
   WORKFLOW_PAGE_LABELS,
 } from './labs.js';
+import { applyShowcaseLabTheme, showcaseLabTheme } from './themes.js';
 import type {
   CelestialShowcaseModel,
   CelestialShowcaseMsg,
@@ -766,7 +767,12 @@ function composeSurfaces(base: VNode, components: ShowcaseComponents, model: Cel
   return runtime.layerStack(shielded, { ...menu, child: interactiveMenu });
 }
 
-function renderActiveLab(components: ShowcaseComponents, model: CelestialShowcaseModel, caps: ReturnType<typeof getCapabilities>): VNode {
+function renderActiveLab(
+  components: ShowcaseComponents,
+  model: CelestialShowcaseModel,
+  caps: ReturnType<typeof getCapabilities>,
+  theme: ReturnType<ReturnType<typeof runtime.createThemeContext>['current']>,
+): VNode {
   switch (model.activeLab) {
     case 'core':
       return renderCoreLab(model, caps);
@@ -784,7 +790,7 @@ function renderActiveLab(components: ShowcaseComponents, model: CelestialShowcas
     case 'workflows':
       return renderWorkflowsLab(components, model);
     case 'visuals':
-      return renderVisualsLab(model, caps);
+      return renderVisualsLab(model, caps, theme);
     case 'mouse':
       return renderMouseLab(model);
     case 'layers':
@@ -837,8 +843,9 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
   const size = options.initialSize ?? getTerminalSize();
   const fast = options.fast ?? process.env['CELESTIAL_DEMO_FAST'] === '1';
   const caps = getCapabilities();
-  const components = createShowcaseComponents();
   const themeCtx = runtime.createThemeContext({ unicodeLevel: caps.unicodeLevel, motion: { reduceMotion: caps.reducedMotion } });
+  applyShowcaseLabTheme(themeCtx, 'core', caps);
+  const components = createShowcaseComponents(themeCtx);
 
   const freshModel = (nextSize = size): CelestialShowcaseModel => {
     const workspaces = createWorkspaceModel(workspaceDefinitions);
@@ -886,6 +893,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
     update(message, model) {
       switch (message.type) {
         case 'switch-lab': {
+          applyShowcaseLabTheme(themeCtx, message.lab, effectiveCapabilities(model, caps));
           const appShellLab =
             model.activeLab === 'app-shell' && message.lab !== 'app-shell'
               ? closeAppShellLabTransientSurfaces(model.appShellLab, {
@@ -1818,7 +1826,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           return [withComponentFocus(model, 'none'), Cmd.none()];
         }
         case 'reset':
-          themeCtx.patch({ unicodeLevel: caps.unicodeLevel, motion: { reduceMotion: caps.reducedMotion } });
+          applyShowcaseLabTheme(themeCtx, 'core', caps);
           return [
             { ...freshModel({ cols: model.cols, rows: model.rows }), lastAction: 'Reset the Flight Deck and smoke receipts.' },
             Cmd.cancelTasksByOwner<CelestialShowcaseMsg>(APP_SHELL_LAB_TASK_OWNER),
@@ -1834,6 +1842,10 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
       const tier = viewportTier(model.cols);
       const active = LABS[activeLabIndex(model.activeLab)]!;
       const currentCaps = effectiveCapabilities(model, caps);
+      const currentTheme = themeCtx.current();
+      const currentThemeLabel = showcaseLabTheme(model.activeLab).label;
+      const liveHeadingStyle = style({ color: currentTheme.colors.tones.accent, bold: true });
+      const liveMutedStyle = style({ color: currentTheme.colors.muted });
       if (model.cols < SHOWCASE_MIN_COLS || model.rows < SHOWCASE_MIN_ROWS) {
         return composeSurfaces(minimumViewport(model), components, model);
       }
@@ -1841,17 +1853,23 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
       const title =
         tier === 'compact'
           ? row(
-              text('CELESTIAL FLIGHT DECK', headingStyle),
+              text('CELESTIAL FLIGHT DECK', liveHeadingStyle),
               text('  '),
               badge({ label: 'OSS preview', variant: 'success', size: 'sm' }).view({ visible: true }),
-              text('  COMPACT / single', mutedStyle),
+              text(`  ${currentThemeLabel} theme  COMPACT / single`, liveMutedStyle),
             )
           : row(
-              text('CELESTIAL FLIGHT DECK', headingStyle),
+              text('CELESTIAL FLIGHT DECK', liveHeadingStyle),
               text('  '),
               badge({ label: 'OSS preview', variant: 'success', size: 'sm' }).view({ visible: true }),
-              text(' '),
-              badge({ label: 'Horizon beta', variant: 'warning', size: 'sm' }).view({ visible: true }),
+              ...(tier === 'wide'
+                ? [
+                    text(' '),
+                    badge({ label: 'Horizon beta', variant: 'warning', size: 'sm' }).view({ visible: true }),
+                    text(' '),
+                    badge({ label: `${currentThemeLabel} theme`, variant: 'info', size: 'sm', themeCtx }).view({ visible: true }),
+                  ]
+                : [text(`  ${currentThemeLabel} theme`, liveMutedStyle)]),
               text(`  ${tierLabel}`, tier === 'wide' ? successStyle : warningStyle),
             );
       const labStrip =
@@ -1880,7 +1898,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             );
       const labContent = event(
         `showcase-context-lab-${active.id}`,
-        panel({ title: `${active.label} lab`, content: renderActiveLab(components, model, currentCaps), focused: true, fill: true }),
+        panel({ title: `${active.label} lab`, content: renderActiveLab(components, model, currentCaps, currentTheme), focused: true, fill: true, themeCtx }),
         { onRightClick: `showcase-context:lab:${active.id}` },
         { label: `${active.label} lab context menu`, intent: 'menu', affordances: ['click'], cursor: 'context-menu' },
       );
@@ -1909,7 +1927,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           : status;
       let base: VNode = shellLayout({
         header: column(title, labStrip),
-        sidebar: tier === 'wide' ? panel({ title: 'Mission', content: missionRail(model), fill: true }) : undefined,
+        sidebar: tier === 'wide' ? panel({ title: 'Mission', content: missionRail(model), fill: true, themeCtx }) : undefined,
         content,
         statusBar,
         sidebarRatio: 0.23,
@@ -1924,6 +1942,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         { label: 'Flight Deck context menu', intent: 'menu', affordances: ['click'], cursor: 'context-menu' },
       );
 
+      base = runtime.box(base, style({ color: currentTheme.colors.text, background: currentTheme.colors.bg }));
       return composeSurfaces(base, components, model);
     },
 
