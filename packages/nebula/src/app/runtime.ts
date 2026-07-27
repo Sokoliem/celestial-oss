@@ -10,6 +10,7 @@ import { installDiagnostics } from './diagnostics.js';
 import { installElementMouse } from './element-mouse.js';
 import { installInput } from './input.js';
 import { installLifecycle } from './lifecycle.js';
+import { installPointerCursor } from './pointer-cursor.js';
 import { installRender } from './render.js';
 import { createRuntimeContext } from './runtime-context.js';
 import { installScheduling } from './scheduling.js';
@@ -24,6 +25,7 @@ function installRuntime<Model, M>(ctx: ReturnType<typeof createRuntimeContext<Mo
   installRender(ctx);
   installSubscriptions(ctx);
   installElementMouse(ctx);
+  installPointerCursor(ctx);
   installInput(ctx);
   installTerminalSession(ctx);
   installLifecycle(ctx);

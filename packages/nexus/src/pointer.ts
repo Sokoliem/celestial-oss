@@ -1,20 +1,9 @@
 // ─── Types ───────────────────────────────────────────────────────────────
 
+import { isPointerCursor, type PointerCursor } from '@celestial/nebula';
 import type { HitRegion } from './hitmap.js';
 
-export type CursorType =
-  | 'default'
-  | 'pointer'
-  | 'text'
-  | 'grab'
-  | 'grabbing'
-  | 'ns-resize'
-  | 'ew-resize'
-  | 'nwse-resize'
-  | 'nesw-resize'
-  | 'crosshair'
-  | 'not-allowed'
-  | 'wait';
+export type CursorType = PointerCursor;
 
 export type CursorPriority = 'drag' | 'resize' | 'system' | 'region' | 'default';
 
@@ -45,6 +34,36 @@ const PRIORITY_RANK: Record<CursorPriority, number> = {
   region: 2,
   default: 1,
 };
+const CURSOR_PRIORITIES: ReadonlySet<string> = new Set<CursorPriority>(['drag', 'resize', 'system', 'region', 'default']);
+const RESIZE_CURSORS: ReadonlySet<CursorType> = new Set([
+  'e-resize',
+  'ew-resize',
+  'n-resize',
+  'ne-resize',
+  'nesw-resize',
+  'ns-resize',
+  'nw-resize',
+  'nwse-resize',
+  's-resize',
+  'se-resize',
+  'sw-resize',
+  'w-resize',
+]);
+const MAX_CURSOR_CLAIMS = 256;
+
+function isCursorClaim(value: unknown): value is CursorClaim {
+  if (!value || typeof value !== 'object') return false;
+  const claim = value as Partial<CursorClaim>;
+  return (
+    isPointerCursor(claim.cursor)
+    && typeof claim.priority === 'string'
+    && CURSOR_PRIORITIES.has(claim.priority)
+    && typeof claim.source === 'string'
+    && claim.source.length > 0
+    && claim.source.length <= 512
+    && (claim.layerId === undefined || (typeof claim.layerId === 'string' && claim.layerId.length <= 512))
+  );
+}
 
 // ─── Resolution ──────────────────────────────────────────────────────────
 
@@ -78,9 +97,10 @@ export function createPointerState(): PointerState {
 export function pointerUpdate(msg: PointerMsg, state: PointerState): PointerState {
   switch (msg.type) {
     case 'pointer-claim': {
+      if (!isCursorClaim(msg.claim)) return state;
       // Remove any existing claim from the same source, then append the new one
       const filtered = state.claims.filter((c) => c.source !== msg.claim.source);
-      const claims = [...filtered, msg.claim];
+      const claims = [...filtered, { ...msg.claim }].slice(-MAX_CURSOR_CLAIMS);
       return { claims, resolved: resolve(claims) };
     }
 
@@ -118,10 +138,10 @@ export function resolvedCursor(state: PointerState): CursorType {
  *   distinct sources to prevent claim collisions in PointerState.
  */
 export function claimFromHitRegion<M>(region: HitRegion<M>, source: string = 'hitregion'): CursorClaim | null {
-  if (!region.cursor || region.cursor === 'default') return null;
+  if (!isPointerCursor(region.cursor) || region.cursor === 'default' || source.length === 0 || source.length > 512) return null;
   return {
     cursor: region.cursor,
-    priority: 'region',
+    priority: RESIZE_CURSORS.has(region.cursor) ? 'resize' : region.cursor === 'grabbing' ? 'drag' : 'region',
     source,
   };
 }

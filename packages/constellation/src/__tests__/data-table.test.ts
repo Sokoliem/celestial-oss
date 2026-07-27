@@ -67,6 +67,30 @@ function findEventWithText(vnode: VNode, needle: string): VNode | null {
   return null;
 }
 
+function findEventByIntent(vnode: VNode, intent: string): VNode | null {
+  if (vnode.kind === 'event' && vnode.metadata?.intent === intent) return vnode;
+  if ('children' in vnode && Array.isArray(vnode.children)) {
+    for (const child of vnode.children) {
+      const found = findEventByIntent(child, intent);
+      if (found) return found;
+    }
+  }
+  if ('child' in vnode && vnode.child) return findEventByIntent(vnode.child, intent);
+  return null;
+}
+
+function findEventByIdSuffix(vnode: VNode, suffix: string): VNode | null {
+  if (vnode.kind === 'event' && vnode.id.endsWith(suffix)) return vnode;
+  if ('children' in vnode && Array.isArray(vnode.children)) {
+    for (const child of vnode.children) {
+      const found = findEventByIdSuffix(child, suffix);
+      if (found) return found;
+    }
+  }
+  if ('child' in vnode && vnode.child) return findEventByIdSuffix(vnode.child, suffix);
+  return null;
+}
+
 describe('dataTable', () => {
   // ─── Init ──────────────────────────────────────────────────────────────────
 
@@ -84,6 +108,102 @@ describe('dataTable', () => {
       expect(model.focused).toBe(false);
       expect(model.selectionAnchorKey).toBeNull();
       expect(model.rangeSelectionKeys.size).toBe(0);
+    });
+  });
+
+  describe('column resizing', () => {
+    it('captures pointer resize state, clamps width, and releases cleanly', () => {
+      const component = makeComponent({
+        resizableColumns: true,
+        columns: [
+          { key: 'name', header: 'Name', width: 12, minWidth: 8, maxWidth: 20 },
+          ...columns.slice(1),
+        ],
+      });
+      const [model] = component.init();
+      const [started] = component.update({ type: 'resize-column-start', index: 0, x: 10 }, model);
+      const [expanded] = component.update({ type: 'resize-column-pointer', x: 1_000 }, started);
+      const [released] = component.update({ type: 'resize-column-pointer', x: 1_000, end: true }, expanded);
+
+      expect(started.columnResize).toMatchObject({ index: 0, startX: 10, startWidth: 12 });
+      expect(expanded.columnWidths[0]).toBe(20);
+      expect(released.columnResize).toBeNull();
+      expect(released.columnWidths[0]).toBe(20);
+    });
+
+    it('rolls an active resize back on cancel', () => {
+      const onColumnResize = vi.fn();
+      const component = makeComponent({ resizableColumns: true, onColumnResize });
+      const [model] = component.init();
+      const [started] = component.update({ type: 'resize-column-start', index: 0, x: 10 }, model);
+      const [changed] = component.update({ type: 'resize-column-pointer', x: 20 }, started);
+      const [cancelled] = component.update({ type: 'resize-column-cancel' }, changed);
+
+      expect(changed.columnWidths[0]).toBe(22);
+      expect(cancelled.columnWidths).toEqual(model.columnWidths);
+      expect(cancelled.columnResize).toBeNull();
+      expect(onColumnResize).toHaveBeenLastCalledWith('name', 12, { name: 12, age: 6, role: 14 });
+    });
+
+    it('constrains resize to the total table width without shrinking neighboring columns', () => {
+      const component = makeComponent({ resizableColumns: true, maxWidth: 38 });
+      const [model] = component.init();
+      const originalNeighbors = model.columnWidths.slice(1);
+      const [resized] = component.update({ type: 'resize-column-key', index: 0, delta: 10_000 }, model);
+
+      expect(resized.columnWidths.slice(1)).toEqual(originalNeighbors);
+      expect(resized.columnWidths.reduce((sum, width) => sum + width, 0) + 8).toBe(38);
+    });
+
+    it('ignores forged non-finite coordinates and keyboard deltas', () => {
+      const component = makeComponent({ resizableColumns: true });
+      const [model] = component.init();
+      const [notStarted] = component.update({ type: 'resize-column-start', index: 0, x: Number.NaN }, model);
+      const [notChanged] = component.update({ type: 'resize-column-key', index: 0, delta: Number.POSITIVE_INFINITY }, model);
+
+      expect(notStarted).toBe(model);
+      expect(notChanged).toBe(model);
+    });
+
+    it('reports immutable controlled width snapshots', () => {
+      const onColumnResize = vi.fn();
+      const component = makeComponent({ resizableColumns: true, onColumnResize });
+      const [model] = component.init();
+      component.update({ type: 'resize-column-key', index: 0, delta: 2 }, model);
+
+      expect(onColumnResize).toHaveBeenCalledWith('name', 14, { name: 14, age: 6, role: 14 });
+      expect(Object.isFrozen(onColumnResize.mock.calls[0]![2])).toBe(true);
+    });
+
+    it('renders a directional resize affordance with separator semantics', () => {
+      const component = makeComponent({ resizableColumns: true });
+      const [model] = component.init();
+      const resizeHandle = findEventByIntent(component.view(model), 'resize-column');
+      const metadata = resizeHandle && resizeHandle.kind === 'event' ? resizeHandle.metadata : undefined;
+
+      expect(metadata?.cursor).toBe('ew-resize');
+      expect(metadata?.affordances).toContain('resize');
+      expect(resizeHandle ? getVNodeMeta(resizeHandle)?.a11y : undefined).toMatchObject({ role: 'separator', valueNow: 12, valueMin: 1 });
+    });
+
+    it('rejects duplicate keys and impossible minimum-width budgets', () => {
+      expect(() =>
+        makeComponent({
+          columns: [
+            { key: 'duplicate', header: 'One' },
+            { key: 'duplicate', header: 'Two' },
+          ],
+        }),
+      ).toThrow(/duplicated/);
+      expect(() =>
+        makeComponent({
+          maxWidth: 12,
+          columns: [
+            { key: 'one', header: 'One', minWidth: 5 },
+            { key: 'two', header: 'Two', minWidth: 5 },
+          ],
+        }),
+      ).toThrow(/minimums/);
     });
   });
 
@@ -458,6 +578,21 @@ describe('dataTable', () => {
       const texts = collectText(vnode as Parameters<typeof collectText>[0]);
       const headerTexts = texts.filter((t) => t.includes('Name') || t.includes('Age') || t.includes('Role'));
       expect(headerTexts.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('does not advertise non-sortable headers as clickable buttons', () => {
+      const component = makeComponent({
+        columns: [{ key: 'name', header: 'Name', width: 12, sortable: false }],
+      });
+      const [model] = component.init();
+      const header = findEventByIdSuffix(component.view(model), ':header:0');
+
+      expect(header?.metadata).toMatchObject({
+        intent: 'observe',
+        affordances: [],
+      });
+      expect(header?.metadata?.cursor).toBeUndefined();
+      expect(getVNodeMeta(header!)?.a11y).toEqual({ label: 'Name' });
     });
 
     it('renders sort indicator on sorted column', () => {

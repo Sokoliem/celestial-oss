@@ -91,8 +91,14 @@ export function installInput<Model, M>(ctx: RuntimeContext<Model, M>): void {
         }
         case 'mouse': {
           const subs = ctx.safeGetSubs();
+          // Resolve/capture against the frame that received the event. Dispatch
+          // may synchronously re-render and replace its hit regions.
+          ctx.updatePointerCursor(inputEvent.event);
           ctx.dispatchMouseEvent(subs, inputEvent.event);
           ctx.dispatchAutoElementMouse(subs, inputEvent.event);
+          // Re-resolve after handlers in case hover state changed the painted
+          // cursor metadata. Active capture established above remains sticky.
+          ctx.updatePointerCursor(inputEvent.event);
           break;
         }
         case 'paste':

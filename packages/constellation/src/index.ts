@@ -154,7 +154,7 @@ export type {
 } from './context-menu-view.js';
 export { contextMenuView, contextMenuViewContract, measureContextMenuItemWidth, measureContextMenuLayout } from './context-menu-view.js';
 // Data and display
-export type { DataColumn, DataTableConfig, DataTableModel, DataTableMsg, DataTableTokens, SortState } from './data-table.js';
+export type { DataColumn, DataTableColumnResize, DataTableConfig, DataTableModel, DataTableMsg, DataTableTokens, SortState } from './data-table.js';
 export { dataTable, dataTableContract } from './data-table.js';
 export type { DatePickerConfig, DatePickerModel, DatePickerMsg, DatePickerTokens, SimpleDate } from './date-picker.js';
 export { datePicker, datePickerContract, daysInMonth, firstDayOfMonth, getToday, isSameDay } from './date-picker.js';

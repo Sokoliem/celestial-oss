@@ -55,6 +55,12 @@ unmodified Escape binding even when an additional close shortcut is configured.
 Modal title rows include a pointer-accessible `[x]` control, and every modal
 also retains Escape dismissal with a visible keyboard hint.
 
+`dataTable({ resizableColumns: true })` owns controlled column widths, bounded
+pointer dragging with global release, Escape rollback, Alt+Arrow keyboard
+nudging, Ctrl+0 reset, immutable width callbacks, directional cursor metadata,
+and accessible separator values. Per-column `minWidth`, `maxWidth`, and
+`resizable` options refine the table-level policy.
+
 Drawers may own action rows directly so hover, focus, and activation remain in
 the descriptor's Elm state. Handle the emitted action id in the host update:
 

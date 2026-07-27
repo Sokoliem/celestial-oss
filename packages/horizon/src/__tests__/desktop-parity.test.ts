@@ -262,7 +262,7 @@ describe('desktop parity primitives', () => {
     const handle = rendered.children[1] as EventNode;
     expect(handle.metadata?.intent).toBe('drag');
     expect(handle.metadata?.extra?.leadingPaneId).toBe('left');
-    expect((rendered.children[0] as BoxNode).width).toBe(19);
+    expect((rendered.children[0] as BoxNode).width).toBe(20);
     expect(split.serialize().panes.map((pane) => pane.id)).toEqual(['left', 'right']);
   });
 });

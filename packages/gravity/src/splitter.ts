@@ -73,6 +73,7 @@ export interface SplitterControllerOptions<TId extends string = string> {
 }
 
 const DEFAULT_SNAP_THRESHOLD = 0.15;
+const MAX_SPLITTER_PANES = 1_000;
 
 interface ControllerState<TId extends string> {
   readonly weights: Map<TId, number>;
@@ -110,9 +111,10 @@ function normalizeWeights<TId extends string>(weights: Map<TId, number>): Map<TI
 }
 
 export function createSplitterController<TId extends string = string>(options: SplitterControllerOptions<TId>): SplitterController<TId> {
+  validatePaneSpecs(options.panes);
   const initial = initialWeights(options.panes);
   const initialCollapsed = new Set<TId>(options.panes.filter((pane) => pane.collapsible && (pane.weight ?? 1) <= 0).map((pane) => pane.id));
-  const snapThreshold = options.snapThreshold ?? DEFAULT_SNAP_THRESHOLD;
+  const snapThreshold = Number.isFinite(options.snapThreshold) ? clamp(options.snapThreshold!, 0, 1) : DEFAULT_SNAP_THRESHOLD;
   const collapsibleIds = new Set<TId>(options.panes.filter((pane) => pane.collapsible).map((pane) => pane.id));
   const knownIds = new Set<TId>(options.panes.map((pane) => pane.id));
 
@@ -178,8 +180,9 @@ export function createSplitterController<TId extends string = string>(options: S
       return state.weights.get(id) ?? 0;
     },
     setWeight(id, weight) {
-      if (!knownIds.has(id)) return;
+      if (!knownIds.has(id) || !Number.isFinite(weight)) return;
       const target = clamp(weight, 0, 1);
+      if (Math.abs((state.weights.get(id) ?? 0) - target) <= Number.EPSILON) return;
       const next = new Map(state.weights);
       // Treat `target` as the desired absolute share of 1. Rescale all OTHER
       // panes proportionally so total = 1. If others sum to 0, distribute
@@ -206,17 +209,23 @@ export function createSplitterController<TId extends string = string>(options: S
     },
     setWeights(weights) {
       const next = new Map(state.weights);
+      let changed = false;
       for (const [id, value] of Object.entries(weights) as Array<[TId, number]>) {
-        if (!knownIds.has(id)) continue;
-        next.set(id, clamp(value, 0, 1));
+        if (!knownIds.has(id) || !Number.isFinite(value)) continue;
+        const target = clamp(value, 0, 1);
+        if (Math.abs((next.get(id) ?? 0) - target) <= Number.EPSILON) continue;
+        next.set(id, target);
+        changed = true;
       }
+      if (!changed) return;
       commit(next);
     },
     isCollapsed(id) {
       return state.collapsed.has(id);
     },
     setCollapsed(id, collapsed) {
-      if (!knownIds.has(id)) return;
+      if (!knownIds.has(id) || (collapsed && !collapsibleIds.has(id))) return;
+      if (state.collapsed.has(id) === collapsed) return;
       const collapseSet = new Set(state.collapsed);
       const next = new Map(state.weights);
       if (collapsed) {
@@ -241,14 +250,25 @@ export function createSplitterController<TId extends string = string>(options: S
     },
     serialize: snapshotNow,
     hydrate(snapshot) {
-      if (!snapshot || snapshot.version !== 1) return;
+      if (!snapshot || snapshot.version !== 1 || !Array.isArray(snapshot.panes)) return;
       const next = new Map(state.weights);
-      const collapseSet = new Set<TId>();
-      for (const pane of snapshot.panes) {
-        if (!knownIds.has(pane.id)) continue;
-        next.set(pane.id, clamp(pane.weight, 0, 1));
-        if (pane.collapsed) collapseSet.add(pane.id);
+      const collapseSet = new Set<TId>(state.collapsed);
+      const seen = new Set<TId>();
+      let changed = false;
+      for (const pane of snapshot.panes.slice(0, MAX_SPLITTER_PANES)) {
+        if (!pane || typeof pane.id !== 'string' || !knownIds.has(pane.id) || seen.has(pane.id) || !Number.isFinite(pane.weight)) continue;
+        seen.add(pane.id);
+        const weight = clamp(pane.weight, 0, 1);
+        changed = changed || Math.abs((next.get(pane.id) ?? 0) - weight) > Number.EPSILON;
+        next.set(pane.id, weight);
+        if (collapsibleIds.has(pane.id)) {
+          const shouldCollapse = pane.collapsed === true;
+          changed = changed || collapseSet.has(pane.id) !== shouldCollapse;
+          if (shouldCollapse) collapseSet.add(pane.id);
+          else collapseSet.delete(pane.id);
+        }
       }
+      if (!changed) return;
       commit(next, collapseSet);
     },
     subscribe(listener) {
@@ -287,9 +307,101 @@ function paneSize(pane: SplitterPaneSpec): { min: number; max: number; collapsed
   return { min, max, collapsedSize };
 }
 
+function validatePaneSpecs<TId extends string>(panes: readonly SplitterPaneSpec<TId>[]): void {
+  if (panes.length > MAX_SPLITTER_PANES) throw new RangeError(`Splitter supports at most ${MAX_SPLITTER_PANES} panes.`);
+  const ids = new Set<string>();
+  for (const pane of panes) {
+    if (typeof pane.id !== 'string' || pane.id.length === 0 || pane.id.length > 512) throw new TypeError('Splitter pane ids must contain 1-512 characters.');
+    if (ids.has(pane.id)) throw new Error(`Duplicate splitter pane id "${pane.id}".`);
+    ids.add(pane.id);
+    if (pane.min !== undefined && (!Number.isFinite(pane.min) || pane.min < 0)) throw new RangeError(`Splitter pane "${pane.id}" has an invalid minimum.`);
+    if (pane.max !== undefined && (!Number.isFinite(pane.max) || pane.max < 0)) throw new RangeError(`Splitter pane "${pane.id}" has an invalid maximum.`);
+    if (pane.min !== undefined && pane.max !== undefined && pane.max < pane.min) {
+      throw new RangeError(`Splitter pane "${pane.id}" maximum cannot be smaller than its minimum.`);
+    }
+  }
+}
+
+export interface SplitterSeamResize<TId extends string = string> {
+  readonly leadingPaneId: TId;
+  readonly trailingPaneId: TId;
+  /** Total distributable pane cells, excluding handle cells. */
+  readonly axisSize: number;
+  /** Desired leading-pane size in cells. */
+  readonly leadingSize: number;
+}
+
+export interface SplitterSeamResizeResult<TId extends string = string> {
+  readonly changed: boolean;
+  readonly leadingPaneId: TId;
+  readonly trailingPaneId: TId;
+  readonly leadingSize: number;
+  readonly trailingSize: number;
+  readonly cursor: 'ew-resize' | 'ns-resize';
+}
+
+/**
+ * Resize one adjacent splitter seam without disturbing the total weight owned
+ * by that pane pair. Min/max constraints on both panes are applied together.
+ */
+export function resizeSplitterSeam<TId extends string>(
+  controller: SplitterController<TId>,
+  panes: readonly SplitterPaneSpec<TId>[],
+  direction: SplitterDirection,
+  request: SplitterSeamResize<TId>,
+): SplitterSeamResizeResult<TId> {
+  validatePaneSpecs(panes);
+  const leadingIndex = panes.findIndex((pane) => pane.id === request.leadingPaneId);
+  const trailingIndex = panes.findIndex((pane) => pane.id === request.trailingPaneId);
+  if (leadingIndex < 0 || trailingIndex !== leadingIndex + 1) throw new Error('Splitter seam panes must exist and be adjacent in leading/trailing order.');
+
+  const axisSize = Math.max(1, Number.isFinite(request.axisSize) ? Math.trunc(request.axisSize) : 1);
+  const leadingPane = panes[leadingIndex]!;
+  const trailingPane = panes[trailingIndex]!;
+  const leadingWeight = Math.max(0, controller.getWeight(leadingPane.id));
+  const trailingWeight = Math.max(0, controller.getWeight(trailingPane.id));
+  const pairWeight = leadingWeight + trailingWeight;
+  if (pairWeight <= Number.EPSILON) {
+    return {
+      changed: false,
+      leadingPaneId: leadingPane.id,
+      trailingPaneId: trailingPane.id,
+      leadingSize: 0,
+      trailingSize: 0,
+      cursor: direction === 'row' ? 'ew-resize' : 'ns-resize',
+    };
+  }
+  const safePairWeight = pairWeight;
+  const pairSize = Math.max(1, Math.round(axisSize * safePairWeight));
+  const leadingBounds = paneSize(leadingPane);
+  const trailingBounds = paneSize(trailingPane);
+  const minimumLeading = Math.max(0, leadingBounds.min, pairSize - (Number.isFinite(trailingBounds.max) ? trailingBounds.max : pairSize));
+  const maximumLeading = Math.max(minimumLeading, Math.min(leadingBounds.max, pairSize - trailingBounds.min));
+  const requested = Number.isFinite(request.leadingSize) ? Math.trunc(request.leadingSize) : Math.round(pairSize * (leadingWeight / Math.max(pairWeight, Number.EPSILON)));
+  const leadingSize = clamp(requested, minimumLeading, maximumLeading);
+  const trailingSize = Math.max(0, pairSize - leadingSize);
+  const nextLeadingWeight = safePairWeight * (leadingSize / pairSize);
+  const nextTrailingWeight = safePairWeight - nextLeadingWeight;
+  const changed = Math.abs(nextLeadingWeight - leadingWeight) > Number.EPSILON || Math.abs(nextTrailingWeight - trailingWeight) > Number.EPSILON;
+  if (changed) {
+    controller.setWeights({
+      [leadingPane.id]: nextLeadingWeight,
+      [trailingPane.id]: nextTrailingWeight,
+    } as Readonly<Record<TId, number>>);
+  }
+  return {
+    changed,
+    leadingPaneId: leadingPane.id,
+    trailingPaneId: trailingPane.id,
+    leadingSize,
+    trailingSize,
+    cursor: direction === 'row' ? 'ew-resize' : 'ns-resize',
+  };
+}
+
 export interface SplitterHandleRegionMetadata {
   readonly intent: 'drag';
-  readonly affordances: readonly ['drag'];
+  readonly affordances: readonly ['drag', 'resize'];
   readonly cursor: 'ew-resize' | 'ns-resize';
   readonly extra: {
     readonly splitter: true;
@@ -303,8 +415,9 @@ export interface SplitterHandleRegionMetadata {
 }
 
 export function splitter<TId extends string = string>(options: SplitterOptions<TId>): ComponentNode {
+  validatePaneSpecs(options.panes);
   const direction = options.direction;
-  const handleSize = Math.max(0, options.handleSize ?? 1);
+  const handleSize = Number.isFinite(options.handleSize) ? Math.max(0, Math.trunc(options.handleSize!)) : 1;
   const handleStyle = makeHandleStyle(direction, options.handleStyle);
   const idPrefix = options.idPrefix ?? 'splitter';
   const snapThreshold = options.snapThreshold ?? DEFAULT_SNAP_THRESHOLD;
@@ -417,11 +530,12 @@ function buildHandleRegion(
     kind: 'event',
     id: `${idPrefix}:${leadingPaneId}:handle`,
     child,
-    handlers: {},
+    handlers: { onMouseDown: `${idPrefix}:${leadingPaneId}:resize-start` },
     metadata: {
       intent: 'drag',
-      affordances: ['drag'],
+      affordances: ['drag', 'resize'],
       cursor,
+      keyboardHint: direction === 'row' ? 'Alt+Left/Right' : 'Alt+Up/Down',
       extra: {
         splitter: true,
         direction,

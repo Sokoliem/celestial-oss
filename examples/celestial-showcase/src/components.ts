@@ -305,9 +305,9 @@ export function createShowcaseComponents(themeCtx: ThemeContext) {
   });
   const tableComponent = dataTable<CapabilityRow>({
     columns: [
-      { key: 'capability', header: 'Capability', width: 18, sortable: true },
-      { key: 'package', header: 'Package', width: 20, sortable: true },
-      { key: 'state', header: 'State', width: 12 },
+      { key: 'capability', header: 'Capability', width: 18, minWidth: 10, maxWidth: 28, sortable: true },
+      { key: 'package', header: 'Package', width: 20, minWidth: 10, maxWidth: 30, sortable: true },
+      { key: 'state', header: 'State', width: 12, minWidth: 8, maxWidth: 18 },
     ],
     data: capabilityRows,
     getKey: (entry) => entry.id,
@@ -316,6 +316,8 @@ export function createShowcaseComponents(themeCtx: ThemeContext) {
     multiSelect: true,
     rowNumbers: true,
     title: 'Preview contract',
+    resizableColumns: true,
+    columnResizeStep: 2,
     themeCtx,
   });
   const treeComponent = tree({
@@ -684,6 +686,7 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
       return column(
         galleryHeader(4, 'Data structures - 3 builders'),
         named('dataTable()', focusable('table', 'Preview contract table', components.tableComponent.view(model.table))),
+        text('Drag column dividers, or focus a column and use Alt+Left/Right. Ctrl+0 restores defaults.', mutedStyle, { wrap: true }),
         row(
           named('tree()', focusable('tree', 'Package tree', components.treeComponent.view(model.tree))),
           text('      '),

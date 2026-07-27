@@ -1,4 +1,5 @@
 import { clampFinite, finiteCell, nonNegativeInteger, positiveInteger } from './internal.js';
+import type { PointerCursor } from '@celestial/core/nebula';
 import type { WindowBounds } from './primitives/geometry.js';
 
 export interface FloatingViewportBounds {
@@ -29,6 +30,23 @@ export interface FloatingWindowDragState {
 }
 
 export type FloatingWindowResizeEdge = 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+export function floatingWindowResizeCursor(edge: FloatingWindowResizeEdge): PointerCursor {
+  switch (edge) {
+    case 'left':
+    case 'right':
+      return 'ew-resize';
+    case 'top':
+    case 'bottom':
+      return 'ns-resize';
+    case 'top-left':
+    case 'bottom-right':
+      return 'nwse-resize';
+    case 'top-right':
+    case 'bottom-left':
+      return 'nesw-resize';
+  }
+}
 
 export interface FloatingWindowResizeState {
   edge: FloatingWindowResizeEdge;

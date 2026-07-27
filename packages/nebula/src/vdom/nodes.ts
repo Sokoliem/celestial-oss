@@ -3,6 +3,7 @@
  */
 
 import type { Responsive } from '@celestial/corona';
+import type { PointerCursor } from '../pointer-cursor.js';
 import type { ComponentRenderContext, EchoHint, StyleAttrs } from './style.js';
 
 // --- Virtual Node Types ---
@@ -256,7 +257,7 @@ export interface RegionMetadata {
   readonly detail?: string;
   readonly keyboardHint?: string;
   readonly affordances?: ReadonlyArray<'hover' | 'click' | 'drag' | 'resize' | 'edit' | 'observe' | 'scroll'>;
-  readonly cursor?: string;
+  readonly cursor?: PointerCursor;
   readonly scope?: string;
   readonly presentation?: 'inline' | 'outline' | 'spatial';
   readonly handlerRegionId?: string;

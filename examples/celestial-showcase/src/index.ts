@@ -2,6 +2,7 @@ import { app } from '@celestial/core';
 import { createCelestialShowcaseApp } from './app.js';
 
 app(createCelestialShowcaseApp(), {
+  pointerCursor: { osc22: 'auto' },
   onRenderError(error) {
     // The runtime deliberately keeps rendering after a caught error, so setting
     // exitCode rather than calling process.exit() preserves that resilience

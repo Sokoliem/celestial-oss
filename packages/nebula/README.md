@@ -31,6 +31,7 @@ Nebula is the heart of Celestial. It implements the Elm Architecture (init/updat
 - **Clipboard** - OSC 52 clipboard copy/paste, bracketed paste mode
 - **Crash Recovery** - Automatic terminal state restoration on crash/signal
 - **Config Loading** - Adapter-based source precedence with explicit failure diagnostics
+- **Pointer Shapes** - Typed region cursors with topmost-hit resolution, drag/resize capture, host callbacks, and conservative OSC 22 projection
 
 ## The Elm Architecture
 
@@ -94,8 +95,17 @@ interface AppOptions {
   commandHandlers?: Record<string, (payload: unknown) => Promise<unknown>>;
   accessibility?: AccessibilitySink;
   renderTracer?: RenderTracer;
+  pointerCursor?: {
+    osc22?: boolean | 'auto';
+    onChange?: (cursor: PointerCursor) => void;
+  };
 }
 ```
+
+Pointer-shape updates are deduplicated and reset when a terminal session exits,
+suspends, or stops. Auto mode emits OSC 22 only for a conservatively detected
+compatible terminal; GUI and embedded hosts can consume `onChange` regardless
+of terminal support.
 
 ### AccessibilitySink
 

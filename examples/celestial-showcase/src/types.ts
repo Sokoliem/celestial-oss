@@ -1,5 +1,5 @@
 import type { DragState, MouseEventData } from '@celestial/core';
-import type { FloatingWindowDragState, FloatingWindowResizeState, WindowManager, WorkspaceModel } from '@celestial/horizon';
+import type { WindowManager, WindowManagerPointerState, WorkspaceModel } from '@celestial/horizon';
 import type { SchemaFormModel, SchemaFormMsg, WizardModel, WizardMsg } from '@celestial/orbit';
 import type {
   AutocompleteModel,
@@ -201,8 +201,6 @@ export interface ElementMouseReceipt {
   stopPropagation(): void;
 }
 
-export type WindowDrag = { id: string; kind: 'drag'; state: FloatingWindowDragState } | { id: string; kind: 'resize'; state: FloatingWindowResizeState };
-
 export interface CelestialShowcaseModel {
   cols: number;
   rows: number;
@@ -234,7 +232,7 @@ export interface CelestialShowcaseModel {
   dragDemo: DragState<MouseDragPayload>;
   droppedReceipts: number;
   lastDroppedReceipt: string | null;
-  windowDrag: WindowDrag | null;
+  windowPointer: WindowManagerPointerState;
   workspaces: WorkspaceModel<ShowcaseWorkspace>;
   windows: WindowManager;
   textInput: TextInputModel;

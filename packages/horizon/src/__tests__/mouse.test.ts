@@ -5,6 +5,7 @@ import {
   DEFAULT_EDGE_SNAP,
   DEFAULT_SNAP_CONFIG,
   getTabPreviewOrder,
+  horizonMouseCursor,
   horizonMouseUpdate,
   isDraggingFloat,
   isDraggingSeparator,
@@ -58,6 +59,21 @@ function vSplit(splitId: string, sepY: number, totalH: number, w: number): Split
     secondPaneY: sepY + 1,
     secondPaneWidth: w,
     secondPaneHeight: totalH - sepY - 1,
+  };
+}
+
+function floating(floatId = 'f1'): FloatGeometry {
+  return {
+    floatId,
+    frame: { x: 10, y: 4, width: 20, height: 10 },
+    titleBarX: 10,
+    titleBarY: 5,
+    titleBarWidth: 20,
+    titleBarHeight: 1,
+    contentX: 10,
+    contentY: 6,
+    contentWidth: 20,
+    contentHeight: 7,
   };
 }
 
@@ -194,6 +210,82 @@ describe('mouse-resize', () => {
     const { model: next } = horizonMouseUpdate({ type: 'mouse-resize', cols: 120, rows: 40 }, model);
     expect(next.termCols).toBe(120);
     expect(next.termRows).toBe(40);
+  });
+
+  it('normalizes forged dimensions and cancels an active interaction with rollback', () => {
+    const split = hSplit('s1', 40, 80, 24);
+    const model = makeModel({ geometry: { ...emptyGeometry(), splits: [split] } });
+    const { model: resizing } = horizonMouseUpdate(pressEvent(40, 10), model);
+    const { model: resized, effects } = horizonMouseUpdate({ type: 'mouse-resize', cols: Number.NaN, rows: 40 }, resizing);
+
+    expect(resized.termCols).toBe(80);
+    expect(resized.termRows).toBe(40);
+    expect(resized.active).toEqual({ kind: 'none' });
+    expect(effects).toEqual([{ effect: 'set-split-ratio', splitId: 's1', ratio: 0.5 }]);
+  });
+});
+
+describe('resize cursors and cancellation', () => {
+  it.each([
+    [10, 4, 'nwse-resize'],
+    [29, 4, 'nesw-resize'],
+    [10, 13, 'nesw-resize'],
+    [29, 13, 'nwse-resize'],
+    [10, 8, 'ew-resize'],
+    [29, 8, 'ew-resize'],
+    [20, 4, 'ns-resize'],
+    [20, 13, 'ns-resize'],
+  ] as const)('maps floating edge (%i,%i) to %s', (x, y, cursor) => {
+    const model = makeModel({ geometry: { ...emptyGeometry(), floats: [floating()] } });
+    const { model: hovered } = horizonMouseUpdate(moveEvent(x, y), model);
+    expect(horizonMouseCursor(hovered)).toBe(cursor);
+  });
+
+  it('uses directional split cursors and captures them until release outside', () => {
+    const model = makeModel({ geometry: { ...emptyGeometry(), splits: [hSplit('s1', 40, 80, 24)] } });
+    const { model: hovered } = horizonMouseUpdate(moveEvent(40, 10), model);
+    const { model: resizing } = horizonMouseUpdate(pressEvent(40, 10), hovered);
+    const { model: outside } = horizonMouseUpdate(moveEvent(200, 200), resizing);
+    const { model: released } = horizonMouseUpdate(releaseEvent(200, 200), outside);
+
+    expect(hovered.cursor).toBe('ew-resize');
+    expect(resizing.cursor).toBe('ew-resize');
+    expect(outside.cursor).toBe('ew-resize');
+    expect(released.cursor).toBe('default');
+  });
+
+  it('ignores secondary-button and non-finite pointer events', () => {
+    const model = makeModel({ geometry: { ...emptyGeometry(), floats: [floating()] } });
+    const { model: secondary } = horizonMouseUpdate(pressEvent(10, 8, 2), model);
+    const forged = {
+      type: 'mouse-event' as const,
+      event: { type: 'move' as const, button: 'none' as const, x: Number.NaN, y: 5, ctrl: false, alt: false, shift: false },
+    };
+
+    expect(secondary.active).toEqual({ kind: 'none' });
+    expect(horizonMouseUpdate(forged, secondary).model).toBe(secondary);
+  });
+
+  it('rolls a floating resize back to its original frame on cancel', () => {
+    const model = makeModel({ geometry: { ...emptyGeometry(), floats: [floating()] } });
+    const { model: resizing } = horizonMouseUpdate(pressEvent(29, 13), model);
+    const { model: moved } = horizonMouseUpdate(moveEvent(40, 20), resizing);
+    const { model: cancelled, effects } = horizonMouseUpdate({ type: 'mouse-cancel' }, moved);
+
+    expect(cancelled.active).toEqual({ kind: 'none' });
+    expect(cancelled.drag.phase).toBe('idle');
+    expect(effects).toEqual([{
+      effect: 'resize-float',
+      floatId: 'f1',
+      edge: 'bottom-right',
+      frame: { x: 10, y: 4, width: 20, height: 10 },
+    }]);
+  });
+
+  it('normalizes invalid initial terminal dimensions', () => {
+    const model = createHorizonMouseModel({ cols: Number.NaN, rows: -20 });
+    expect(model.termCols).toBe(80);
+    expect(model.termRows).toBe(1);
   });
 });
 

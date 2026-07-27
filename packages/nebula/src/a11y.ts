@@ -35,6 +35,7 @@ export type AriaRole =
   | 'heading'
   | 'region'
   | 'slider'
+  | 'separator'
   | 'switch'
   | 'progressbar';
 
@@ -52,6 +53,7 @@ const INTERACTIVE_ROLES: ReadonlySet<AriaRole> = new Set([
   'listbox',
   'textbox',
   'slider',
+  'separator',
   'switch',
 ]);
 

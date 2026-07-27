@@ -3,6 +3,7 @@ import type { CompositorOptions } from '../compositor.js';
 import type { RenderCause } from '../message-priority.js';
 import type { RenderTracer } from '../profiler.js';
 import type { Priority } from '../scheduler.js';
+import type { PointerCursor } from '../pointer-cursor.js';
 import type { CellShader } from '../shader.js';
 import type { TerminalBackend } from '../terminal.js';
 import type { Cmd, Sub } from '../types.js';
@@ -152,6 +153,16 @@ export interface AppOptions {
    * Logical layout feedback and hit regions continue to use the snapped plan.
    */
   compositor?: (CompositorOptions & { animateOnlyOverrides?: boolean }) | false;
+
+  /**
+   * Mouse-pointer cursor projection. `osc22: 'auto'` (the default) emits only
+   * in a conservatively detected compatible terminal. Set `osc22: true` to
+   * force the protocol, or `false` to use only the host callback.
+   */
+  pointerCursor?: {
+    osc22?: boolean | 'auto';
+    onChange?: (cursor: PointerCursor) => void;
+  };
 }
 
 export interface SchedulerConfig {
