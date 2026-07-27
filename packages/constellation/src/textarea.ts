@@ -4,7 +4,7 @@ import type { KeyEvent, Msg, ThemeContext, VNode } from '@celestial/core/nebula'
 import { box, Cmd, column, event, focus, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { segmentGraphemes } from '@celestial/rosetta';
 import { generateFocusGroupId } from './focus-group.js';
-import { positiveInteger } from './internal.js';
+import { boundedInteger, positiveInteger, wheelDirection } from './internal.js';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 import type { Validator } from './validation.js';
@@ -58,6 +58,8 @@ export interface TextareaModel {
   scrollOffset: number;
   focused: boolean;
   hovered?: boolean;
+  /** True while the wheel owns the viewport independently of the edit cursor. */
+  manualScroll?: boolean;
   validationError?: string;
 }
 
@@ -76,6 +78,8 @@ export type TextareaMsg =
   | Msg<'end'>
   | Msg<'page-up'>
   | Msg<'page-down'>
+  | Msg<'scroll-up'>
+  | Msg<'scroll-down'>
   | Msg<'submit'>
   | Msg<'hover'>
   | Msg<'leave'>
@@ -131,6 +135,7 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
   const focusTag = `${inputId}:focus`;
   const hoverTag = `${inputId}:hover`;
   const leaveTag = `${inputId}:leave`;
+  const scrollTag = `${inputId}:scroll`;
 
   function interactiveSurface(content: VNode, model: TextareaModel, tokens: TextareaTokens): VNode {
     const visual =
@@ -138,8 +143,8 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
     const surface = event(
       surfaceId,
       visual,
-      { onClick: focusTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
-      { label: placeholder || 'Textarea', intent: 'edit', affordances: ['hover', 'click'], cursor: 'text', keyboardHint: 'Type' },
+      { onClick: focusTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag, onScroll: scrollTag },
+      { label: placeholder || 'Textarea', intent: 'edit', affordances: ['hover', 'click', 'scroll'], cursor: 'text', keyboardHint: 'Type' },
     );
     setVNodeMeta(surface, { testId: placeholder || inputId, a11y: { role: 'textbox', label: placeholder || 'Textarea' } });
     return focus(inputId, surface, { focused: model.focused });
@@ -155,7 +160,17 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
       return [{ lines, cursorRow, cursorCol, scrollOffset: 0, focused: false }, Cmd.none()];
     },
 
-    update(msg: TextareaMsg, model: TextareaModel): [TextareaModel, Cmd<TextareaMsg>] {
+    update(msg: TextareaMsg, unsafeModel: TextareaModel): [TextareaModel, Cmd<TextareaMsg>] {
+      const preservesManualScroll =
+        msg.type === 'scroll-up' || msg.type === 'scroll-down' || msg.type === 'hover' || msg.type === 'leave' || msg.type === 'blur' || msg.type === 'noop';
+      const model =
+        unsafeModel.manualScroll && !preservesManualScroll
+          ? {
+              ...unsafeModel,
+              manualScroll: false,
+              scrollOffset: ensureCursorVisible(unsafeModel.cursorRow, unsafeModel.scrollOffset, visibleRows),
+            }
+          : unsafeModel;
       switch (msg.type) {
         case 'key':
           return descriptor.update(messageForKey(msg.event), model);
@@ -322,6 +337,16 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
           return [{ ...model, cursorRow: newRow, cursorCol: newCol, scrollOffset }, Cmd.none()];
         }
 
+        case 'scroll-up':
+        case 'scroll-down': {
+          const maxScrollOffset = Math.max(0, model.lines.length - visibleRows);
+          const current = boundedInteger(model.scrollOffset, 0, 0, maxScrollOffset);
+          const delta = msg.type === 'scroll-up' ? -1 : 1;
+          const scrollOffset = Math.max(0, Math.min(maxScrollOffset, current + delta));
+          if (scrollOffset === current && model.manualScroll) return [model, Cmd.none()];
+          return [{ ...model, scrollOffset, manualScroll: true }, Cmd.none()];
+        }
+
         case 'submit': {
           const val = getValue(model.lines);
           if (config.validators && config.validators.length > 0) {
@@ -354,8 +379,9 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
 
     view(model: TextareaModel): VNode {
       const tokens = useTokens(textareaContract, config, 'Textarea');
-      // Adjust scroll offset to keep cursor visible
-      const scrollOffset = ensureCursorVisible(model.cursorRow, model.scrollOffset, visibleRows);
+      const maxScrollOffset = Math.max(0, model.lines.length - visibleRows);
+      const requestedScrollOffset = boundedInteger(model.scrollOffset, 0, 0, maxScrollOffset);
+      const scrollOffset = model.manualScroll ? requestedScrollOffset : ensureCursorVisible(model.cursorRow, requestedScrollOffset, visibleRows);
 
       // Empty + unfocused → placeholder
       if (!model.focused && model.lines.length === 1 && model.lines[0] === '') {
@@ -428,6 +454,10 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
         if (mouseEvent.handlerTag === focusTag) return { type: 'focus' };
         if (mouseEvent.handlerTag === hoverTag) return { type: 'hover' };
         if (mouseEvent.handlerTag === leaveTag) return { type: 'leave' };
+        if (mouseEvent.handlerTag === scrollTag) {
+          const direction = wheelDirection(mouseEvent.deltaY);
+          return direction < 0 ? { type: 'scroll-up' } : direction > 0 ? { type: 'scroll-down' } : { type: 'noop' };
+        }
         return { type: 'noop' };
       });
       if (!model.focused) return mouse;

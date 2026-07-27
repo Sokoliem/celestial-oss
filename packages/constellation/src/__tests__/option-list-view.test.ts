@@ -78,6 +78,21 @@ describe('optionListView — opt-arrow', () => {
     expect(m2.highlightedIndex).toBe(0);
   });
 
+  it('skips disabled options for arrow, Home, End, and initial highlight', () => {
+    const c = optionListView({
+      items: [
+        { id: 'disabled-first', label: 'Disabled first', value: 0, disabled: true },
+        { id: 'enabled', label: 'Enabled', value: 1 },
+        { id: 'disabled-last', label: 'Disabled last', value: 2, disabled: true },
+      ],
+    });
+    const [initial] = c.init();
+    expect(initial.highlightedIndex).toBe(1);
+    expect(c.update({ type: 'opt-arrow', direction: 'home' }, initial)[0].highlightedIndex).toBe(1);
+    expect(c.update({ type: 'opt-arrow', direction: 'end' }, initial)[0].highlightedIndex).toBe(1);
+    expect(c.update({ type: 'opt-arrow', direction: 'down' }, initial)[0].highlightedIndex).toBe(1);
+  });
+
   it('arrow with empty list is a no-op', () => {
     const c = optionListView({ items: [] });
     const [m0] = c.init();
@@ -127,19 +142,23 @@ describe('optionListView — opt-select / opt-toggle', () => {
   });
 
   it('opt-toggle flips selection regardless of highlight', () => {
-    const c = optionListView({ items: items('a', 'b'), multiSelect: true });
+    const onSelect = vi.fn();
+    const c = optionListView({ items: items('a', 'b'), multiSelect: true, onSelect });
     const [m0] = c.init();
     const [m1] = c.update({ type: 'opt-toggle', id: '1' }, m0);
     expect(m1.selectedIds.has('1')).toBe(true);
+    expect(onSelect).toHaveBeenCalledWith('1', 'b');
   });
 });
 
 describe('optionListView — opt-hover', () => {
   it('hover sets highlight to hovered id', () => {
-    const c = optionListView({ items: items('a', 'b', 'c') });
+    const onHighlight = vi.fn();
+    const c = optionListView({ items: items('a', 'b', 'c'), onHighlight });
     const [m0] = c.init();
     const [m1] = c.update({ type: 'opt-hover', id: '2' }, m0);
     expect(m1.highlightedIndex).toBe(2);
+    expect(onHighlight).toHaveBeenCalledWith('2', 'c');
   });
 
   it('hover on filtered-out id is a no-op', () => {
@@ -192,12 +211,31 @@ describe('optionListView — virtualization + view', () => {
 
   it('supports direct pointer-style selection and keeps its mouse subscription active', () => {
     const onSelect = vi.fn();
-    const c = optionListView({ items: items('a', 'b'), onSelect });
+    const onHighlight = vi.fn();
+    const c = optionListView({ items: items('a', 'b'), onSelect, onHighlight });
     const [model] = c.init();
     expect(c.subscriptions!(model)._kind.kind).toBe('elementMouse');
     const [updated] = c.update({ type: 'opt-click', id: '1' }, model);
     expect(updated.highlightedIndex).toBe(1);
     expect(onSelect).toHaveBeenCalledWith('1', 'b');
+    expect(onHighlight).toHaveBeenCalledWith('1', 'b');
+  });
+
+  it('isolates host callback failures across hover, click, and toggle paths', () => {
+    const c = optionListView({
+      items: items('a', 'b'),
+      multiSelect: true,
+      onHighlight: () => {
+        throw new Error('highlight failed');
+      },
+      onSelect: () => {
+        throw new Error('select failed');
+      },
+    });
+    const [model] = c.init();
+    expect(() => c.update({ type: 'opt-hover', id: '1' }, model)).not.toThrow();
+    expect(() => c.update({ type: 'opt-click', id: '1' }, model)).not.toThrow();
+    expect(() => c.update({ type: 'opt-toggle', id: '1' }, model)).not.toThrow();
   });
 });
 

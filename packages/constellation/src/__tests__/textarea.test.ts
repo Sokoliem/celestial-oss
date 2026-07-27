@@ -571,6 +571,32 @@ describe('textarea', () => {
     }
   });
 
+  it('wheel scrolling moves the viewport without moving the edit cursor', () => {
+    const component = textarea({ value: 'zero\none\ntwo\nthree', rows: 2 });
+    const [model] = component.init();
+    const [scrolled] = component.update({ type: 'scroll-down' }, { ...model, cursorRow: 0, cursorCol: 0 });
+
+    expect(scrolled.scrollOffset).toBe(1);
+    expect(scrolled.cursorRow).toBe(0);
+    expect(scrolled.manualScroll).toBe(true);
+    expect(JSON.stringify(component.view(scrolled))).toContain('one');
+    expect(JSON.stringify(component.view(scrolled))).not.toContain('"zero"');
+  });
+
+  it('clamps wheel scrolling and returns keyboard ownership to the cursor', () => {
+    const component = textarea({ value: 'zero\none\ntwo', rows: 2 });
+    const [model] = component.init();
+    const [scrolled] = component.update({ type: 'scroll-down' }, { ...model, cursorRow: 0, cursorCol: 0, scrollOffset: 99 });
+    expect(scrolled.scrollOffset).toBe(1);
+
+    const [edited] = component.update(
+      { type: 'key', event: { key: 'x', char: 'x', ctrl: false, alt: false, shift: false } },
+      scrolled,
+    );
+    expect(edited.manualScroll).toBe(false);
+    expect(edited.scrollOffset).toBe(0);
+  });
+
   it('view: shows placeholder when empty and unfocused', () => {
     const component = textarea({ placeholder: 'Enter text...' });
     const model = {
@@ -699,6 +725,7 @@ describe('textarea', () => {
     if (!sub) return;
     const kind = subKind(sub);
     expect(kind.kind).toBe('elementMouse');
+    expect(JSON.stringify(component.view(model))).toContain('onScroll');
   });
 
   it('subscriptions: maps ctrl+enter to submit', () => {

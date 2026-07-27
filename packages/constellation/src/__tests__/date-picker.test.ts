@@ -232,6 +232,14 @@ describe('datePicker', () => {
       const [updated] = basePicker.update({ type: 'blur' }, baseModel);
       expect(updated.focused).toBe(false);
     });
+
+    it('tracks valid pointer targets and ignores stale leave events', () => {
+      const [hovered] = basePicker.update({ type: 'hover', target: 'day:20' }, baseModel);
+      expect(hovered.hovered).toBe('day:20');
+      expect(basePicker.update({ type: 'leave', target: 'day:19' }, hovered)[0].hovered).toBe('day:20');
+      expect(basePicker.update({ type: 'leave', target: 'day:20' }, hovered)[0].hovered).toBeNull();
+      expect(basePicker.update({ type: 'hover', target: 'day:99' }, baseModel)[0].hovered).toBeNull();
+    });
   });
 
   describe('view', () => {
@@ -240,6 +248,8 @@ describe('datePicker', () => {
       const [model] = component.init();
       const vnode = component.view(model);
       expect(vnode.kind).toBe('column');
+      expect(JSON.stringify(vnode)).toContain('onMouseEnter');
+      expect(JSON.stringify(vnode)).toContain('onMouseLeave');
     });
 
     it('includes month name in title', () => {

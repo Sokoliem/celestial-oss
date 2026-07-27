@@ -1071,6 +1071,11 @@ describe('Celestial Flight Deck', () => {
     fireMouse(handle.terminal, { type: 'move', col: checkbox.col, row: checkbox.row });
     expect(handle.model.checkbox.hovered).toBe(true);
 
+    const textareaLine = findText(handle.lastFrame(), 'Adaptive by default');
+    fireMouse(handle.terminal, { type: 'scroll', direction: 'up', col: textareaLine.col, row: textareaLine.row });
+    expect(handle.model.textarea.manualScroll).toBe(true);
+    expect(handle.lastFrame()).toContain('Mouse-first');
+
     const dense = findText(handle.lastFrame(), 'Dense');
     handle.click(dense.col, dense.row);
     expect(handle.model.radio.selected).toBe(2);
@@ -1079,6 +1084,22 @@ describe('Celestial Flight Deck', () => {
     expect(sliderElement).toBeDefined();
     handle.click(sliderElement!.col + 'Density '.length, sliderElement!.row);
     expect(handle.model.slider.value).toBe(0);
+
+    handle.dispatch({ type: 'component-page', page: 1 });
+    await handle.waitForUpdate();
+    const calendarDay = handle.snapshot().elements.find((element) => element.testId === 'date-2026-7-19');
+    expect(calendarDay).toBeDefined();
+    fireMouse(handle.terminal, { type: 'move', col: calendarDay!.col, row: calendarDay!.row });
+    expect(handle.model.galleryModels.datePicker.hovered).toBe('day:19');
+
+    handle.dispatch({ type: 'component-page', page: 2 });
+    await handle.waitForUpdate();
+    const compact = findText(handle.lastFrame(), 'Compact');
+    fireMouse(handle.terminal, { type: 'move', col: compact.col, row: compact.row });
+    expect(handle.model.galleryModels.segmentedControl.hovered).toBe(0);
+    const unicodeTag = findText(handle.lastFrame(), 'unicode');
+    fireMouse(handle.terminal, { type: 'move', col: unicodeTag.col, row: unicodeTag.row });
+    expect(handle.model.galleryModels.tagInput.hoveredTag).toBe(0);
 
     handle.dispatch({ type: 'component-page', page: 3 });
     await handle.waitForUpdate();

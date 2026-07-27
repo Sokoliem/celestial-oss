@@ -6,6 +6,7 @@ import { commandPalette } from '../command-palette.js';
 import { multiSelect } from '../multi-select.js';
 import { optionListView } from '../option-list-view.js';
 import { select } from '../select.js';
+import { textarea } from '../textarea.js';
 import { wheelDirection } from '../internal.js';
 
 function walk(node: VNode, visit: (node: VNode) => string | undefined): string | undefined {
@@ -18,6 +19,7 @@ function walk(node: VNode, visit: (node: VNode) => string | undefined): string |
       if (nested) return nested;
     }
   }
+  if ('child' in node && node.child) return walk(node.child, visit);
   return undefined;
 }
 
@@ -127,6 +129,13 @@ describe('windowed list wheel parity', () => {
       open: (model: any, descriptor: any) => descriptor.update({ type: 'cp-open' }, model)[0],
       up: 'cp-up',
       down: 'cp-down',
+    },
+    {
+      name: 'textarea',
+      descriptor: textarea({ value: 'one\ntwo\nthree', rows: 2 }),
+      open: (model: any) => model,
+      up: 'scroll-up',
+      down: 'scroll-down',
     },
   ])('$name maps wheel direction through its existing navigation model', ({ descriptor, open, up, down }) => {
     const model = open(descriptor.init()[0], descriptor);

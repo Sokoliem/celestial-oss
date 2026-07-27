@@ -161,15 +161,66 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
   const hoverTag = `${interactionId}:hover`;
   const scrollTag = `${interactionId}:scroll`;
   const items = config.items.slice(0, MAX_RENDER_CELLS).map((item) => ({ ...item, id: String(item.id), label: String(item.label) }));
-  const ids = new Set<string>();
+  const itemsById = new Map<string, OptionListItem<T>>();
   for (const item of items) {
-    if (ids.has(item.id)) throw new Error(`OptionList item ids must be unique; received duplicate id "${item.id}"`);
-    ids.add(item.id);
+    if (itemsById.has(item.id)) throw new Error(`OptionList item ids must be unique; received duplicate id "${item.id}"`);
+    itemsById.set(item.id, item);
+  }
+
+  function itemForId(id: string | undefined): OptionListItem<T> | undefined {
+    return id === undefined ? undefined : itemsById.get(id);
+  }
+
+  function notifyHighlight(id: string): void {
+    const item = itemForId(id);
+    if (!item || item.disabled) return;
+    try {
+      config.onHighlight?.(id, item.value);
+    } catch {
+      // Host callbacks cannot corrupt the component's Elm update.
+    }
+  }
+
+  function notifySelect(id: string): void {
+    const item = itemForId(id);
+    if (!item || item.disabled) return;
+    try {
+      config.onSelect?.(id, item.value);
+    } catch {
+      // Host callbacks cannot corrupt the component's Elm update.
+    }
+  }
+
+  function enabledHighlight(filteredIds: readonly string[], current: number, direction: OptionListDirection): number {
+    if (filteredIds.length === 0) return 0;
+    const enabled = filteredIds
+      .map((id, index) => ({ index, item: itemForId(id) }))
+      .filter((entry) => entry.item !== undefined && !entry.item.disabled)
+      .map((entry) => entry.index);
+    if (enabled.length === 0) return Math.max(0, Math.min(current, filteredIds.length - 1));
+    if (direction === 'home') return enabled[0]!;
+    if (direction === 'end') return enabled.at(-1)!;
+
+    const currentPosition = enabled.indexOf(current);
+    if (currentPosition === -1) {
+      if (direction === 'up') return enabled.filter((index) => index < current).at(-1) ?? enabled.at(-1)!;
+      return enabled.find((index) => index > current) ?? enabled[0]!;
+    }
+    return direction === 'up'
+      ? enabled[(currentPosition - 1 + enabled.length) % enabled.length]!
+      : enabled[(currentPosition + 1) % enabled.length]!;
+  }
+
+  function normalizedEnabledHighlight(filteredIds: readonly string[], requested: number): number {
+    const requestedId = filteredIds[requested];
+    if (requestedId !== undefined && !itemForId(requestedId)?.disabled) return requested;
+    return enabledHighlight(filteredIds, requested, 'down');
   }
 
   function makeModel(query: string, items: readonly OptionListItem<T>[], prev?: OptionListModel<T>): OptionListModel<T> {
     const filteredIds = computeFilteredIds(items, filter, query);
-    const highlighted = filteredIds.length === 0 ? 0 : Math.min(prev?.highlightedIndex ?? initialHighlight, filteredIds.length - 1);
+    const requestedHighlight = filteredIds.length === 0 ? 0 : Math.min(prev?.highlightedIndex ?? initialHighlight, filteredIds.length - 1);
+    const highlighted = normalizedEnabledHighlight(filteredIds, requestedHighlight);
     return {
       query,
       filteredIds,
@@ -193,91 +244,69 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
           if (query === model.query) return [model, Cmd.none<OptionListMsg>()];
           // Reset highlight to 0 on query change — pattern matches every consuming builder.
           const filteredIds = computeFilteredIds(sourceItems, filter, query);
+          const highlightedIndex = normalizedEnabledHighlight(filteredIds, 0);
           const next: OptionListModel<T> = {
             ...model,
             query,
             filteredIds,
-            highlightedIndex: filteredIds.length === 0 ? 0 : 0,
+            highlightedIndex,
           };
-          if (config.onHighlight && filteredIds.length > 0) {
-            const id = filteredIds[0]!;
-            const item = sourceItems.find((i) => i.id === id);
-            if (item) {
-              try {
-                config.onHighlight(id, item.value);
-              } catch {
-                // best-effort
-              }
-            }
-          }
+          const highlightedId = filteredIds[highlightedIndex];
+          if (highlightedId) notifyHighlight(highlightedId);
           return [next, Cmd.none<OptionListMsg>()];
         }
         case 'opt-arrow': {
           if (model.filteredIds.length === 0) return [model, Cmd.none<OptionListMsg>()];
-          const next = moveOptionHighlight(model.highlightedIndex, model.filteredIds.length, msg.direction);
+          const next = enabledHighlight(model.filteredIds, model.highlightedIndex, msg.direction);
           const nextModel: OptionListModel<T> = { ...model, highlightedIndex: next };
-          if (config.onHighlight) {
-            const id = model.filteredIds[next];
-            if (id) {
-              const item = sourceItems.find((i) => i.id === id);
-              if (item) {
-                try {
-                  config.onHighlight(id, item.value);
-                } catch {
-                  // best-effort
-                }
-              }
-            }
-          }
+          const highlightedId = model.filteredIds[next];
+          if (highlightedId) notifyHighlight(highlightedId);
           return [nextModel, Cmd.none<OptionListMsg>()];
         }
         case 'opt-hover': {
           const idx = model.filteredIds.indexOf(msg.id);
-          if (idx === -1 || idx === model.highlightedIndex) return [model, Cmd.none<OptionListMsg>()];
+          const item = itemForId(msg.id);
+          if (idx === -1 || item?.disabled || idx === model.highlightedIndex) return [model, Cmd.none<OptionListMsg>()];
+          notifyHighlight(msg.id);
           return [{ ...model, highlightedIndex: idx }, Cmd.none<OptionListMsg>()];
         }
         case 'opt-select': {
           const id = model.filteredIds[model.highlightedIndex];
           if (!id) return [model, Cmd.none<OptionListMsg>()];
-          const item = sourceItems.find((i) => i.id === id);
+          const item = itemForId(id);
           if (!item || item.disabled) return [model, Cmd.none<OptionListMsg>()];
           if (config.multiSelect) {
             const next = new Set(model.selectedIds);
             if (next.has(id)) next.delete(id);
             else next.add(id);
-            try {
-              config.onSelect?.(id, item.value);
-            } catch {
-              // best-effort
-            }
+            notifySelect(id);
             return [{ ...model, selectedIds: next }, Cmd.none<OptionListMsg>()];
           }
-          try {
-            config.onSelect?.(id, item.value);
-          } catch {
-            // best-effort
-          }
+          notifySelect(id);
           return [model, Cmd.none<OptionListMsg>()];
         }
         case 'opt-toggle': {
-          const item = sourceItems.find((i) => i.id === msg.id);
+          const item = itemForId(msg.id);
           if (!item || item.disabled) return [model, Cmd.none<OptionListMsg>()];
           const next = new Set(model.selectedIds);
           if (next.has(msg.id)) next.delete(msg.id);
           else next.add(msg.id);
+          notifySelect(msg.id);
           return [{ ...model, selectedIds: next }, Cmd.none<OptionListMsg>()];
         }
         case 'opt-click': {
-          const item = sourceItems.find((candidate) => candidate.id === msg.id);
+          const item = itemForId(msg.id);
           const highlightedIndex = model.filteredIds.indexOf(msg.id);
           if (!item || item.disabled || highlightedIndex === -1) return [model, Cmd.none<OptionListMsg>()];
           if (config.multiSelect) {
             const selectedIds = new Set(model.selectedIds);
             selectedIds.has(msg.id) ? selectedIds.delete(msg.id) : selectedIds.add(msg.id);
-            config.onSelect?.(msg.id, item.value);
+            if (highlightedIndex !== model.highlightedIndex) notifyHighlight(msg.id);
+            notifySelect(msg.id);
             return [{ ...model, selectedIds, highlightedIndex }, Cmd.none<OptionListMsg>()];
           }
-          config.onSelect?.(msg.id, item.value);
+          if (highlightedIndex !== model.highlightedIndex) notifyHighlight(msg.id);
+          notifySelect(msg.id);
           return [{ ...model, highlightedIndex }, Cmd.none<OptionListMsg>()];
         }
         case 'opt-noop':
@@ -286,7 +315,6 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
     },
 
     view(model: OptionListModel<T>): VNode {
-      const sourceItems = items;
       const tokens = useTokens(optionListContract, config, 'OptionList');
       void resolveTheme(config); // ensures reactive theme tracking
 
@@ -308,7 +336,7 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
       const rows: VNode[] = [];
       for (let i = startIdx; i < endIdx; i++) {
         const id = model.filteredIds[i]!;
-        const item = sourceItems.find((it) => it.id === id);
+        const item = itemForId(id);
         if (!item) continue;
         const isHighlighted = i === model.highlightedIndex;
         const isSelected = model.selectedIds.has(id);

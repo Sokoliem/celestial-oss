@@ -10,8 +10,9 @@ describe('segmentedControl', () => {
       const comp = segmentedControl({ options });
       const [model] = comp.init();
       expect(model.selected).toBe(0);
-      expect(model.highlighted).toBe(0);
-      expect(model.focused).toBe(false);
+    expect(model.highlighted).toBe(0);
+    expect(model.focused).toBe(false);
+    expect(model.hovered).toBe(-1);
     });
 
     it('initializes with custom selected index', () => {
@@ -37,7 +38,7 @@ describe('segmentedControl', () => {
       const comp = segmentedControl({ options: [] });
       const [model] = comp.init();
       const [updated] = comp.update({ type: 'highlight-right' }, model);
-      expect(updated).toEqual({ selected: -1, highlighted: -1, focused: false });
+      expect(updated).toEqual({ selected: -1, highlighted: -1, focused: false, hovered: -1 });
     });
   });
 
@@ -113,6 +114,15 @@ describe('segmentedControl', () => {
       const model = { selected: 0, highlighted: 0, focused: true };
       const [updated] = comp.update({ type: 'blur' }, model);
       expect(updated.focused).toBe(false);
+    });
+
+    it('tracks pointer hover independently and ignores stale leave events', () => {
+      const comp = segmentedControl({ options });
+      const [model] = comp.init();
+      const [hovered] = comp.update({ type: 'hover', index: 1 }, model);
+      expect(hovered.hovered).toBe(1);
+      expect(comp.update({ type: 'leave', index: 0 }, hovered)[0].hovered).toBe(1);
+      expect(comp.update({ type: 'leave', index: 1 }, hovered)[0].hovered).toBe(-1);
     });
   });
 

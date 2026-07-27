@@ -46,6 +46,37 @@ import type {
 
 let stackedLayerId = 0;
 
+type RegionAffordance = NonNullable<RegionMetadata['affordances']>[number];
+
+function inferRegionMetadata(handlers: EventHandlers, metadata?: RegionMetadata): RegionMetadata | undefined {
+  const hasHover = handlers.onMouseEnter !== undefined || handlers.onMouseLeave !== undefined;
+  const hasClick =
+    handlers.onClick !== undefined ||
+    handlers.onClickCapture !== undefined ||
+    handlers.onRightClick !== undefined ||
+    handlers.onRightClickCapture !== undefined;
+  const hasPointerDown = handlers.onMouseDown !== undefined || handlers.onMouseDownCapture !== undefined;
+  const hasPointerMove = handlers.onMouseMove !== undefined || handlers.onMouseMoveCapture !== undefined;
+  const hasDrag = hasPointerDown && hasPointerMove;
+  const hasScroll = handlers.onScroll !== undefined || handlers.onScrollCapture !== undefined;
+
+  const inferredAffordances: RegionAffordance[] = [];
+  if (hasHover) inferredAffordances.push('hover');
+  if (hasClick) inferredAffordances.push('click');
+  if (hasDrag) inferredAffordances.push('drag');
+  if (hasScroll) inferredAffordances.push('scroll');
+
+  const inferredCursor = hasDrag ? 'grab' : hasClick ? 'pointer' : undefined;
+  if (metadata === undefined && inferredAffordances.length === 0 && inferredCursor === undefined) return undefined;
+  if (metadata?.affordances !== undefined && (metadata.cursor !== undefined || inferredCursor === undefined)) return metadata;
+
+  return {
+    ...metadata,
+    ...(metadata?.affordances === undefined && inferredAffordances.length > 0 ? { affordances: Object.freeze(inferredAffordances) } : {}),
+    ...(metadata?.cursor === undefined && inferredCursor !== undefined ? { cursor: inferredCursor } : {}),
+  };
+}
+
 function mapResponsiveColor(val: Responsive<Color> | undefined, type: 'fg' | 'bg'): Responsive<string> | undefined {
   if (!val) return undefined;
   if (typeof val === 'object' && val !== null && 'fg' in val) {
@@ -243,7 +274,7 @@ export function animated(id: string, child: VNode): VNode {
 
 /** Create an event-handling wrapper node */
 export function event(id: string, child: VNode, handlers: EventHandlers, metadata?: RegionMetadata): EventNode {
-  return { kind: 'event', id, child, handlers, metadata };
+  return { kind: 'event', id, child, handlers, metadata: inferRegionMetadata(handlers, metadata) };
 }
 
 /** Create a hover-aware wrapper node */
@@ -264,7 +295,7 @@ export function hover(id: string, child: VNode | ((hovered: boolean) => VNode), 
  * handlers is also fine; this is a convenience over `event(...)`.
  */
 export function region(id: string, metadata: RegionMetadata, child: VNode, handlers: EventHandlers = {}): EventNode {
-  return { kind: 'event', id, child, handlers, metadata };
+  return { kind: 'event', id, child, handlers, metadata: inferRegionMetadata(handlers, metadata) };
 }
 
 /**

@@ -370,6 +370,17 @@ describe('tagInput – view', () => {
     expect(serialized).toContain('beta');
     expect(serialized).toContain('×');
     expect(serialized).toContain('Remove tag alpha');
+    expect(serialized).toContain('onMouseEnter');
+    expect(serialized).toContain('onMouseLeave');
+  });
+
+  it('tracks chip hover independently and clears only the matching target', () => {
+    const [comp, model] = initModel({ tags: ['alpha', 'beta'] });
+    const [hovered] = comp.update({ type: 'hover-tag', index: 1 }, model);
+    expect(hovered.hoveredTag).toBe(1);
+    expect(comp.update({ type: 'leave-tag', index: 0 }, hovered)[0].hoveredTag).toBe(1);
+    expect(comp.update({ type: 'leave-tag', index: 1 }, hovered)[0].hoveredTag).toBe(-1);
+    expect(comp.update({ type: 'hover-tag', index: 99 }, model)[0]).toBe(model);
   });
 });
 

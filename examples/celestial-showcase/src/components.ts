@@ -144,7 +144,7 @@ function helpContent(lab: LabId): VNode {
 
 export function createShowcaseComponents(themeCtx: ThemeContext) {
   const textInputComponent = textInput({ value: 'celestial-flight-deck', placeholder: 'Mission name', themeCtx });
-  const textareaComponent = textarea({ value: 'Mouse-first\nAdaptive by default', rows: 2, maxLines: 4, showLineNumbers: true, themeCtx });
+  const textareaComponent = textarea({ value: 'Mouse-first\nAdaptive by default\nWheel-aware', rows: 2, maxLines: 4, showLineNumbers: true, themeCtx });
   const checkboxComponent = checkbox({ label: 'Run headless checks', checked: true, themeCtx });
   const radioComponent = radioGroup({
     options: [

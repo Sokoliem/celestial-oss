@@ -12,6 +12,21 @@ hovercards expose Escape dismissal and visible close affordances where the
 surface can remain open. Additional components remain outside this focused
 preview until they meet the same release gates.
 
+## The Celestial interaction contract
+
+Celestial controls follow one behavior model across themes and surfaces:
+
+- pointing reveals a visible token-driven hover state without activating the control;
+- pointer and keyboard activation converge on the same update message and constraints;
+- disabled options remain inert and keyboard/wheel navigation skips them;
+- a wheel event belongs to the pointed viewport, while the next edit key returns an editor viewport to its cursor;
+- stale leave events cannot clear a newer hover target, and host callback failures cannot corrupt the Elm update loop;
+- event handlers automatically project baseline pointer and affordance metadata unless a component explicitly overrides it.
+
+Component tests ratchet these rules alongside the package-wide pointer/keyboard
+and wheel-parity suites. Application code should compose the public builders
+instead of recreating hover, scrolling, or disabled-state behavior.
+
 Application shells can render a terminal-cell-accurate `statusBar` and compose
 the canonical `helpView` inside an existing modal or drawer. Both derive from
 the same executable `KeyBinding` list, including action categories, so help does
