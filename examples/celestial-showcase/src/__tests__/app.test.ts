@@ -1102,6 +1102,16 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.table.selectedKeys).toEqual(new Set(['components', 'windows', 'testing']));
     expect(handle.model.table.rangeSelectionKeys).toEqual(new Set(['components', 'windows', 'testing']));
     expect(handle.lastFrame()).toContain('range 2-4');
+
+    const capabilityWidth = handle.model.table.columnWidths[0]!;
+    const resizeHandle = handle.snapshot().elements.find(
+      (element) => element.a11y?.role === 'separator' && element.a11y.label === 'Resize Capability',
+    );
+    expect(resizeHandle).toBeDefined();
+    handle.drag(resizeHandle!.col, resizeHandle!.row, resizeHandle!.col + 4, resizeHandle!.row);
+    await handle.waitForUpdate();
+    expect(handle.model.table.columnWidths[0]).toBe(capabilityWidth + 4);
+    expect(handle.model.table.columnResize).toBeNull();
   });
 
   it('routes live mouse coordinates through raw and semantic hit regions after a lab switch', async () => {
@@ -1238,7 +1248,7 @@ describe('Celestial Flight Deck', () => {
     await handle.waitForUpdate();
     expect(handle.model.contextMenu.open).toBe(false);
     expect(handle.model.windows.windows.find((window) => window.id === 'telemetry')?.minimized).toBe(true);
-    expect(handle.model.windowDrag).toBeNull();
+    expect(handle.model.windowPointer.mouse.active).toEqual({ kind: 'none' });
   });
 
   it('advances an Orbit workflow and renders the rich visual stack', async () => {
@@ -1342,7 +1352,7 @@ describe('Celestial Flight Deck', () => {
       type: 'raw-mouse',
       event: { type: 'press', x: telemetryBefore.x + 2, y: telemetryBefore.y + 1, button: 0, ctrl: false, alt: false, shift: false },
     });
-    expect(handle.model.windowDrag).toBeNull();
+    expect(handle.model.windowPointer.mouse.active).toEqual({ kind: 'none' });
     expect(handle.model.windows.windows.find((window) => window.id === 'telemetry')).toMatchObject(telemetryBefore);
 
     const snapFrame = handle.lastFrame();
@@ -1583,7 +1593,7 @@ describe('Celestial Flight Deck', () => {
     screen.fireResize(100, 36);
     expect(handle.model.contextMenu.open).toBe(false);
     expect(handle.model.modal.open).toBe(true);
-    expect(handle.model.windowDrag).toBeNull();
+    expect(handle.model.windowPointer.mouse.active).toEqual({ kind: 'none' });
 
     handle.dispatch({ type: 'switch-lab', lab: 'visuals' });
     await handle.waitForUpdate();

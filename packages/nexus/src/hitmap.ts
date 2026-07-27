@@ -1,3 +1,5 @@
+import type { PointerCursor } from '@celestial/nebula';
+
 export interface HitRegion<M> {
   x: number;
   y: number;
@@ -8,7 +10,7 @@ export interface HitRegion<M> {
     enter?: M;
     exit?: M;
   };
-  cursor?: 'pointer' | 'default';
+  cursor?: PointerCursor;
 }
 
 export class HitMap<M> {

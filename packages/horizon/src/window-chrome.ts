@@ -12,8 +12,9 @@ import {
   visualWidth,
 } from '@celestial/core/corona';
 import { box, column, event, flex, row, type ThemeContext, text, type VNode } from '@celestial/core/nebula';
-import { type FloatingWindowHitTestOptions, hitTestFloatingWindowTitleBar } from './floating-window-drag.js';
+import { floatingWindowResizeCursor, type FloatingWindowHitTestOptions, hitTestFloatingWindowTitleBar } from './floating-window-drag.js';
 import type { DesktopWindowState, WindowChromeControl, WindowChromeHoverTarget, WindowCommand } from './window-lifecycle.js';
+import type { FloatGeometry } from './primitives/geometry.js';
 
 export interface WindowChromeTokens {
   bodyBackground: Color;
@@ -122,6 +123,30 @@ export function hitTestWindowChromeTitleBar(
     ...options,
     endInset: options.endInset ?? getWindowChromeControlWidth(window),
   });
+}
+
+/** Project integrated window chrome into the shared mouse geometry contract. */
+export function windowChromeFloatGeometry(
+  window: Omit<WindowChromeHitTarget, 'mode'> & { id: string; mode?: DesktopWindowState['mode']; draggable?: boolean; resizable?: boolean },
+): FloatGeometry {
+  const borderWidth = 1;
+  const innerWidth = Math.max(0, window.width - borderWidth * 2);
+  const normalized = { ...window, mode: window.mode ?? 'normal' };
+  return {
+    floatId: window.id,
+    frame: { x: window.x, y: window.y, width: window.width, height: window.height },
+    draggable: normalized.mode === 'normal' && window.draggable !== false,
+    resizable: normalized.mode === 'normal' && window.resizable !== false,
+    titleBarX: window.x + borderWidth,
+    titleBarY: window.y + borderWidth,
+    titleBarWidth: innerWidth,
+    titleBarHeight: 1,
+    titleBarEndInset: getWindowChromeControlWidth(normalized),
+    contentX: window.x + borderWidth,
+    contentY: window.y + borderWidth + 1,
+    contentWidth: innerWidth,
+    contentHeight: Math.max(0, window.height - borderWidth * 2 - 1),
+  };
 }
 
 function commandButton(
@@ -268,6 +293,8 @@ export function renderWindowChrome<M = unknown>(window: DesktopWindowState<M>, o
   );
 
   const borderColor = hoveredTarget ? tokens.borderHover : window.focused ? tokens.borderActive : tokens.border;
+  const resizeEdge = hoveredTarget?.startsWith('resize:') ? hoveredTarget.slice('resize:'.length) : null;
+  const frameCursor = resizeEdge ? floatingWindowResizeCursor(resizeEdge as import('./floating-window-drag.js').FloatingWindowResizeEdge) : 'default';
   const bodyHeight = Math.max(1, window.height - 3);
   const bodySurface = box(flex(content, { flex: 1 }), style({ background: tokens.bodyBackground }), {
     width: innerWidth,
@@ -288,7 +315,7 @@ export function renderWindowChrome<M = unknown>(window: DesktopWindowState<M>, o
       label: window.title ?? window.id,
       intent: 'manage-window',
       affordances: ['hover', ...frameAffordances],
-      cursor: hoveredTarget?.startsWith('resize:') ? 'resize' : 'default',
+      cursor: frameCursor,
       extra: { windowId: window.id, role: window.role, mode: window.mode, integratedChrome: true, hoveredTarget },
     },
   );

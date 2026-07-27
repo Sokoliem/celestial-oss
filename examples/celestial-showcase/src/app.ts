@@ -20,23 +20,19 @@ import {
   type VNode,
 } from '@celestial/core';
 import {
-  beginFloatingWindowResize,
+  createWindowManagerPointerState,
   createPip,
   createWindowManager,
   createWorkspaceModel,
   getMinimizedWindows,
   getVisibleWindows,
-  hitTestFloatingWindowResizeEdge,
-  hitTestWindowChromeTitleBar,
   type ManagedWindow,
   panel,
-  resizeFloatingWindowFrame,
   shellLayout,
   splitPane,
-  translateFloatingWindowFromDragState,
   type WindowManager,
   type WindowManagerBounds,
-  windowManagerHoverAt,
+  windowManagerPointerUpdate,
   windowManagerMsgFromWindowEvent,
   windowManagerUpdate,
   windowManagerUpdateResult,
@@ -467,11 +463,13 @@ function cancelActiveInteractions(model: CelestialShowcaseModel, dismissLayered 
         contextMenuSource: null,
         galleryContextMenu: contextMenuUpdate({ type: 'ctx-close' }, model.galleryContextMenu),
       };
+  const windowPointer = windowManagerPointerUpdate({ type: 'cancel' }, next.windowPointer, next.windows);
   return withComponentFocus(
     {
       ...next,
       dragDemo: next.dragDemo.phase === 'dragging' ? dragUpdate({ type: 'drag-cancel' }, next.dragDemo, dragTargets) : next.dragDemo,
-      windowDrag: null,
+      windowPointer: windowPointer.state,
+      windows: windowPointer.manager,
       hoveredRegion: null,
       shelfHoveredWindowId: null,
     },
@@ -822,7 +820,7 @@ function dynamicWindows(model: CelestialShowcaseModel, themeCtx: ReturnType<type
         `showcase-context-window-${window.id}`,
         renderWindowContent(model, window.id),
         { onRightClick: `showcase-context:window:${window.id}` },
-        { label: `${window.title} context menu`, intent: 'menu', affordances: ['click'], cursor: 'context-menu' },
+        { label: `${window.title} context menu`, intent: 'menu', affordances: ['click'], cursor: 'pointer' },
       ),
     })),
   };
@@ -854,6 +852,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
   const freshModel = (nextSize = size): CelestialShowcaseModel => {
     const workspaces = createWorkspaceModel(workspaceDefinitions);
     const evidence = { ...EMPTY_EVIDENCE, coreVisits: 1 };
+    const windows = initialWindows(nextSize, workspaceDefinitions[workspaces.activeIndex]!.id);
     return {
       cols: nextSize.cols,
       rows: nextSize.rows,
@@ -883,9 +882,9 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
       dragDemo: createDragState<MouseDragPayload>(),
       droppedReceipts: 0,
       lastDroppedReceipt: null,
-      windowDrag: null,
+      windowPointer: createWindowManagerPointerState(windows.bounds),
       workspaces,
-      windows: initialWindows(nextSize, workspaceDefinitions[workspaces.activeIndex]!.id),
+      windows,
       appShellLab: createAppShellLabModel(),
       ...initialComponentModels(components),
     };
@@ -925,8 +924,19 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         case 'resize': {
           const tier = viewportTier(message.cols);
           const cancelled = cancelActiveInteractions(model);
-          const windows = syncWindowBounds(cancelled.windows, { cols: message.cols, rows: message.rows });
-          const resized = { ...cancelled, cols: message.cols, rows: message.rows, previousTier: tier, windows };
+          const pointer = windowManagerPointerUpdate(
+            { type: 'resize', bounds: windowBounds(cancelled.windows, { cols: message.cols, rows: message.rows }) },
+            cancelled.windowPointer,
+            cancelled.windows,
+          );
+          const resized = {
+            ...cancelled,
+            cols: message.cols,
+            rows: message.rows,
+            previousTier: tier,
+            windowPointer: pointer.state,
+            windows: pointer.manager,
+          };
           return [tier !== model.previousTier ? mark(resized, 'adaptive', `Crossed into ${tier} layout at ${message.cols} columns.`) : resized, Cmd.none()];
         }
         case 'tick': {
@@ -1529,7 +1539,10 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
               x: eventData.x,
               y: eventData.y,
               type: eventData.type,
-              target: model.windowDrag ? `window:${model.windowDrag.id}` : model.pointer.target,
+              target:
+                model.windowPointer.mouse.active.kind === 'drag-float' || model.windowPointer.mouse.active.kind === 'resize-float'
+                  ? `window:${model.windowPointer.mouse.active.floatId}`
+                  : model.pointer.target,
             },
           };
           if (model.contextMenu.open) return [next, Cmd.none()];
@@ -1551,84 +1564,30 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             }
           }
           if (model.activeLab !== 'windows' || model.windowPage !== 0 || viewportTier(model.cols) !== 'wide') return [next, Cmd.none()];
-
-          if (eventData.type === 'move' && !model.windowDrag) {
-            next = { ...next, windows: windowManagerHoverAt(next.windows, eventData.x, eventData.y) };
-          }
-
-          if (model.windowDrag) {
-            if (eventData.type === 'move') {
-              const window = model.windows.windows.find((entry) => entry.id === model.windowDrag?.id);
-              if (!window) return [{ ...next, windowDrag: null }, Cmd.none()];
-              const viewport = windowBounds(model.windows, { cols: model.cols, rows: model.rows });
-              if (model.windowDrag.kind === 'resize') {
-                const frame = resizeFloatingWindowFrame(model.windowDrag.state, eventData.x, eventData.y, viewport, {
-                  minWidth: window.minWidth ?? 24,
-                  minHeight: window.minHeight ?? 8,
-                  maxWidth: window.maxWidth ?? model.cols,
-                  maxHeight: window.maxHeight ?? model.rows - 5,
-                });
-                const outcome = windowManagerUpdateResult({ type: 'set-window-frame', id: window.id, frame }, model.windows);
-                const resized = { ...next, windows: outcome.model };
-                return [
-                  outcome.accepted && outcome.changed ? mark(resized, 'window', `Resized ${window.title} to ${frame.width}x${frame.height}.`) : resized,
-                  Cmd.none(),
-                ];
-              }
-              const translated = translateFloatingWindowFromDragState(
-                model.windowDrag.state,
-                { width: window.width, height: window.height },
-                eventData.x,
-                eventData.y,
-                viewport,
-              );
-              const outcome = windowManagerUpdateResult({ type: 'move-window', id: window.id, x: translated.frame.x, y: translated.frame.y }, model.windows);
-              next = { ...next, windows: outcome.model };
-              return [translated.dragging && outcome.accepted && outcome.changed ? mark(next, 'window', `Dragged ${window.title}.`) : next, Cmd.none()];
-            }
-            if (eventData.type === 'release') return [{ ...next, windowDrag: null, lastAction: `Released ${model.windowDrag.id} window.` }, Cmd.none()];
-            return [next, Cmd.none()];
-          }
-
-          if (eventData.type === 'press' && eventData.button === 0) {
-            const window = getVisibleWindows(model.windows).find(
-              (entry) => eventData.x >= entry.x && eventData.x < entry.x + entry.width && eventData.y >= entry.y && eventData.y < entry.y + entry.height,
-            );
-            if (!window) return [next, Cmd.none()];
-            const outcome = windowManagerUpdateResult({ type: 'focus-window', id: window.id }, model.windows);
-            next = { ...next, windows: outcome.model, pointer: { ...next.pointer, target: `window:${window.id}` } };
-            if (outcome.accepted && outcome.changed) next = mark(next, 'window', `Focused ${window.title}.`);
-            const frame = { x: window.x, y: window.y, width: window.width, height: window.height };
-            const resizeEdge = window.resizable !== false && window.mode === 'normal' ? hitTestFloatingWindowResizeEdge(frame, eventData.x, eventData.y) : null;
-            if (resizeEdge) {
-              next = {
-                ...next,
-                windowDrag: {
-                  id: window.id,
-                  kind: 'resize',
-                  state: beginFloatingWindowResize(resizeEdge, frame, eventData.x, eventData.y),
-                },
-                lastAction: `Resizing ${window.title} from ${resizeEdge}.`,
-              };
-              return [next, Cmd.none()];
-            }
-            if (
-              window.draggable !== false &&
-              window.mode === 'normal' &&
-              hitTestWindowChromeTitleBar({ ...window, mode: 'normal' }, eventData.x, eventData.y)
-            ) {
-              next = {
-                ...next,
-                windowDrag: {
-                  id: window.id,
-                  kind: 'drag',
-                  state: { startMouseX: eventData.x, startMouseY: eventData.y, startX: window.x, startY: window.y },
-                },
-              };
-            }
-            return [next, Cmd.none()];
-          }
-          return [next, Cmd.none()];
+          const interaction = windowManagerPointerUpdate({ type: 'pointer', event: eventData }, model.windowPointer, model.windows);
+          const active = interaction.state.mouse.active;
+          const activeWindowId =
+            active.kind === 'drag-float' || active.kind === 'resize-float' ? active.floatId : null;
+          const activeWindow = activeWindowId ? interaction.manager.windows.find((entry) => entry.id === activeWindowId) : null;
+          const resizeEffect = interaction.effects.filter((effect) => effect.effect === 'resize-float').at(-1);
+          const moveEffect = interaction.effects.filter((effect) => effect.effect === 'move-float').at(-1);
+          const diagnostic = interaction.diagnostics.at(-1);
+          next = {
+            ...next,
+            windowPointer: interaction.state,
+            windows: interaction.manager,
+            pointer: { ...next.pointer, target: activeWindowId ? `window:${activeWindowId}` : next.pointer.target },
+            lastAction: diagnostic
+              ? `Window interaction rejected: ${diagnostic.message}`
+              : resizeEffect?.effect === 'resize-float'
+                ? `Resized ${activeWindow?.title ?? resizeEffect.floatId} to ${resizeEffect.frame.width}x${resizeEffect.frame.height}.`
+                : moveEffect?.effect === 'move-float'
+                  ? `Dragged ${activeWindow?.title ?? moveEffect.floatId}.`
+                  : eventData.type === 'release' && model.windowPointer.mouse.active.kind !== 'none'
+                    ? 'Released window interaction.'
+                    : next.lastAction,
+          };
+          return [interaction.accepted && interaction.changed ? mark(next, 'window') : next, Cmd.none()];
         }
         case 'element-mouse': {
           const { handlerTag, x, y, type } = message.event;
@@ -1804,7 +1763,19 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
               Cmd.none(),
             ];
           }
-          if (model.windowDrag) return [{ ...model, windowDrag: null, hoveredRegion: null, lastAction: 'Cancelled window interaction.' }, Cmd.none()];
+          if (model.windowPointer.mouse.active.kind !== 'none') {
+            const cancelled = windowManagerPointerUpdate({ type: 'cancel' }, model.windowPointer, model.windows);
+            return [
+              {
+                ...model,
+                windowPointer: cancelled.state,
+                windows: cancelled.manager,
+                hoveredRegion: null,
+                lastAction: 'Cancelled window interaction.',
+              },
+              Cmd.none(),
+            ];
+          }
           if (model.palette.palette.open) return this.update({ type: 'palette', msg: { type: 'cp-close' } }, model);
           if (model.confirm.open) return this.update({ type: 'confirm', msg: { type: 'cancel' } }, model);
           if (model.modal.open) return this.update({ type: 'modal', msg: { type: 'close' } }, model);
@@ -1891,7 +1862,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         `showcase-context-lab-${active.id}`,
         panel({ title: `${active.label} lab`, content: renderActiveLab(components, model, currentCaps, currentTheme), focused: true, fill: true, themeCtx }),
         { onRightClick: `showcase-context:lab:${active.id}` },
-        { label: `${active.label} lab context menu`, intent: 'menu', affordances: ['click'], cursor: 'context-menu' },
+        { label: `${active.label} lab context menu`, intent: 'menu', affordances: ['click'], cursor: 'pointer' },
       );
       const content =
         tier === 'medium' ? splitPane({ direction: 'horizontal', ratio: 0.75, first: labContent, second: adaptiveContext(model), minSize: 22 }) : labContent;
@@ -1930,7 +1901,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         'showcase-context-deck',
         base,
         { onRightClick: 'showcase-context:deck' },
-        { label: 'Flight Deck context menu', intent: 'menu', affordances: ['click'], cursor: 'context-menu' },
+        { label: 'Flight Deck context menu', intent: 'menu', affordances: ['click'], cursor: 'pointer' },
       );
 
       base = themedRoot(base, { theme: currentTheme });

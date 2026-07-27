@@ -113,6 +113,8 @@ export type {
   SplitterSnapshot,
 } from './splitter.js';
 export { createSplitterController, splitter } from './splitter.js';
+export { resizeSplitterSeam } from './splitter.js';
+export type { SplitterSeamResize, SplitterSeamResizeResult } from './splitter.js';
 export type { SplitterPersistence } from './splitter-persistence.js';
 export { localStoragePersistence, memoryPersistence } from './splitter-persistence.js';
 export type { StickyOptions } from './sticky.js';

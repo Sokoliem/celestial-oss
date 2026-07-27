@@ -8,7 +8,7 @@
  * The HitMap is rebuilt transiently on each mouse event from the geometry cache.
  */
 
-import type { MouseEventData } from '@celestial/core/nebula';
+import type { MouseEventData, PointerCursor } from '@celestial/core/nebula';
 import type { DragState, GestureEvent, GestureState, SortableState } from '@celestial/core/nexus';
 import {
   createDragState,
@@ -20,7 +20,13 @@ import {
   HitMap,
   sortableUpdate,
 } from '@celestial/core/nexus';
-import { type FloatingWindowFrame, type FloatingWindowResizeEdge, type FloatingWindowResizeState, resizeFloatingWindowFrame } from './floating-window-drag.js';
+import {
+  floatingWindowResizeCursor,
+  type FloatingWindowFrame,
+  type FloatingWindowResizeEdge,
+  type FloatingWindowResizeState,
+  resizeFloatingWindowFrame,
+} from './floating-window-drag.js';
 import type { FloatGeometry, GeometryCache, RectWithId, SplitGeometry, TabGeometry } from './primitives/geometry.js';
 import { previewSnapZone, type SnapZone } from './snap-zones.js';
 
@@ -109,6 +115,7 @@ export interface HorizonMouseModel {
   readonly hoveredPaneId: string | null;
   readonly cursorX: number;
   readonly cursorY: number;
+  readonly cursor: PointerCursor;
   readonly termCols: number;
   readonly termRows: number;
   readonly geometry: GeometryCache;
@@ -121,6 +128,7 @@ export interface HorizonMouseModel {
 export type HorizonMouseMsg =
   | { readonly type: 'mouse-event'; readonly event: MouseEventData }
   | { readonly type: 'mouse-resize'; readonly cols: number; readonly rows: number }
+  | { readonly type: 'mouse-cancel' }
   | { readonly type: 'mouse-enable' }
   | { readonly type: 'mouse-disable' }
   | { readonly type: 'mouse-register-splits'; readonly splits: readonly SplitGeometry[] }
@@ -163,8 +171,9 @@ export function createHorizonMouseModel(opts?: { cols?: number; rows?: number; e
     hoveredPaneId: null,
     cursorX: 0,
     cursorY: 0,
-    termCols: opts?.cols ?? 80,
-    termRows: opts?.rows ?? 24,
+    cursor: 'default',
+    termCols: Number.isFinite(opts?.cols) ? Math.max(1, Math.trunc(opts!.cols!)) : 80,
+    termRows: Number.isFinite(opts?.rows) ? Math.max(1, Math.trunc(opts!.rows!)) : 24,
     geometry: { splits: [], tabs: [], floats: [], panes: [] },
   };
 }
@@ -179,6 +188,19 @@ interface UpdateResult {
 }
 
 const NO_EFFECTS: readonly HorizonMouseEffect[] = [];
+const MAX_MOUSE_GEOMETRY_ENTRIES = 4_096;
+
+function finiteCell(value: number, fallback = 0): number {
+  return Number.isFinite(value) ? Math.trunc(value) : fallback;
+}
+
+function positiveCell(value: number, fallback = 1): number {
+  return Number.isFinite(value) && value > 0 ? Math.max(1, Math.trunc(value)) : fallback;
+}
+
+function validRegion(rect: { x: number; y: number; width: number; height: number }): boolean {
+  return Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.width) && Number.isFinite(rect.height) && rect.width > 0 && rect.height > 0;
+}
 
 /** Pure reducer — processes a HorizonMouseMsg and returns new model + effects */
 export function horizonMouseUpdate(
@@ -193,20 +215,53 @@ export function horizonMouseUpdate(
     case 'mouse-disable':
       return handleDisable(model);
 
-    case 'mouse-resize':
-      return { model: { ...model, termCols: msg.cols, termRows: msg.rows }, effects: NO_EFFECTS };
+    case 'mouse-resize': {
+      const resized = {
+        ...model,
+        termCols: Number.isFinite(msg.cols) ? Math.max(1, Math.trunc(msg.cols)) : model.termCols,
+        termRows: Number.isFinite(msg.rows) ? Math.max(1, Math.trunc(msg.rows)) : model.termRows,
+      };
+      return model.active.kind === 'none' ? { model: resized, effects: NO_EFFECTS } : cancelActiveInteraction(resized);
+    }
+
+    case 'mouse-cancel':
+      return cancelActiveInteraction(model);
 
     case 'mouse-register-splits':
-      return { model: { ...model, geometry: { ...model.geometry, splits: msg.splits } }, effects: NO_EFFECTS };
+      return { model: { ...model, geometry: { ...model.geometry, splits: msg.splits.slice(0, MAX_MOUSE_GEOMETRY_ENTRIES).map((split) => ({ ...split })) } }, effects: NO_EFFECTS };
 
     case 'mouse-register-tabs':
-      return { model: { ...model, geometry: { ...model.geometry, tabs: msg.tabs } }, effects: NO_EFFECTS };
+      return {
+        model: {
+          ...model,
+          geometry: {
+            ...model.geometry,
+            tabs: msg.tabs.slice(0, MAX_MOUSE_GEOMETRY_ENTRIES).map((tab) => ({
+              ...tab,
+              tabs: tab.tabs.slice(0, MAX_MOUSE_GEOMETRY_ENTRIES).map((region) => ({ ...region })),
+            })),
+          },
+        },
+        effects: NO_EFFECTS,
+      };
 
     case 'mouse-register-floats':
-      return { model: { ...model, geometry: { ...model.geometry, floats: msg.floats } }, effects: NO_EFFECTS };
+      return {
+        model: {
+          ...model,
+          geometry: {
+            ...model.geometry,
+            floats: msg.floats.slice(0, MAX_MOUSE_GEOMETRY_ENTRIES).map((float) => ({
+              ...float,
+              frame: float.frame ? { ...float.frame } : undefined,
+            })),
+          },
+        },
+        effects: NO_EFFECTS,
+      };
 
     case 'mouse-register-panes':
-      return { model: { ...model, geometry: { ...model.geometry, panes: msg.panes } }, effects: NO_EFFECTS };
+      return { model: { ...model, geometry: { ...model.geometry, panes: msg.panes.slice(0, MAX_MOUSE_GEOMETRY_ENTRIES).map((pane) => ({ ...pane })) } }, effects: NO_EFFECTS };
 
     case 'mouse-gesture':
       if (!model.enabled) return { model, effects: NO_EFFECTS };
@@ -223,15 +278,14 @@ export function horizonMouseUpdate(
 // ---------------------------------------------------------------------------
 
 function handleDisable(model: HorizonMouseModel): UpdateResult {
+  const cancelled = cancelActiveInteraction(model);
   return {
     model: {
-      ...model,
+      ...cancelled.model,
       enabled: false,
-      active: { kind: 'none' },
-      drag: createDragState<MouseDragData>(),
-      sortable: createSortableState(),
+      cursor: 'default',
     },
-    effects: NO_EFFECTS,
+    effects: cancelled.effects,
   };
 }
 
@@ -272,6 +326,7 @@ function handleMouseEvent(
   model: HorizonMouseModel,
   config?: { snap?: SnapConfig; edgeSnap?: EdgeSnapConfig; snapZones?: readonly SnapZone[] },
 ): UpdateResult {
+  if (!Number.isFinite(event.x) || !Number.isFinite(event.y)) return { model, effects: NO_EFFECTS };
   const snapCfg = config?.snap ?? DEFAULT_SNAP_CONFIG;
   const edgeSnapCfg = config?.edgeSnap ?? DEFAULT_EDGE_SNAP;
 
@@ -285,7 +340,7 @@ function handleMouseEvent(
     case 'press':
       return handlePress(event, model, snapCfg);
     case 'release':
-      return { model, effects: NO_EFFECTS };
+      return { model: { ...model, cursor: cursorAt(model.geometry, event.x, event.y) }, effects: NO_EFFECTS };
     case 'move':
       return handleIdleMove(event, model);
     case 'scroll-up':
@@ -304,6 +359,7 @@ function buildHitMap(geometry: GeometryCache): HitMap<MouseRegion> {
 
   // Register in z-priority order: panes (lowest) < separators < tabs < title bars (highest)
   for (const pane of geometry.panes) {
+    if (!validRegion(pane)) continue;
     hitmap.register({
       x: pane.x,
       y: pane.y,
@@ -314,6 +370,11 @@ function buildHitMap(geometry: GeometryCache): HitMap<MouseRegion> {
   }
 
   for (const split of geometry.splits) {
+    if (
+      !validRegion({ x: split.separatorX, y: split.separatorY, width: split.separatorWidth, height: split.separatorHeight })
+      || !Number.isFinite(split.totalSize)
+      || split.totalSize <= 0
+    ) continue;
     hitmap.register({
       x: split.separatorX,
       y: split.separatorY,
@@ -332,6 +393,7 @@ function buildHitMap(geometry: GeometryCache): HitMap<MouseRegion> {
 
   for (const tabGroup of geometry.tabs) {
     for (const tab of tabGroup.tabs) {
+      if (!validRegion(tab)) continue;
       hitmap.register({
         x: tab.x,
         y: tab.y,
@@ -343,26 +405,34 @@ function buildHitMap(geometry: GeometryCache): HitMap<MouseRegion> {
   }
 
   for (const float of geometry.floats) {
-    hitmap.register({
-      x: float.titleBarX,
-      y: float.titleBarY,
-      width: float.titleBarWidth,
-      height: float.titleBarHeight,
-      onClick: {
-        kind: 'title-bar',
-        floatId: float.floatId,
-        titleBarX: float.titleBarX,
-        titleBarY: float.titleBarY,
-      },
-    });
-    for (const region of floatingResizeRegions(float)) {
+    const draggableTitleWidth = Math.max(0, float.titleBarWidth - Math.max(0, float.titleBarEndInset ?? 0));
+    if (
+      float.draggable !== false
+      && validRegion({ x: float.titleBarX, y: float.titleBarY, width: draggableTitleWidth, height: float.titleBarHeight })
+    ) {
       hitmap.register({
-        x: region.x,
-        y: region.y,
-        width: region.width,
-        height: region.height,
-        onClick: { kind: 'resize-handle', floatId: float.floatId, edge: region.edge },
+        x: float.titleBarX,
+        y: float.titleBarY,
+        width: draggableTitleWidth,
+        height: float.titleBarHeight,
+        onClick: {
+          kind: 'title-bar',
+          floatId: float.floatId,
+          titleBarX: float.titleBarX,
+          titleBarY: float.titleBarY,
+        },
       });
+    }
+    if (float.resizable !== false) {
+      for (const region of floatingResizeRegions(float)) {
+        hitmap.register({
+          x: region.x,
+          y: region.y,
+          width: region.width,
+          height: region.height,
+          onClick: { kind: 'resize-handle', floatId: float.floatId, edge: region.edge },
+        });
+      }
     }
   }
 
@@ -370,9 +440,25 @@ function buildHitMap(geometry: GeometryCache): HitMap<MouseRegion> {
 }
 
 function floatingFrame(float: FloatGeometry): FloatingWindowFrame {
-  const width = Math.max(float.titleBarWidth, float.contentWidth);
-  const height = Math.max(1, float.contentY - float.titleBarY + float.contentHeight);
-  return { x: float.titleBarX, y: float.titleBarY, width, height };
+  if (
+    float.frame
+    && Number.isFinite(float.frame.x)
+    && Number.isFinite(float.frame.y)
+    && Number.isFinite(float.frame.width)
+    && Number.isFinite(float.frame.height)
+    && float.frame.width > 0
+    && float.frame.height > 0
+  ) {
+    return {
+      x: Math.trunc(float.frame.x),
+      y: Math.trunc(float.frame.y),
+      width: Math.max(1, Math.trunc(float.frame.width)),
+      height: Math.max(1, Math.trunc(float.frame.height)),
+    };
+  }
+  const width = Math.max(positiveCell(float.titleBarWidth), positiveCell(float.contentWidth));
+  const height = Math.max(1, finiteCell(float.contentY) - finiteCell(float.titleBarY) + positiveCell(float.contentHeight));
+  return { x: finiteCell(float.titleBarX), y: finiteCell(float.titleBarY), width, height };
 }
 
 function floatingResizeRegions(float: FloatGeometry): Array<FloatingWindowFrame & { edge: FloatingWindowResizeEdge }> {
@@ -380,13 +466,39 @@ function floatingResizeRegions(float: FloatGeometry): Array<FloatingWindowFrame 
   const right = frame.x + frame.width - 1;
   const bottom = frame.y + frame.height - 1;
   const regions: Array<FloatingWindowFrame & { edge: FloatingWindowResizeEdge }> = [
+    { edge: 'top-left', x: frame.x, y: frame.y, width: 1, height: 1 },
+    { edge: 'top-right', x: right, y: frame.y, width: 1, height: 1 },
     { edge: 'bottom-left', x: frame.x, y: bottom, width: 1, height: 1 },
     { edge: 'bottom-right', x: right, y: bottom, width: 1, height: 1 },
     { edge: 'left', x: frame.x, y: frame.y + 1, width: 1, height: Math.max(0, frame.height - 2) },
     { edge: 'right', x: right, y: frame.y + 1, width: 1, height: Math.max(0, frame.height - 2) },
+    { edge: 'top', x: frame.x + 1, y: frame.y, width: Math.max(0, frame.width - 2), height: 1 },
     { edge: 'bottom', x: frame.x + 1, y: bottom, width: Math.max(0, frame.width - 2), height: 1 },
   ];
-  return regions.filter((region) => region.width > 0 && region.height > 0);
+  const hasSeparateTopBorder = frame.y < float.titleBarY;
+  return regions.filter((region) => region.width > 0 && region.height > 0 && (hasSeparateTopBorder || !region.edge.startsWith('top')));
+}
+
+function cursorAt(geometry: GeometryCache, x: number, y: number): PointerCursor {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return 'default';
+  const hit = buildHitMap(geometry).hitTest(x, y)?.onClick;
+  if (!hit) return 'default';
+  switch (hit.kind) {
+    case 'resize-handle':
+      return floatingWindowResizeCursor(hit.edge);
+    case 'separator':
+      return hit.direction === 'horizontal' ? 'ew-resize' : 'ns-resize';
+    case 'title-bar':
+      return 'move';
+    case 'tab':
+      return 'pointer';
+    case 'pane':
+      return 'default';
+  }
+}
+
+export function horizonMouseCursor(model: HorizonMouseModel): PointerCursor {
+  return model.cursor;
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +506,12 @@ function floatingResizeRegions(float: FloatGeometry): Array<FloatingWindowFrame 
 // ---------------------------------------------------------------------------
 
 function handlePress(event: MouseEventData, model: HorizonMouseModel, _snapCfg: SnapConfig): UpdateResult {
+  if (event.button !== 0) {
+    return {
+      model: { ...model, cursorX: event.x, cursorY: event.y, cursor: cursorAt(model.geometry, event.x, event.y) },
+      effects: NO_EFFECTS,
+    };
+  }
   const hitmap = buildHitMap(model.geometry);
   const hit = hitmap.hitTest(event.x, event.y);
 
@@ -443,6 +561,7 @@ function startFloatResize(event: MouseEventData, model: HorizonMouseModel, regio
       drag: newDrag,
       cursorX: event.x,
       cursorY: event.y,
+      cursor: floatingWindowResizeCursor(region.edge),
     },
     effects: NO_EFFECTS,
   };
@@ -474,6 +593,7 @@ function startSplitResize(event: MouseEventData, model: HorizonMouseModel, regio
       drag: newDrag,
       cursorX: event.x,
       cursorY: event.y,
+      cursor: region.direction === 'horizontal' ? 'ew-resize' : 'ns-resize',
     },
     effects: NO_EFFECTS,
   };
@@ -493,6 +613,7 @@ function startTabReorder(event: MouseEventData, model: HorizonMouseModel, region
       sortable: newSortable,
       cursorX: event.x,
       cursorY: event.y,
+      cursor: 'grabbing',
     },
     effects: [{ effect: 'activate-tab', tabbedId: region.tabbedId, tabIndex: region.tabIndex }],
   };
@@ -505,8 +626,9 @@ function startTabReorder(event: MouseEventData, model: HorizonMouseModel, region
 function startFloatDrag(event: MouseEventData, model: HorizonMouseModel, region: Extract<MouseRegion, { kind: 'title-bar' }>): UpdateResult {
   // Find the float geometry to get original position
   const floatGeo = model.geometry.floats.find((f) => f.floatId === region.floatId);
-  const originalX = floatGeo?.titleBarX ?? event.x;
-  const originalY = floatGeo?.titleBarY ?? event.y;
+  const frame = floatGeo ? floatingFrame(floatGeo) : null;
+  const originalX = frame?.x ?? event.x;
+  const originalY = frame?.y ?? event.y;
 
   const dragData: MouseDragData = {
     kind: 'title-bar',
@@ -524,6 +646,7 @@ function startFloatDrag(event: MouseEventData, model: HorizonMouseModel, region:
       drag: newDrag,
       cursorX: event.x,
       cursorY: event.y,
+      cursor: 'grabbing',
     },
     effects: NO_EFFECTS,
   };
@@ -541,6 +664,7 @@ function handleIdleMove(event: MouseEventData, model: HorizonMouseModel): Update
       cursorX: event.x,
       cursorY: event.y,
       hoveredPaneId,
+      cursor: cursorAt(model.geometry, event.x, event.y),
     },
     effects: NO_EFFECTS,
   };
@@ -620,6 +744,7 @@ function handleResizeInteraction(
           drag: createDragState<MouseDragData>(),
           cursorX: event.x,
           cursorY: event.y,
+          cursor: cursorAt(model.geometry, event.x, event.y),
         },
         effects,
       };
@@ -726,6 +851,7 @@ function handleTabReorderInteraction(
           active: { ...active, overTabbedId: newOverTabbedId, overPaneId: newOverPaneId },
           cursorX: event.x,
           cursorY: event.y,
+          cursor: 'grabbing',
         },
         effects: NO_EFFECTS,
       };
@@ -776,6 +902,7 @@ function handleTabReorderInteraction(
           sortable: newSortable,
           cursorX: event.x,
           cursorY: event.y,
+          cursor: cursorAt(model.geometry, event.x, event.y),
         },
         effects,
       };
@@ -820,6 +947,7 @@ function handleFloatDragInteraction(
           drag: createDragState<MouseDragData>(),
           cursorX: event.x,
           cursorY: event.y,
+          cursor: cursorAt(model.geometry, event.x, event.y),
         },
         effects,
       };
@@ -851,12 +979,47 @@ function handleFloatResizeInteraction(
         drag: createDragState<MouseDragData>(),
         cursorX: event.x,
         cursorY: event.y,
+        cursor: cursorAt(model.geometry, event.x, event.y),
       },
       effects,
     };
   }
   return {
     model: { ...model, drag, cursorX: event.x, cursorY: event.y },
+    effects,
+  };
+}
+
+function cancelActiveInteraction(model: HorizonMouseModel): UpdateResult {
+  const effects: HorizonMouseEffect[] = [];
+  if (model.drag.phase === 'dragging') {
+    const data = model.drag.data;
+    if (data.kind === 'separator') {
+      effects.push({ effect: 'set-split-ratio', splitId: data.splitId, ratio: data.originalRatio });
+    } else if (data.kind === 'title-bar') {
+      effects.push({ effect: 'move-float', floatId: data.floatId, x: data.originalX, y: data.originalY });
+    } else if (data.kind === 'float-resize') {
+      effects.push({
+        effect: 'resize-float',
+        floatId: data.floatId,
+        edge: data.resize.edge,
+        frame: {
+          x: data.resize.startX,
+          y: data.resize.startY,
+          width: data.resize.startWidth,
+          height: data.resize.startHeight,
+        },
+      });
+    }
+  }
+  return {
+    model: {
+      ...model,
+      active: { kind: 'none' },
+      drag: createDragState<MouseDragData>(),
+      sortable: createSortableState(),
+      cursor: cursorAt(model.geometry, model.cursorX, model.cursorY),
+    },
     effects,
   };
 }
@@ -895,8 +1058,9 @@ function computeFloatPosition(
 
   // Find the float geometry for width/height info
   const floatGeo = geometry.floats.find((f) => f.floatId === floatId);
-  const floatWidth = floatGeo ? Math.max(floatGeo.titleBarWidth, floatGeo.contentWidth) : 1;
-  const floatHeight = floatGeo ? floatGeo.contentY - floatGeo.titleBarY + floatGeo.contentHeight : 1;
+  const frame = floatGeo ? floatingFrame(floatGeo) : null;
+  const floatWidth = frame?.width ?? 1;
+  const floatHeight = frame?.height ?? 1;
 
   // Edge snap
   const threshold = edgeSnapCfg.threshold;
@@ -929,6 +1093,7 @@ function findPaneAt(geometry: GeometryCache, x: number, y: number): string | nul
   // Check panes in reverse order (last registered = highest priority)
   for (let i = geometry.panes.length - 1; i >= 0; i--) {
     const pane = geometry.panes[i]!;
+    if (!validRegion(pane)) continue;
     if (x >= pane.x && x < pane.x + pane.width && y >= pane.y && y < pane.y + pane.height) {
       return pane.id;
     }

@@ -57,3 +57,32 @@ encoded activate, context-menu, hover, leave, and overflow tags; route them with
 `windowShelfActionFromEvent()` rather than parsing IDs. The same rule applies to
 floating chrome: use `windowManagerMsgFromWindowEvent()` so IDs containing
 delimiters round-trip safely.
+
+## Pointer-owned window resizing
+
+`windowManagerPointerUpdate()` composes managed-window geometry, pointer
+capture, directional cursors, drag/resize constraints, focus, hover, release,
+and cancellation. Hosts keep the returned state beside the manager and apply
+raw pointer, Escape/blur cancellation, and viewport resize messages without
+duplicating frame arithmetic:
+
+```typescript
+import {
+  createWindowManagerPointerState,
+  windowManagerPointerUpdate,
+} from '@celestial/horizon';
+
+let pointer = createWindowManagerPointerState(manager.bounds);
+const result = windowManagerPointerUpdate(
+  { type: 'pointer', event: mouseEvent },
+  pointer,
+  manager,
+);
+pointer = result.state;
+manager = result.manager;
+```
+
+Integrated chrome reserves its visible controls from the draggable title
+region. All eight frame edges use directional resize cursors; an active
+interaction remains captured outside the frame and can be rolled back with
+`{ type: 'cancel' }`.

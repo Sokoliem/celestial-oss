@@ -18,6 +18,12 @@ Celestial is pre-release and not published to npm yet. Clone the monorepo, run t
 - **Terminal Context** - Explicit test/runtime terminal size overrides
 - **Breakpoint Internals** - Canonical names, legacy aliases, threshold maps, diagnostic tracing
 - **Diagnostics** - Grid validation (overlap, out-of-bounds, invalid areas) and breakpoint tracing
+- **Resizable Splits** - Validated pane identifiers, constrained adjacent-seam resizing, collapse-safe persistence, keyboard hints, and directional cursor metadata
+
+`resizeSplitterSeam()` updates one adjacent pane pair while preserving its
+combined weight and applying both panes' minimum and maximum constraints. Use
+the handle metadata emitted by `splitter()` for sidebar and inspector resizing;
+the host does not need to duplicate ratio or constraint math.
 
 ## Flex Layout
 

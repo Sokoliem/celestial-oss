@@ -45,12 +45,13 @@ export type ResizeHandleMsg =
 // ─── Factory ─────────────────────────────────────────────────────────────
 
 export function createResizeHandleState(rect: ResizableRect): ResizeHandleState {
+  const current = normalizeRect(rect);
   return {
     phase: 'idle',
     activeEdge: null,
     hoveredEdge: null,
-    original: { ...rect },
-    current: { ...rect },
+    original: { ...current },
+    current,
     startX: 0,
     startY: 0,
     cursor: 'default',
@@ -60,20 +61,23 @@ export function createResizeHandleState(rect: ResizableRect): ResizeHandleState 
 // ─── Edge Detection ──────────────────────────────────────────────────────
 
 export function detectEdge(x: number, y: number, rect: ResizableRect, handleZone: number): ResizeEdge | null {
-  const left = rect.x;
-  const right = rect.x + rect.width;
-  const top = rect.y;
-  const bottom = rect.y + rect.height;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const normalized = normalizeRect(rect);
+  const zone = finiteNonNegativeInteger(handleZone, 1);
+  const left = normalized.x;
+  const right = normalized.x + normalized.width;
+  const top = normalized.y;
+  const bottom = normalized.y + normalized.height;
 
   // Point must be within the rect (with handleZone tolerance outside)
-  const inBoundsX = x >= left - handleZone && x <= right + handleZone;
-  const inBoundsY = y >= top - handleZone && y <= bottom + handleZone;
+  const inBoundsX = x >= left - zone && x <= right + zone;
+  const inBoundsY = y >= top - zone && y <= bottom + zone;
   if (!inBoundsX || !inBoundsY) return null;
 
-  const nearLeft = x >= left - handleZone && x <= left + handleZone;
-  const nearRight = x >= right - handleZone && x <= right + handleZone;
-  const nearTop = y >= top - handleZone && y <= top + handleZone;
-  const nearBottom = y >= bottom - handleZone && y <= bottom + handleZone;
+  const nearLeft = x >= left - zone && x <= left + zone;
+  const nearRight = x >= right - zone && x <= right + zone;
+  const nearTop = y >= top - zone && y <= top + zone;
+  const nearBottom = y >= bottom - zone && y <= bottom + zone;
 
   // Corners take priority when near two edges simultaneously
   if (nearTop && nearLeft) return 'top-left';
@@ -113,38 +117,24 @@ export function edgeToCursor(edge: ResizeEdge): ResizeCursor {
 // ─── Constraints ─────────────────────────────────────────────────────────
 
 export function applyConstraints(rect: ResizableRect, constraints: ResizeConstraints): ResizableRect {
-  let { x, y, width, height } = rect;
+  const normalized = normalizeRect(rect);
+  const minWidth = finitePositiveInteger(constraints.minWidth, 1);
+  const minHeight = finitePositiveInteger(constraints.minHeight, 1);
+  const maxWidth = Math.max(minWidth, finitePositiveInteger(constraints.maxWidth, Number.MAX_SAFE_INTEGER));
+  const maxHeight = Math.max(minHeight, finitePositiveInteger(constraints.maxHeight, Number.MAX_SAFE_INTEGER));
+  const snapGridX = finitePositiveInteger(constraints.snapGridX, 1);
+  const snapGridY = finitePositiveInteger(constraints.snapGridY, 1);
 
-  // 1. Clamp width
-  if (constraints.minWidth !== undefined && width < constraints.minWidth) {
-    width = constraints.minWidth;
-  }
-  if (constraints.maxWidth !== undefined && width > constraints.maxWidth) {
-    width = constraints.maxWidth;
-  }
-
-  // 2. Clamp height
-  if (constraints.minHeight !== undefined && height < constraints.minHeight) {
-    height = constraints.minHeight;
-  }
-  if (constraints.maxHeight !== undefined && height > constraints.maxHeight) {
-    height = constraints.maxHeight;
-  }
-
-  // 3. Enforce aspect ratio (adjust height to match width / aspectRatio)
-  if (constraints.aspectRatio !== undefined && constraints.aspectRatio > 0) {
-    height = width / constraints.aspectRatio;
+  let width = clamp(Math.round(normalized.width / snapGridX) * snapGridX, minWidth, maxWidth);
+  let height = clamp(Math.round(normalized.height / snapGridY) * snapGridY, minHeight, maxHeight);
+  const aspectRatio = Number.isFinite(constraints.aspectRatio) && constraints.aspectRatio! > 0 ? constraints.aspectRatio! : null;
+  if (aspectRatio !== null) {
+    height = clamp(Math.round(width / aspectRatio), minHeight, maxHeight);
+    width = clamp(Math.round(height * aspectRatio), minWidth, maxWidth);
+    height = clamp(Math.round(width / aspectRatio), minHeight, maxHeight);
   }
 
-  // 4. Snap to grid
-  if (constraints.snapGridX !== undefined && constraints.snapGridX > 0) {
-    width = Math.round(width / constraints.snapGridX) * constraints.snapGridX;
-  }
-  if (constraints.snapGridY !== undefined && constraints.snapGridY > 0) {
-    height = Math.round(height / constraints.snapGridY) * constraints.snapGridY;
-  }
-
-  return { x, y, width, height };
+  return { x: normalized.x, y: normalized.y, width, height };
 }
 
 // ─── Edge Delta Application ──────────────────────────────────────────────
@@ -192,6 +182,44 @@ function applyEdgeDelta(rect: ResizableRect, edge: ResizeEdge, dx: number, dy: n
   return { x, y, width, height };
 }
 
+function finiteInteger(value: number, fallback = 0): number {
+  return Number.isFinite(value) ? Math.trunc(value) : fallback;
+}
+
+function finiteNonNegativeInteger(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value!)) : fallback;
+}
+
+function finitePositiveInteger(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) && value! > 0 ? Math.max(1, Math.trunc(value!)) : fallback;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizeRect(rect: ResizableRect): ResizableRect {
+  return {
+    x: finiteInteger(rect?.x),
+    y: finiteInteger(rect?.y),
+    width: finitePositiveInteger(rect?.width, 1),
+    height: finitePositiveInteger(rect?.height, 1),
+  };
+}
+
+function constrainFromEdge(raw: ResizableRect, original: ResizableRect, edge: ResizeEdge, constraints: ResizeConstraints): ResizableRect {
+  const constrained = applyConstraints(raw, constraints);
+  const anchoredRight = original.x + original.width;
+  const anchoredBottom = original.y + original.height;
+  const fromLeft = edge === 'left' || edge === 'top-left' || edge === 'bottom-left';
+  const fromTop = edge === 'top' || edge === 'top-left' || edge === 'top-right';
+  return {
+    ...constrained,
+    x: fromLeft ? anchoredRight - constrained.width : original.x,
+    y: fromTop ? anchoredBottom - constrained.height : original.y,
+  };
+}
+
 // ─── Reducer ─────────────────────────────────────────────────────────────
 
 export function resizeHandleUpdate(msg: ResizeHandleMsg, state: ResizeHandleState, constraints: ResizeConstraints, handleZone: number = 1): ResizeHandleState {
@@ -223,23 +251,28 @@ export function resizeHandleUpdate(msg: ResizeHandleMsg, state: ResizeHandleStat
 
     case 'resize-start': {
       if (state.phase !== 'hovering') return state;
+      const edge = detectEdge(msg.x, msg.y, state.current, handleZone);
+      if (!edge) return state;
       return {
         ...state,
         phase: 'resizing',
-        activeEdge: state.hoveredEdge,
+        activeEdge: edge,
         hoveredEdge: null,
-        original: { ...state.current },
-        startX: msg.x,
-        startY: msg.y,
+        original: { ...normalizeRect(state.current) },
+        current: normalizeRect(state.current),
+        startX: finiteInteger(msg.x),
+        startY: finiteInteger(msg.y),
+        cursor: edgeToCursor(edge),
       };
     }
 
     case 'resize-drag': {
       if (state.phase !== 'resizing' || !state.activeEdge) return state;
-      const dx = msg.x - state.startX;
-      const dy = msg.y - state.startY;
+      if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return state;
+      const dx = finiteInteger(msg.x) - finiteInteger(state.startX);
+      const dy = finiteInteger(msg.y) - finiteInteger(state.startY);
       const raw = applyEdgeDelta(state.original, state.activeEdge, dx, dy);
-      const constrained = applyConstraints(raw, constraints);
+      const constrained = constrainFromEdge(raw, state.original, state.activeEdge, constraints);
       return {
         ...state,
         current: constrained,
@@ -284,10 +317,13 @@ export function resizeHandleUpdate(msg: ResizeHandleMsg, state: ResizeHandleStat
         msg.edge === 'top-right' ||
         msg.edge === 'bottom-left' ||
         msg.edge === 'bottom-right';
-      const dx = hasHorizontal ? msg.delta : 0;
-      const dy = hasVertical ? msg.delta : 0;
-      const raw = applyEdgeDelta(state.current, msg.edge, dx, dy);
-      const constrained = applyConstraints(raw, constraints);
+      if (!Number.isFinite(msg.delta)) return state;
+      const delta = finiteInteger(msg.delta);
+      const dx = hasHorizontal ? delta : 0;
+      const dy = hasVertical ? delta : 0;
+      const original = normalizeRect(state.current);
+      const raw = applyEdgeDelta(original, msg.edge, dx, dy);
+      const constrained = constrainFromEdge(raw, original, msg.edge, constraints);
       return {
         ...state,
         current: constrained,

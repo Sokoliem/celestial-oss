@@ -32,7 +32,7 @@ Celestial is pre-release and not published to npm yet. Clone the monorepo, run t
 - **Text Selection** — linear and box selection, multi-select, word/line/all, commit/merge
 - **Hover Intent** — distinguishes deliberate hovers from fast pass-throughs
 - **Spatial Navigation** — 2D directional keyboard focus navigation
-- **Resize Handles** — edge/corner detection, cursor mapping, constraints, grid snap
+- **Resize Handles** — edge/corner detection, directional cursor mapping, anchor-preserving min/max/aspect constraints, grid snap, cancellation, and non-finite input rejection
 - **Scroll Physics** — momentum, axis locking, overscroll bounce-back, snap points
 - **Pointer Cursors** — priority-based cursor resolution with claim/release
 - **Hyperlinks** — OSC 8 terminal hyperlinks with fallback

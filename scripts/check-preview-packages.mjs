@@ -337,6 +337,7 @@ try {
 const core = await import('@celestial/core');
 const compass = await import('@celestial/compass');
 const nebula = await import('@celestial/nebula');
+const gravity = await import('@celestial/gravity');
 const ui = await import('@celestial/ui');
 const test = await import('@celestial/test');
 const horizon = await import('@celestial/horizon');
@@ -357,6 +358,8 @@ const esmExports = {
   'nebula.createActionRegistry': nebula.createActionRegistry,
   'nebula.loadConfig': nebula.loadConfig,
   'nebula.subKind': nebula.subKind,
+  'nebula.encodePointerCursor': nebula.encodePointerCursor,
+  'gravity.resizeSplitterSeam': gravity.resizeSplitterSeam,
   'ui.actionKeyBindings': ui.actionKeyBindings,
   'ui.actionCommands': ui.actionCommands,
   'ui.createAppShell': ui.createAppShell,
@@ -367,8 +370,11 @@ const esmExports = {
   'ui.keyMap': ui.keyMap,
   'ui.modal': ui.modal,
   'ui.statusBar': ui.statusBar,
+  'ui.dataTable': ui.dataTable,
   'test.createTestApp': test.createTestApp,
   'horizon.splitPane': horizon.splitPane,
+  'horizon.createWindowManagerPointerState': horizon.createWindowManagerPointerState,
+  'horizon.windowManagerPointerUpdate': horizon.windowManagerPointerUpdate,
 };
 for (const [name, value] of Object.entries(esmExports)) {
   if (typeof value !== 'function') throw new Error('ESM preview smoke test could not find ' + name + '.');
@@ -407,6 +413,7 @@ ${uiGoldenPathRuntimeSmoke('ESM')}
 const core = require('@celestial/core');
 const compass = require('@celestial/compass');
 const nebula = require('@celestial/nebula');
+const gravity = require('@celestial/gravity');
 const ui = require('@celestial/ui');
 const test = require('@celestial/test');
 const horizon = require('@celestial/horizon');
@@ -422,6 +429,8 @@ const cjsExports = {
   'nebula.createActionRegistry': nebula.createActionRegistry,
   'nebula.loadConfig': nebula.loadConfig,
   'nebula.subKind': nebula.subKind,
+  'nebula.encodePointerCursor': nebula.encodePointerCursor,
+  'gravity.resizeSplitterSeam': gravity.resizeSplitterSeam,
   'ui.actionKeyBindings': ui.actionKeyBindings,
   'ui.actionCommands': ui.actionCommands,
   'ui.createAppShell': ui.createAppShell,
@@ -432,8 +441,11 @@ const cjsExports = {
   'ui.keyMap': ui.keyMap,
   'ui.modal': ui.modal,
   'ui.statusBar': ui.statusBar,
+  'ui.dataTable': ui.dataTable,
   'test.createTestApp': test.createTestApp,
   'horizon.splitPane': horizon.splitPane,
+  'horizon.createWindowManagerPointerState': horizon.createWindowManagerPointerState,
+  'horizon.windowManagerPointerUpdate': horizon.windowManagerPointerUpdate,
 };
 for (const [name, value] of Object.entries(cjsExports)) {
   if (typeof value !== 'function') throw new Error('CommonJS preview smoke test could not find ' + name + '.');

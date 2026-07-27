@@ -158,6 +158,8 @@ export {
   type HorizonSplitControllerOptions,
   splitPaneFromController,
 } from './split-controller.js';
+export * from './mouse.js';
+export * from './window-manager-pointer.js';
 export * from './state/index.js';
 // ─── Weighted Pane Stack ─────────────────────────────────────────────────
 export {

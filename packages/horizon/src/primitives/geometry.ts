@@ -48,6 +48,11 @@ export interface TabGeometry {
 
 export interface FloatGeometry {
   readonly floatId: string;
+  /** Optional outer frame. Supply this when the title bar is inset from a border so all eight resize handles are addressable. */
+  readonly frame?: Rect;
+  readonly draggable?: boolean;
+  readonly resizable?: boolean;
+  readonly titleBarEndInset?: number;
   readonly titleBarX: number;
   readonly titleBarY: number;
   readonly titleBarWidth: number;

@@ -425,6 +425,42 @@ describe('resize-handle', () => {
         const next = resizeHandleUpdate(msg, state, {});
         expect(next).toBe(state);
       });
+
+      it('preserves the opposite anchor when a left resize hits its minimum', () => {
+        const state = createResizeHandleState(rect);
+        const next = resizeHandleUpdate({ type: 'resize-key', edge: 'left', delta: 100 }, state, { minWidth: 8 });
+
+        expect(next.current).toMatchObject({ x: 22, width: 8 });
+        expect(next.current.x + next.current.width).toBe(rect.x + rect.width);
+      });
+
+      it('normalizes forged rectangles and ignores non-finite interaction values', () => {
+        const state = createResizeHandleState({ x: Number.NaN, y: Number.POSITIVE_INFINITY, width: -10, height: Number.NaN });
+        expect(state.current).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+
+        const hovered = resizeHandleUpdate({ type: 'resize-move', x: 1, y: 0 }, state, {});
+        expect(resizeHandleUpdate({ type: 'resize-start', x: Number.NaN, y: 0 }, hovered, {})).toBe(hovered);
+        expect(resizeHandleUpdate({ type: 'resize-key', edge: 'right', delta: Number.POSITIVE_INFINITY }, state, {})).toBe(state);
+      });
+
+      it('re-hit-tests the edge at resize start instead of trusting stale hover state', () => {
+        const hovered = resizeHandleUpdate({ type: 'resize-move', x: rect.x, y: rect.y + 5 }, createResizeHandleState(rect), {});
+        expect(hovered.hoveredEdge).toBe('left');
+
+        const next = resizeHandleUpdate({ type: 'resize-start', x: rect.x + 10, y: rect.y + 5 }, hovered, {});
+        expect(next).toBe(hovered);
+      });
+
+      it('keeps aspect and max constraints finite under an extreme drag', () => {
+        const state = createResizeHandleState(rect);
+        const next = resizeHandleUpdate(
+          { type: 'resize-key', edge: 'bottom-right', delta: Number.MAX_SAFE_INTEGER },
+          state,
+          { minWidth: 4, minHeight: 2, maxWidth: 40, maxHeight: 20, aspectRatio: 2, snapGridX: 3, snapGridY: 2 },
+        );
+
+        expect(next.current).toEqual({ x: 10, y: 10, width: 40, height: 20 });
+      });
     });
   });
 });

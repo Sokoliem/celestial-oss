@@ -11,6 +11,7 @@ import { planLayout } from './vdom/planning.js';
 import { rasterize } from './vdom/rasterize.js';
 
 export type { Cell, CellGrid } from './vdom/cells.js';
+export type { PointerCursor } from './pointer-cursor.js';
 export type { CellUpdate } from './vdom/diff.js';
 export { diff, extractRawBlobs, renderUpdates } from './vdom/diff.js';
 export type { LayoutEntry, LayoutPlan, LayoutPlanOptions, LayoutPlanStats, LayoutRect, LayoutTraceEntry, OverlayEntry } from './vdom/layout-types.js';

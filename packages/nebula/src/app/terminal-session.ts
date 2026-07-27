@@ -163,6 +163,7 @@ export function installTerminalSession<Model, M>(ctx: RuntimeContext<Model, M>):
     };
 
     try {
+      attempt(ctx.resetPointerCursor);
       attempt(detachTerminalModes);
 
       if (ctx.inlineMode) {

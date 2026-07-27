@@ -59,6 +59,14 @@ export {
   type ReplaceConfigOptions,
   type SchedulerConfig,
 } from './app.js';
+export {
+  encodePointerCursor,
+  isPointerCursor,
+  normalizePointerCursor,
+  POINTER_CURSORS,
+  supportsPointerCursorOsc22,
+} from './pointer-cursor.js';
+export type { PointerCursor } from './pointer-cursor.js';
 export type {
   AutomationA11yAuditResult,
   AutomationA11yRuleName,

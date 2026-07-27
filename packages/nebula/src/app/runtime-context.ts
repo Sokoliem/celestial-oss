@@ -9,6 +9,7 @@ import type { CrashRecoveryGuard } from '../crash-recovery.js';
 import { createFocusState, type FocusNodeInfo, type FocusState } from '../focus.js';
 import type { HitRegionInfo } from '../hit-regions.js';
 import type { MachineRegistry, MachineRegistryEntry } from '../machine-registry.js';
+import type { PointerCursor } from '../pointer-cursor.js';
 import { classifyMessagePriority, type RenderCause } from '../message-priority.js';
 import type { RenderTracer } from '../profiler.js';
 import { createRenderWatchdog, type RenderWatchdog } from '../render-watchdog.js';
@@ -62,6 +63,8 @@ export interface RuntimeContext<Model, M> {
   pendingRenderNeeded: boolean;
   lastHoveredId: string | null;
   lastHoveredRegion: HitRegionInfo | null;
+  pointerCursor: PointerCursor;
+  capturedPointerCursor: PointerCursor | null;
   lastFocusNodes: FocusNodeInfo[];
   lastA11yFocusId: string | null | undefined;
   renderWatchdog: RenderWatchdog | null;
@@ -141,6 +144,8 @@ export interface RuntimeContext<Model, M> {
   dispatchLayoutFeedback: (sub: Sub<M>, plan: LayoutPlan) => void;
   dispatchElementMouseEvent: (sub: Sub<M>, event: ElementMouseEvent) => void;
   dispatchAutoElementMouse: (sub: Sub<M>, event: MouseEventData) => void;
+  updatePointerCursor: (event: MouseEventData) => void;
+  resetPointerCursor: () => void;
   matchKeySub: (sub: Sub<M>, key: string, event: { ctrl: boolean; alt: boolean; shift: boolean }) => void;
   handleInput: (data: Buffer) => void;
   attachRuntimeHandlers: () => void;
@@ -228,6 +233,8 @@ export function createRuntimeContext<Model, M>(initialConfig: AppConfig<Model, M
     pendingRenderNeeded: false,
     lastHoveredId: null,
     lastHoveredRegion: null,
+    pointerCursor: 'default',
+    capturedPointerCursor: null,
     lastFocusNodes: [],
     lastA11yFocusId: undefined,
     renderWatchdog: options?.renderTimeout ? createRenderWatchdog(options.renderTimeout) : null,
@@ -307,6 +314,8 @@ export function createRuntimeContext<Model, M>(initialConfig: AppConfig<Model, M
     dispatchLayoutFeedback: () => notInstalled('dispatchLayoutFeedback'),
     dispatchElementMouseEvent: () => notInstalled('dispatchElementMouseEvent'),
     dispatchAutoElementMouse: () => notInstalled('dispatchAutoElementMouse'),
+    updatePointerCursor: () => notInstalled('updatePointerCursor'),
+    resetPointerCursor: () => notInstalled('resetPointerCursor'),
     matchKeySub: () => notInstalled('matchKeySub'),
     handleInput: () => notInstalled('handleInput'),
     attachRuntimeHandlers: () => notInstalled('attachRuntimeHandlers'),

@@ -57,6 +57,38 @@ declare module '@celestial/nebula' {
 
   export type MouseEventType = 'press' | 'release' | 'move' | 'scroll-up' | 'scroll-down';
 
+  export type PointerCursor =
+    | 'alias'
+    | 'cell'
+    | 'copy'
+    | 'crosshair'
+    | 'default'
+    | 'e-resize'
+    | 'ew-resize'
+    | 'grab'
+    | 'grabbing'
+    | 'help'
+    | 'move'
+    | 'n-resize'
+    | 'ne-resize'
+    | 'nesw-resize'
+    | 'no-drop'
+    | 'not-allowed'
+    | 'ns-resize'
+    | 'nw-resize'
+    | 'nwse-resize'
+    | 'pointer'
+    | 'progress'
+    | 's-resize'
+    | 'se-resize'
+    | 'sw-resize'
+    | 'text'
+    | 'vertical-text'
+    | 'w-resize'
+    | 'wait'
+    | 'zoom-in'
+    | 'zoom-out';
+
   export interface MouseEventData {
     readonly type: MouseEventType;
     readonly button: 0 | 1 | 2 | 'none';
@@ -116,6 +148,8 @@ declare module '@celestial/nebula' {
     readonly label?: string;
     readonly summary?: string;
     readonly detail?: string;
+    readonly affordances?: ReadonlyArray<'hover' | 'click' | 'drag' | 'resize' | 'edit' | 'observe' | 'scroll'>;
+    readonly cursor?: PointerCursor;
     readonly value?: string;
     readonly state?: string;
     readonly intent?: RegionIntent;
@@ -158,4 +192,5 @@ declare module '@celestial/nebula' {
   export function scrollTo(offset: number, maxOffset: number): number;
   export function snapToNearest(offset: number, snapPoints: readonly SnapPoint[]): number;
   export function resolveMouseHandler(handler: MouseHandler | undefined, event: Pick<MouseEventData, 'shift' | 'ctrl' | 'alt'>): string | undefined;
+  export function isPointerCursor(value: unknown): value is PointerCursor;
 }

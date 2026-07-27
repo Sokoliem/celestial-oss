@@ -404,4 +404,36 @@ describe('claimFromHitRegion', () => {
     const claim = claimFromHitRegion(region);
     expect(claim).toBeNull();
   });
+
+  it('promotes directional resize and active drag cursors above ordinary regions', () => {
+    expect(claimFromHitRegion({ x: 0, y: 0, width: 1, height: 1, cursor: 'ew-resize' })?.priority).toBe('resize');
+    expect(claimFromHitRegion({ x: 0, y: 0, width: 1, height: 1, cursor: 'grabbing' })?.priority).toBe('drag');
+  });
+
+  it('rejects malformed claims without corrupting existing state', () => {
+    const state = pointerUpdate(
+      { type: 'pointer-claim', claim: { cursor: 'pointer', priority: 'region', source: 'valid' } },
+      createPointerState(),
+    );
+    const forged = {
+      type: 'pointer-claim',
+      claim: { cursor: 'resize', priority: 'super', source: '' },
+    } as unknown as PointerMsg;
+
+    expect(pointerUpdate(forged, state)).toBe(state);
+  });
+
+  it('caps adversarial claim growth while retaining the newest claims', () => {
+    let state = createPointerState();
+    for (let index = 0; index < 300; index++) {
+      state = pointerUpdate(
+        { type: 'pointer-claim', claim: { cursor: 'pointer', priority: 'region', source: `region:${index}` } },
+        state,
+      );
+    }
+
+    expect(state.claims).toHaveLength(256);
+    expect(state.claims[0]?.source).toBe('region:44');
+    expect(state.claims.at(-1)?.source).toBe('region:299');
+  });
 });

@@ -1,6 +1,6 @@
 import type { BoxNode, EventNode, RowNode, VNode } from '@celestial/nebula';
 import { describe, expect, it } from 'vitest';
-import { createSplitterController, splitter } from '../splitter.js';
+import { createSplitterController, resizeSplitterSeam, splitter } from '../splitter.js';
 
 function resolveTree(node: VNode, cols = 80, rows = 24): VNode {
   if (node.kind === 'component') {
@@ -177,6 +177,111 @@ describe('splitter', () => {
 
     expect(controller.getWeight('left')).toBeCloseTo(newLeftWidth / totalAxis, 5);
     expect(controller.getWeight('left') + controller.getWeight('right')).toBeCloseTo(1, 5);
+  });
+
+  it('resizes an adjacent seam while preserving pair weight and both pane constraints', () => {
+    const panes = [
+      { id: 'nav', child: { kind: 'empty' as const }, weight: 0.25, min: 10, max: 35 },
+      { id: 'main', child: { kind: 'empty' as const }, weight: 0.5, min: 30 },
+      { id: 'inspector', child: { kind: 'empty' as const }, weight: 0.25, min: 10 },
+    ];
+    const controller = createSplitterController({ panes });
+    const originalInspector = controller.getWeight('inspector');
+    const pairWeight = controller.getWeight('nav') + controller.getWeight('main');
+
+    const expanded = resizeSplitterSeam(controller, panes, 'row', {
+      leadingPaneId: 'nav',
+      trailingPaneId: 'main',
+      axisSize: 100,
+      leadingSize: 1_000,
+    });
+
+    expect(expanded).toMatchObject({ leadingSize: 35, trailingSize: 40, cursor: 'ew-resize', changed: true });
+    expect(controller.getWeight('nav') + controller.getWeight('main')).toBeCloseTo(pairWeight, 10);
+    expect(controller.getWeight('inspector')).toBeCloseTo(originalInspector, 10);
+  });
+
+  it('rejects non-adjacent seams and no-ops a fully collapsed pair', () => {
+    const panes = [
+      { id: 'a', child: { kind: 'empty' as const }, collapsible: true },
+      { id: 'b', child: { kind: 'empty' as const }, collapsible: true },
+      { id: 'c', child: { kind: 'empty' as const } },
+    ];
+    const controller = createSplitterController({ panes });
+    expect(() =>
+      resizeSplitterSeam(controller, panes, 'row', {
+        leadingPaneId: 'a',
+        trailingPaneId: 'c',
+        axisSize: 80,
+        leadingSize: 20,
+      }),
+    ).toThrow(/adjacent/);
+
+    controller.setCollapsed('a', true);
+    controller.setCollapsed('b', true);
+    expect(
+      resizeSplitterSeam(controller, panes, 'column', {
+        leadingPaneId: 'a',
+        trailingPaneId: 'b',
+        axisSize: 80,
+        leadingSize: 20,
+      }),
+    ).toMatchObject({ changed: false, leadingSize: 0, trailingSize: 0, cursor: 'ns-resize' });
+  });
+
+  it('rejects duplicate ids and impossible pane bounds', () => {
+    expect(() =>
+      createSplitterController({
+        panes: [
+          { id: 'same', child: { kind: 'empty' } },
+          { id: 'same', child: { kind: 'empty' } },
+        ],
+      }),
+    ).toThrow(/Duplicate/);
+    expect(() =>
+      splitter({
+        direction: 'row',
+        panes: [{ id: 'broken', child: { kind: 'empty' }, min: 20, max: 10 }],
+      }),
+    ).toThrow(/maximum/);
+  });
+
+  it('ignores forged non-finite weights and cannot collapse a fixed pane', () => {
+    const controller = createSplitterController<string>({
+      panes: [
+        { id: 'fixed', child: { kind: 'empty' }, weight: 0.5 },
+        { id: 'flex', child: { kind: 'empty' }, weight: 0.5, collapsible: true },
+      ],
+    });
+    controller.setWeight('fixed', Number.NaN);
+    controller.setWeights({ fixed: Number.POSITIVE_INFINITY, flex: Number.NaN });
+    controller.setCollapsed('fixed', true);
+
+    expect(controller.getWeight('fixed')).toBe(0.5);
+    expect(controller.getWeight('flex')).toBe(0.5);
+    expect(controller.isCollapsed('fixed')).toBe(false);
+  });
+
+  it('hydrates only unique known finite panes and ignores illegal collapse flags', () => {
+    const controller = createSplitterController<string>({
+      panes: [
+        { id: 'fixed', child: { kind: 'empty' }, weight: 0.5 },
+        { id: 'flex', child: { kind: 'empty' }, weight: 0.5, collapsible: true },
+      ],
+    });
+    controller.hydrate({
+      version: 1,
+      panes: [
+        { id: 'fixed', weight: 0.8, collapsed: true },
+        { id: 'fixed', weight: 0.1, collapsed: false },
+        { id: 'unknown', weight: 1, collapsed: true },
+        { id: 'flex', weight: Number.NaN, collapsed: true },
+      ],
+    });
+
+    expect(controller.getWeight('fixed')).toBeCloseTo(0.8 / 1.3, 10);
+    expect(controller.isCollapsed('fixed')).toBe(false);
+    expect(controller.isCollapsed('flex')).toBe(false);
   });
 
   it('emits no handles when there is only one pane', () => {

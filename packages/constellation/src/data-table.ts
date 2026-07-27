@@ -49,6 +49,12 @@ export interface DataColumn<T> {
   key: string;
   header: string;
   width?: number;
+  /** Minimum interactive width in cells. Defaults to 1. */
+  minWidth?: number;
+  /** Maximum interactive width in cells. Defaults to the render budget. */
+  maxWidth?: number;
+  /** Override table-level column resizing for this column. */
+  resizable?: boolean;
   align?: 'left' | 'center' | 'right';
   sortable?: boolean;
   render?: (value: unknown, row: T) => string;
@@ -90,6 +96,21 @@ export interface DataTableConfig<T> {
   numberDigits?: number;
   /** Table theme with cycling colors (overrides token colors) */
   tableTheme?: TableTheme;
+  /** Enable pointer and keyboard column resizing. Defaults to false. */
+  resizableColumns?: boolean;
+  /** Keyboard resize stride in cells. Defaults to 1. */
+  columnResizeStep?: number;
+  /** Optional total table-width cap, including dividers and row chrome. */
+  maxWidth?: number;
+  /** Called after a constrained width change. */
+  onColumnResize?: (column: string, width: number, widths: Readonly<Record<string, number>>) => void;
+}
+
+export interface DataTableColumnResize {
+  readonly index: number;
+  readonly startX: number;
+  readonly startWidth: number;
+  readonly originalWidths: readonly number[];
 }
 
 export interface DataTableModel {
@@ -107,6 +128,11 @@ export interface DataTableModel {
   selectionAnchorKey: string | null;
   /** Keys added by the latest contiguous range gesture. */
   rangeSelectionKeys: Set<string>;
+  /** Controlled widths keyed by the stable column order. */
+  columnWidths: readonly number[];
+  /** Active pointer resize session, captured until release or Escape. */
+  columnResize: DataTableColumnResize | null;
+  hoveredResizeHandle?: number | null;
 }
 
 export type DataTableMsg =
@@ -122,6 +148,12 @@ export type DataTableMsg =
   | Msg<'activate-row', { index: number; shift?: boolean; additive?: boolean }>
   | Msg<'hover-row', { index: number }>
   | Msg<'hover-header', { index: number }>
+  | Msg<'hover-resize-handle', { index: number }>
+  | Msg<'resize-column-start', { index: number; x: number }>
+  | Msg<'resize-column-pointer', { x: number; end?: boolean }>
+  | Msg<'resize-column-key', { index: number; delta: number }>
+  | Msg<'resize-column-cancel'>
+  | Msg<'reset-column-widths'>
   | Msg<'leave-hover'>
   | Msg<'select-all'>
   | Msg<'clear-selection'>
@@ -211,14 +243,28 @@ function padCell(content: string, width: number, align: 'left' | 'center' | 'rig
   return padCellText(content, positiveInteger(width, 1), { align });
 }
 
-function fitColumnWidths(widths: readonly number[], overhead: number): number[] {
-  const budget = Math.max(widths.length, MAX_RENDER_CELLS - overhead);
+function fitColumnWidths(widths: readonly number[], minimums: readonly number[], overhead: number, maxTotalWidth = MAX_RENDER_CELLS): number[] {
+  const budget = Math.max(0, Math.min(MAX_RENDER_CELLS, positiveInteger(maxTotalWidth, MAX_RENDER_CELLS)) - overhead);
   const total = widths.reduce((sum, width) => sum + width, 0);
   if (total <= budget) return [...widths];
-  const scale = budget / total;
-  const fitted = widths.map((width) => Math.max(1, Math.floor(width * scale)));
-  let remaining = budget - fitted.reduce((sum, width) => sum + width, 0);
-  for (let index = 0; index < fitted.length && remaining > 0; index++, remaining--) fitted[index]! += 1;
+  const minimumTotal = minimums.reduce((sum, width) => sum + width, 0);
+  if (minimumTotal > budget) {
+    throw new RangeError(`DataTable maxWidth cannot fit the configured column minimums (${minimumTotal + overhead} cells required).`);
+  }
+  const fitted = [...widths];
+  let excess = total - budget;
+  const shrinkable = widths.map((width, index) => Math.max(0, width - minimums[index]!));
+  const shrinkableTotal = shrinkable.reduce((sum, width) => sum + width, 0);
+  for (let index = 0; index < fitted.length; index++) {
+    const reduction = Math.min(shrinkable[index]!, Math.floor((excess * shrinkable[index]!) / shrinkableTotal));
+    fitted[index]! -= reduction;
+  }
+  excess = fitted.reduce((sum, width) => sum + width, 0) - budget;
+  for (let index = 0; index < fitted.length && excess > 0; index++) {
+    const reduction = Math.min(excess, fitted[index]! - minimums[index]!);
+    fitted[index]! -= reduction;
+    excess -= reduction;
+  }
   return fitted;
 }
 
@@ -227,9 +273,15 @@ function fitColumnWidths(widths: readonly number[], overhead: number): number[] 
 export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<DataTableModel, DataTableMsg> {
   const columns = config.columns.map((column) => ({ ...column }));
   const data = [...config.data];
-  const { getKey, selectable = true, multiSelect = false, filterable = false, onSelect, onSort } = config;
+  const { getKey, selectable = true, multiSelect = false, filterable = false, onSelect, onSort, onColumnResize } = config;
   if (columns.length === 0) throw new Error('DataTable requires at least one column.');
   if (columns.length > 1_000) throw new RangeError('DataTable supports at most 1,000 columns.');
+  const columnKeys = new Set<string>();
+  for (const column of columns) {
+    if (column.key.length === 0) throw new Error('DataTable column keys must not be empty.');
+    if (columnKeys.has(column.key)) throw new Error(`DataTable column key "${column.key}" is duplicated.`);
+    columnKeys.add(column.key);
+  }
   const visibleRows = positiveInteger(config.visibleRows, 20);
   const interactionId = generateFocusGroupId('data-table');
   const rowTag = `${interactionId}:row`;
@@ -238,6 +290,80 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
   const hoverRowTag = `${interactionId}:hover-row`;
   const hoverHeaderTag = `${interactionId}:hover-header`;
   const leaveHoverTag = `${interactionId}:leave-hover`;
+  const resizeStartTag = `${interactionId}:resize-start`;
+  const hoverResizeTag = `${interactionId}:hover-resize`;
+  const resizableColumns = config.resizableColumns === true;
+  const resizeStep = positiveInteger(config.columnResizeStep, 1);
+  const tableOverhead = (columns.length - 1) * 3 + 2 + (config.rowNumbers ? 7 : 0);
+  const renderWidthLimit = positiveInteger(config.maxWidth, MAX_RENDER_CELLS);
+
+  function columnBounds(index: number): { min: number; max: number } {
+    const column = columns[index]!;
+    const min = positiveInteger(column.minWidth, 1);
+    const max = Math.max(min, positiveInteger(column.maxWidth, MAX_RENDER_CELLS));
+    return { min, max };
+  }
+
+  function canResizeColumn(index: number): boolean {
+    const column = columns[index];
+    return Boolean(column && (column.resizable ?? resizableColumns));
+  }
+
+  function initialColumnWidths(): number[] {
+    let widths: number[];
+    if (config.autoSize) {
+      const autoColumnTypes = config.formatNumbers
+        ? columns.map((column) => detectColumnType(data.map((rowData) => String(getCellValue(rowData, column.key) ?? ''))))
+        : null;
+      widths = autoSizeColumns(
+        columns.map((column) => column.header),
+        data.map((rowData) =>
+          columns.map((column, index) => {
+            const cellText = formatCell(column, rowData);
+            return autoColumnTypes
+              ? coronaFormatCell(cellText, autoColumnTypes[index]!, {
+                  digits: config.numberDigits ?? 3,
+                  placeholder: config.emptyPlaceholder ?? '—',
+                })
+              : cellText;
+          })),
+        Math.min(120, positiveInteger(config.maxWidth, 120)),
+      ).finalWidths;
+    } else {
+      widths = columns.map((column) => positiveInteger(column.width, 10));
+    }
+    const bounded = widths.map((width, index) => {
+      const bounds = columnBounds(index);
+      return clamp(width, bounds.min, bounds.max);
+    });
+    return fitColumnWidths(bounded, columns.map((_, index) => columnBounds(index).min), tableOverhead, renderWidthLimit);
+  }
+
+  const defaultColumnWidths = initialColumnWidths();
+
+  function normalizeColumnWidths(widths: readonly number[] | undefined): number[] {
+    const bounded = columns.map((_, index) => {
+      const bounds = columnBounds(index);
+      return clamp(widths?.[index] ?? defaultColumnWidths[index]!, bounds.min, bounds.max);
+    });
+    return fitColumnWidths(bounded, columns.map((_, index) => columnBounds(index).min), tableOverhead, renderWidthLimit);
+  }
+
+  function widthSnapshot(widths: readonly number[]): Readonly<Record<string, number>> {
+    return Object.freeze(Object.fromEntries(columns.map((column, index) => [column.key, widths[index]!])) as Record<string, number>);
+  }
+
+  function resizeColumn(model: DataTableModel, index: number, requested: number): DataTableModel {
+    if (!canResizeColumn(index)) return model;
+    const widths = normalizeColumnWidths(model.columnWidths);
+    const bounds = columnBounds(index);
+    const available = renderWidthLimit - tableOverhead - widths.reduce((sum, width, widthIndex) => widthIndex === index ? sum : sum + width, 0);
+    const nextWidth = clamp(requested, bounds.min, Math.max(bounds.min, Math.min(bounds.max, available)));
+    if (widths[index] === nextWidth) return model;
+    widths[index] = nextWidth;
+    onColumnResize?.(columns[index]!.key, nextWidth, widthSnapshot(widths));
+    return { ...model, columnWidths: widths };
+  }
 
   /** Find the index of a row key in the processed row list */
   function findRowIndex(rows: T[], key: string): number {
@@ -259,6 +385,8 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
           focused: false,
           selectionAnchorKey: null,
           rangeSelectionKeys: new Set(),
+          columnWidths: [...defaultColumnWidths],
+          columnResize: null,
         },
         Cmd.none(),
       ];
@@ -270,6 +398,67 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
       const maxCol = Math.max(0, columns.length - 1);
 
       switch (msg.type) {
+        case 'resize-column-start': {
+          if (!canResizeColumn(msg.index) || !Number.isFinite(msg.x)) return [model, Cmd.none()];
+          const widths = normalizeColumnWidths(model.columnWidths);
+          const index = clamp(msg.index, 0, maxCol);
+          return [
+            {
+              ...model,
+              focused: true,
+              cursorCol: index,
+              columnWidths: widths,
+              columnResize: {
+                index,
+                startX: Math.trunc(msg.x),
+                startWidth: widths[index]!,
+                originalWidths: [...widths],
+              },
+            },
+            Cmd.none(),
+          ];
+        }
+
+        case 'resize-column-pointer': {
+          const session = model.columnResize;
+          if (!session || !Number.isFinite(msg.x)) return [model, Cmd.none()];
+          const next = resizeColumn(model, session.index, session.startWidth + Math.trunc(msg.x) - session.startX);
+          return [{ ...next, columnResize: msg.end ? null : session }, Cmd.none()];
+        }
+
+        case 'resize-column-key': {
+          if (!Number.isFinite(msg.delta)) return [model, Cmd.none()];
+          const index = clamp(msg.index, 0, maxCol);
+          return [resizeColumn(model, index, normalizeColumnWidths(model.columnWidths)[index]! + Math.trunc(msg.delta)), Cmd.none()];
+        }
+
+        case 'resize-column-cancel':
+          if (model.columnResize) {
+            const widths = normalizeColumnWidths(model.columnResize.originalWidths);
+            const current = normalizeColumnWidths(model.columnWidths);
+            for (let index = 0; index < columns.length; index++) {
+              if (widths[index] !== current[index] && canResizeColumn(index)) {
+                onColumnResize?.(columns[index]!.key, widths[index]!, widthSnapshot(widths));
+              }
+            }
+            return [{ ...model, columnWidths: widths, columnResize: null }, Cmd.none()];
+          }
+          return [model, Cmd.none()];
+
+        case 'reset-column-widths': {
+          const widths = [...defaultColumnWidths];
+          for (let index = 0; index < columns.length; index++) {
+            if (widths[index] !== model.columnWidths[index] && canResizeColumn(index)) {
+              onColumnResize?.(columns[index]!.key, widths[index]!, widthSnapshot(widths));
+            }
+          }
+          return [{ ...model, columnWidths: widths, columnResize: null }, Cmd.none()];
+        }
+
+        case 'hover-resize-handle':
+          if (!Number.isFinite(msg.index) || !canResizeColumn(msg.index)) return [model, Cmd.none()];
+          return [{ ...model, hoveredResizeHandle: clamp(msg.index, 0, maxCol), hoveredHeader: null }, Cmd.none()];
+
         case 'cursor-down': {
           const newRow = clamp(model.cursorRow + 1, 0, maxRow);
           const newOffset = ensureCursorVisible(newRow, model.scrollOffset, visibleRows);
@@ -380,7 +569,7 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
           return [{ ...model, hoveredHeader: clamp(msg.index, 0, maxCol) }, Cmd.none()];
 
         case 'leave-hover':
-          return [{ ...model, hoveredRow: null, hoveredHeader: null }, Cmd.none()];
+          return [{ ...model, hoveredRow: null, hoveredHeader: null, hoveredResizeHandle: null }, Cmd.none()];
 
         case 'select-all': {
           if (!multiSelect) return [model, Cmd.none()];
@@ -505,28 +694,8 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
         : null;
 
       // ─── Resolve column widths ─────────────────────────────────
-      let colWidths: number[];
-      if (config.autoSize) {
-        const headerLabels = columns.map((c) => c.header);
-        const stringRows = processedRows.map((r) =>
-          columns.map((col, ci) => {
-            let cellText = formatCell(col, r);
-            if (config.formatNumbers && columnTypes) {
-              cellText = coronaFormatCell(cellText, columnTypes[ci]!, {
-                digits: config.numberDigits ?? 3,
-                placeholder: config.emptyPlaceholder ?? '—',
-              });
-            }
-            return cellText;
-          }),
-        );
-        const sizing = autoSizeColumns(headerLabels, stringRows, 120);
-        colWidths = sizing.finalWidths;
-      } else {
-        colWidths = columns.map((c) => positiveInteger(c.width, 10));
-      }
-      const tableOverhead = (columns.length - 1) * 3 + 2 + (config.rowNumbers ? 7 : 0);
-      colWidths = fitColumnWidths(colWidths, tableOverhead);
+      let colWidths = normalizeColumnWidths(model.columnWidths);
+      colWidths = fitColumnWidths(colWidths, columns.map((_, index) => columnBounds(index).min), tableOverhead, renderWidthLimit);
 
       // ─── Resolve column alignments (auto from type or explicit) ──
       const colAligns = columns.map((col, ci) => {
@@ -577,16 +746,42 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
           col.sortable === false ? {} : { onClick: sortTag, onMouseEnter: hoverHeaderTag, onMouseLeave: leaveHoverTag },
           {
             label: col.header,
-            intent: 'select',
+            intent: col.sortable === false ? 'observe' : 'select',
             affordances: col.sortable === false ? [] : ['click'],
             cursor: col.sortable === false ? undefined : 'pointer',
             keyboardHint: col.sortable === false ? undefined : 'Enter or S',
           },
         );
-        setVNodeMeta(headerNode, { a11y: { role: 'button', label: `Sort by ${col.header}` } });
+        setVNodeMeta(headerNode, {
+          a11y: col.sortable === false
+            ? { label: col.header }
+            : { role: 'button', label: `Sort by ${col.header}` },
+        });
         headerCells.push(headerNode);
         if (ci < columns.length - 1) {
-          headerCells.push(text(' │ ', dividerStyle));
+          const separatorResizable = canResizeColumn(ci);
+          if (separatorResizable) {
+            const bounds = columnBounds(ci);
+            const separator = event(
+              `${interactionId}:resize:${ci}`,
+              text(model.hoveredResizeHandle === ci || model.columnResize?.index === ci ? ' ┃ ' : ' │ ', dividerStyle),
+              { onMouseDown: resizeStartTag, onMouseEnter: hoverResizeTag, onMouseLeave: leaveHoverTag },
+              {
+                label: `Resize ${col.header}`,
+                intent: 'resize-column',
+                affordances: ['hover', 'drag', 'resize'],
+                cursor: 'ew-resize',
+                keyboardHint: 'Alt+Left/Right; Ctrl+0 resets',
+                extra: { column: col.key, index: ci, width, minWidth: bounds.min, maxWidth: bounds.max },
+              },
+            );
+            setVNodeMeta(separator, {
+              a11y: { role: 'separator', label: `Resize ${col.header}`, valueNow: width, valueMin: bounds.min, valueMax: bounds.max },
+            });
+            headerCells.push(separator);
+          } else {
+            headerCells.push(text(' │ ', dividerStyle));
+          }
         }
       }
       elements.push(row(...headerCells));
@@ -728,6 +923,16 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
         if (mouseEvent.handlerTag === hoverHeaderTag && mouseEvent.elementId.startsWith(`${interactionId}:header:`)) {
           return { type: 'hover-header', index: Number(mouseEvent.elementId.slice(`${interactionId}:header:`.length)) };
         }
+        if (mouseEvent.handlerTag === hoverResizeTag && mouseEvent.elementId.startsWith(`${interactionId}:resize:`)) {
+          return { type: 'hover-resize-handle', index: Number(mouseEvent.elementId.slice(`${interactionId}:resize:`.length)) };
+        }
+        if (mouseEvent.handlerTag === resizeStartTag && mouseEvent.elementId.startsWith(`${interactionId}:resize:`)) {
+          return {
+            type: 'resize-column-start',
+            index: Number(mouseEvent.elementId.slice(`${interactionId}:resize:`.length)),
+            x: mouseEvent.x,
+          };
+        }
         if (mouseEvent.handlerTag === leaveHoverTag) return { type: 'leave-hover' };
         if (mouseEvent.handlerTag === sortTag && mouseEvent.elementId.startsWith(`${interactionId}:header:`)) {
           return { type: 'sort-at', index: Number(mouseEvent.elementId.slice(`${interactionId}:header:`.length)) };
@@ -738,12 +943,23 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
         }
         return { type: 'noop' };
       });
-      if (!model.focused) return mouse;
+      const activeResize = model.columnResize
+        ? Sub.batch<DataTableMsg>(
+            Sub.mouse((eventData) => {
+              if (eventData.type === 'move') return { type: 'resize-column-pointer', x: eventData.x };
+              if (eventData.type === 'release') return { type: 'resize-column-pointer', x: eventData.x, end: true };
+              return { type: 'noop' };
+            }),
+            Sub.key('escape', { type: 'resize-column-cancel' }),
+          )
+        : Sub.none<DataTableMsg>();
+      const pointer = model.columnResize ? Sub.batch<DataTableMsg>(mouse, activeResize) : mouse;
+      if (!model.focused) return pointer;
 
       // Filter mode: capture printable keys for the filter
       if (model.isFiltering) {
         return Sub.batch<DataTableMsg>(
-          mouse,
+          pointer,
           Sub.key('escape', { type: 'end-filter' }),
           Sub.key('enter', { type: 'end-filter' }),
           Sub.key('backspace', { type: 'filter-backspace' }),
@@ -760,7 +976,7 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
 
       // Normal navigation mode
       const subs: Sub<DataTableMsg>[] = [
-        mouse,
+        pointer,
         Sub.key('down', { type: 'cursor-down' }),
         Sub.key('up', { type: 'cursor-up' }),
         Sub.key('left', { type: 'cursor-left' }),
@@ -771,6 +987,9 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
         Sub.key('end', { type: 'goto-last' }),
         Sub.key('s', { type: 'sort-column' }),
         Sub.key('enter', { type: 'sort-column' }),
+        Sub.keyWithModifiers('left', { alt: true, ctrl: false, shift: false }, { type: 'resize-column-key', index: model.cursorCol, delta: -resizeStep }),
+        Sub.keyWithModifiers('right', { alt: true, ctrl: false, shift: false }, { type: 'resize-column-key', index: model.cursorCol, delta: resizeStep }),
+        Sub.keyWithModifiers('0', { ctrl: true, alt: false, shift: false }, { type: 'reset-column-widths' }),
       ];
 
       if (selectable) {
