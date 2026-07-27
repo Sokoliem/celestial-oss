@@ -93,7 +93,15 @@ export type A11yRuleName =
   | 'focus-visible'
   | 'live-regions-have-politeness'
   | 'heading-levels-sequential'
-  | 'color-contrast';
+  | 'color-contrast'
+  | 'mouse-regions-have-valid-ids'
+  | 'mouse-regions-have-valid-handlers'
+  | 'mouse-regions-have-labels'
+  | 'mouse-regions-have-hit-areas'
+  | 'mouse-regions-have-affordances'
+  | 'mouse-regions-have-cursors'
+  | 'disabled-mouse-regions-are-inert'
+  | 'mouse-region-color-contrast';
 
 export interface A11yViolation {
   rule: A11yRuleName;

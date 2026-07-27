@@ -604,7 +604,7 @@ function action(
   tone: 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info' = 'accent',
 ): VNode {
   return button({
-    id: `showcase-action:${id}`,
+    id: `showcase-component-action:${id}`,
     label,
     onClick: `showcase-action:${id}`,
     onRightClick: `showcase-context:action:${id}`,

@@ -111,21 +111,21 @@ function buildTabNode(tab: TabConfig, index: number, context: TabNodeContext): V
   const id = tab.id ?? tab.label;
   const labelNode: VNode = { kind: 'text', content: renderTabLabel(tab) };
   const eventNode: VNode = context.onSelect
-    ? {
-        kind: 'event',
-        id: `tab:${id}`,
-        child: labelNode,
-        handlers: { onClick: toHandlerId(context.onSelect(id), `select:${id}`) },
-      }
+    ? event(
+        `tab:${id}`,
+        labelNode,
+        { onClick: toHandlerId(context.onSelect(id), `select:${id}`) },
+        { label: tab.label, intent: 'select', affordances: ['click'], cursor: 'pointer' },
+      )
     : labelNode;
   const closeNode =
     tab.closable && context.onClose
-      ? {
-          kind: 'event' as const,
-          id: `tab-close:${id}`,
-          child: { kind: 'text' as const, content: 'x' },
-          handlers: { onClick: toHandlerId(context.onClose(id), `close:${id}`) },
-        }
+      ? event(
+          `tab-close:${id}`,
+          text('x'),
+          { onClick: toHandlerId(context.onClose(id), `close:${id}`) },
+          { label: `Close ${tab.label}`, intent: 'close', affordances: ['click'], cursor: 'pointer' },
+        )
       : null;
 
   return {

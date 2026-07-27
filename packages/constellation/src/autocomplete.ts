@@ -171,7 +171,7 @@ export function autocomplete(config: AutocompleteConfig): ComponentDescriptor<Au
           `${interactionId}:suggestion:${index}`,
           text((active ? '▸ ' : '  ') + suggestion, active ? hlStyle : applyTypography(tokens.labelStyle)),
           { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag, onScroll: scrollTag },
-          { label: suggestion, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Enter' },
+          { label: suggestion, intent: 'select', affordances: ['hover', 'click', 'scroll'], cursor: 'pointer', keyboardHint: 'Enter' },
         );
       });
       return column(inputTarget, ...items);

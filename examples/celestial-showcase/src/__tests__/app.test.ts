@@ -5,7 +5,7 @@ import { createSessionStore, saveSession } from '@celestial/horizon';
 import { createScreen, createTestApp, fireMouse, renderToLines, type TestAppHandle } from '@celestial/test';
 import * as ui from '@celestial/ui';
 import { applyVariant, defaultTheme, validateThemeContrast } from '@celestial/core/corona';
-import { createThemeContext } from '@celestial/core/nebula';
+import { auditInteractionTree, createThemeContext } from '@celestial/core/nebula';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
 import {
@@ -51,6 +51,14 @@ function findLastText(frame: string, needle: string): { col: number; row: number
   }
   if (row < 0) throw new Error(`Could not find ${needle} in frame:\n${frame}`);
   return { row, col: lines[row]!.indexOf(needle) };
+}
+
+function interactionViolations(handle: TestAppHandle<CelestialShowcaseModel, CelestialShowcaseMsg>) {
+  return handle
+    .snapshot()
+    .audit.violations.filter(
+      (violation) => violation.rule.startsWith('mouse-region') || violation.rule.startsWith('mouse-regions') || violation.rule === 'disabled-mouse-regions-are-inert',
+    );
 }
 
 function timerIntervals(subscription: unknown): number[] {
@@ -102,15 +110,18 @@ describe('Celestial Flight Deck', () => {
       await handle.waitForUpdate();
       expect(handle.lastFrame()).toContain(`${entry.label} theme`);
       expect(handle.snapshot().audit.violations.filter((violation) => violation.rule === 'color-contrast'), entry.label).toEqual([]);
+      expect(interactionViolations(handle), `${entry.label} app interaction audit`).toEqual([]);
     }
   });
 
   it('renders every curated builder through every Flight Deck theme at compact and wide widths', () => {
     const seed = flightDeck(140, 48).model;
+    const interactionFindings: string[] = [];
 
     for (const [, entry] of Object.entries(SHOWCASE_LAB_THEMES)) {
       const themeCtx = createThemeContext();
       themeCtx.setVariant(entry.variant);
+      const theme = applyVariant(defaultTheme, entry.variant);
       const components = createShowcaseComponents(themeCtx);
       const componentModels = initialComponentModels(components);
 
@@ -125,8 +136,21 @@ describe('Celestial Flight Deck', () => {
             rows: 48,
             componentPage,
           };
-          const frame = renderToLines(renderComponentGallery(components, model), { width, height: 48 }).join('\n');
+          const gallery = renderComponentGallery(components, model);
+          const frame = renderToLines(gallery, { width, height: 48 }).join('\n');
           expect(frame.length, `${entry.label} page ${componentPage + 1} at ${width} columns`).toBeGreaterThan(0);
+          const audit = auditInteractionTree(gallery, {
+            width,
+            height: 48,
+            defaultForeground: theme.colors.text,
+            defaultBackground: theme.colors.surface,
+          });
+          interactionFindings.push(
+            ...audit.violations.map(
+              (violation) =>
+                `${entry.label} page ${componentPage + 1} at ${width} columns: ${violation.rule}: ${violation.element}: ${violation.message}`,
+            ),
+          );
           renderedPages.push(frame);
         }
 
@@ -136,6 +160,8 @@ describe('Celestial Flight Deck', () => {
         }
       }
     }
+
+    expect(interactionFindings).toEqual([]);
   });
 
   it('loads the deterministic app-shell config with an explicit source receipt', async () => {
@@ -285,6 +311,7 @@ describe('Celestial Flight Deck', () => {
       expect(frame).toContain('Gravity + Nexus');
       expect(frame).toContain('9 App shell');
       expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
+      expect(interactionViolations(handle), `shell at ${size.cols}x${size.rows}`).toEqual([]);
       expect(handle.snapshot().audit.violations.filter((violation) => violation.rule === 'color-contrast')).toEqual([]);
     });
   }
@@ -335,6 +362,7 @@ describe('Celestial Flight Deck', () => {
     const expectReachable = (needle: string) => {
       expect(handle.lastFrame()).toContain(needle);
       expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
+      expect(interactionViolations(handle), `minimum viewport instrument containing ${needle}`).toEqual([]);
     };
 
     handle.dispatch({ type: 'core-page', page: 'locale' });
@@ -1001,6 +1029,7 @@ describe('Celestial Flight Deck', () => {
         if (frame.includes(`${builder}()`)) builders.add(builder);
       }
       expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
+      expect(interactionViolations(handle), `component page ${page + 1} at ${cols}x${rows}`).toEqual([]);
       if (page < GALLERY_PAGE_COUNT - 1) {
         handle.pressKey(']');
         await handle.waitForUpdate();
@@ -1016,6 +1045,7 @@ describe('Celestial Flight Deck', () => {
 
     expect(handle.model.checkbox.checked).toBe(!checkedBefore);
     expect(handle.model.completed.has('component')).toBe(true);
+    expect(interactionViolations(handle), `changed component state at ${cols}x${rows}`).toEqual([]);
   });
 
   it('persists state changes from every previously staged gallery descriptor', () => {
@@ -1088,6 +1118,7 @@ describe('Celestial Flight Deck', () => {
     expect(sliderElement).toBeDefined();
     handle.click(sliderElement!.col + 'Density '.length, sliderElement!.row);
     expect(handle.model.slider.value).toBe(0);
+    expect(interactionViolations(handle), 'hovered and changed page 1 controls').toEqual([]);
 
     handle.dispatch({ type: 'component-page', page: 1 });
     await handle.waitForUpdate();
@@ -1095,6 +1126,7 @@ describe('Celestial Flight Deck', () => {
     expect(calendarDay).toBeDefined();
     fireMouse(handle.terminal, { type: 'move', col: calendarDay!.col, row: calendarDay!.row });
     expect(handle.model.galleryModels.datePicker.hovered).toBe('day:19');
+    expect(interactionViolations(handle), 'hovered calendar state').toEqual([]);
 
     handle.dispatch({ type: 'component-page', page: 2 });
     await handle.waitForUpdate();
@@ -1104,6 +1136,7 @@ describe('Celestial Flight Deck', () => {
     const unicodeTag = findText(handle.lastFrame(), 'unicode');
     fireMouse(handle.terminal, { type: 'move', col: unicodeTag.col, row: unicodeTag.row });
     expect(handle.model.galleryModels.tagInput.hoveredTag).toBe(0);
+    expect(interactionViolations(handle), 'hovered segmented control and tag state').toEqual([]);
 
     handle.dispatch({ type: 'component-page', page: 3 });
     await handle.waitForUpdate();
@@ -1113,6 +1146,7 @@ describe('Celestial Flight Deck', () => {
     const celestialCrumb = findText(handle.lastFrame(), 'Celestial');
     handle.click(celestialCrumb.col, celestialCrumb.row);
     expect(handle.model.breadcrumb.selectedIndex).toBe(0);
+    expect(interactionViolations(handle), 'hovered and selected breadcrumb state').toEqual([]);
 
     handle.dispatch({ type: 'component-page', page: 4 });
     await handle.waitForUpdate();
@@ -1151,6 +1185,7 @@ describe('Celestial Flight Deck', () => {
     handle.click(standaloneScrollbar!.col + standaloneScrollbar!.width - 1, standaloneScrollbar!.row);
     expect(handle.model.galleryModels.scrollbar.scroll).toBe(15);
     expect(handle.lastFrame()).toContain('offset 15/45');
+    expect(interactionViolations(handle), 'selected, resized, scrolled, and dragged component states').toEqual([]);
   });
 
   it('routes live mouse coordinates through raw and semantic hit regions after a lab switch', async () => {

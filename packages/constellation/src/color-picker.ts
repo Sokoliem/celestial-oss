@@ -7,7 +7,7 @@
  */
 
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
-import { color, hexToRgb as coronaHexToRgb, rgbToHex as coronaRgbToHex, style } from '@celestial/corona';
+import { color, ensureReadableColor, hexToRgb as coronaHexToRgb, rgbToHex as coronaRgbToHex, style } from '@celestial/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/nebula';
 import { Cmd, column, event, row, Sub, text } from '@celestial/nebula';
 import { generateFocusGroupId } from './focus-group.js';
@@ -620,12 +620,16 @@ export function colorPicker(config: ColorPickerConfig): ComponentDescriptor<Colo
       const swatchNodes = swatches.map((swatch, index) => {
         const swatchRgb = hexToRgb(swatch);
         const swatchColor = swatchRgb ? color.rgb(swatchRgb.r, swatchRgb.g, swatchRgb.b) : tokens.textSoft;
+        const swatchText = ensureReadableColor(tokens.text, swatchColor);
         const active = model.activeField === 'swatches' && model.swatchIndex === index;
         const hovered = isSwatchHoverTarget(model.hoveredTarget) && model.hoveredTarget.index === index;
         const label = (swatchLabels[index] ?? `${index + 1}`).slice(0, 1).toUpperCase();
         return event(
           `${interactionId}:swatch:${index}`,
-          text(active ? `[${label}]` : hovered ? `(${label})` : ` ${label} `, style({ color: swatchColor, bold: active || hovered })),
+          text(
+            active ? `[${label}]` : hovered ? `(${label})` : ` ${label} `,
+            style({ color: swatchText, background: swatchColor, bold: active || hovered }),
+          ),
           { onClick: swatchSelectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
           { label: swatchLabels[index] ?? `Swatch ${index + 1}`, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer' },
         );

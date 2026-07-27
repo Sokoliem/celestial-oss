@@ -127,7 +127,7 @@ function action(
 ): VNode {
   const region = `action:${id}`;
   return button({
-    id: `showcase-action:${id}`,
+    id: `showcase-lab-action:${id}`,
     label,
     onClick: `showcase-action:${id}`,
     onRightClick: `showcase-context:action:${id}`,

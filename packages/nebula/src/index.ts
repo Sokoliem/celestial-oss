@@ -73,6 +73,8 @@ export type {
   AutomationA11yViolation,
   AutomationActionSnapshot,
   AutomationElementSnapshot,
+  AutomationInteractionAuditOptions,
+  AutomationInteractionRuleName,
   AutomationSnapshot,
   AutomationTextRun,
   LensBridgeClient,
@@ -81,6 +83,7 @@ export type {
 } from './automation.js';
 export {
   auditA11yTree,
+  auditInteractionTree,
   buildAutomationSnapshot,
   createLensBridgeClientFromEnv,
   extractAutomationTextRuns,

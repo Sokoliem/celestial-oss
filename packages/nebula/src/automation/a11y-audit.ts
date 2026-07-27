@@ -3,11 +3,18 @@ import { isInteractive } from '../a11y.js';
 import { parseAnsiToRgb } from '../shader.js';
 import { parseAnsiLine } from '../vdom/paint.js';
 import type { StyleAttrs, VNode } from '../vdom.js';
-import type { AutomationA11yAuditResult, AutomationA11yRuleName, AutomationA11yViolation, CollectedElement } from './contracts.js';
+import type {
+  AutomationA11yAuditResult,
+  AutomationA11yRuleName,
+  AutomationA11yViolation,
+  AutomationInteractionAuditOptions,
+  CollectedElement,
+} from './contracts.js';
+import { auditInteractionTree } from './interaction-audit.js';
 import { getVNodeMeta } from './metadata.js';
 import { extractNodeText } from './text.js';
 
-export function auditA11yTree(tree: VNode): AutomationA11yAuditResult {
+export function auditA11yTree(tree: VNode, interaction?: AutomationInteractionAuditOptions): AutomationA11yAuditResult {
   const elements = collectAuditElements(tree);
   const violations: AutomationA11yViolation[] = [];
   const passedRules = new Set<AutomationA11yRuleName>();
@@ -17,6 +24,11 @@ export function auditA11yTree(tree: VNode): AutomationA11yAuditResult {
   checkHeadingLevels(elements, violations, passedRules);
   checkLiveRegions(elements, violations, passedRules);
   checkColorContrast(elements, violations, passedRules);
+  if (interaction) {
+    const interactionResult = auditInteractionTree(tree, interaction);
+    violations.push(...interactionResult.violations);
+    for (const rule of interactionResult.passes) passedRules.add(rule);
+  }
 
   return {
     violations,

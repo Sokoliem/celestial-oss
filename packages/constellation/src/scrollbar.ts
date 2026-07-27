@@ -1,5 +1,6 @@
 import {
   type Color,
+  ensureReadableColor,
   type SemanticTheme,
   scrollbarGlyphs,
   style,
@@ -31,8 +32,10 @@ export interface ScrollbarTokens {
 }
 
 export const scrollbarContract: TokenContract<ScrollbarTokens> = {
-  track: (theme: SemanticTheme) => theme.colors.muted,
-  thumb: (theme: SemanticTheme) => theme.colors.border,
+  track: (theme: SemanticTheme) =>
+    ensureReadableColor(theme.colors.muted, [theme.colors.surface, theme.colors.surfaceAlt, theme.colors.surfaceRaised], { minimum: 3 }),
+  thumb: (theme: SemanticTheme) =>
+    ensureReadableColor(theme.colors.border, [theme.colors.surface, theme.colors.surfaceAlt, theme.colors.surfaceRaised], { minimum: 3 }),
   thumbHover: (theme: SemanticTheme) => theme.colors.borderHover,
   thumbActive: (theme: SemanticTheme) => theme.colors.borderActive,
   thumbFocus: (theme: SemanticTheme) => theme.colors.tones.accent,

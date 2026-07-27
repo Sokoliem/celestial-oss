@@ -12,3 +12,4 @@ import './automation/11-fingerprintautomationsnapshot.suite.js';
 import './automation/12-buildautomationsnapshot-integration.suite.js';
 import './automation/13-focus-auto-annotation.suite.js';
 import './automation/14-extractnodetext.suite.js';
+import './automation/15-interaction-audit.suite.js';

@@ -367,7 +367,8 @@ function buildSnapshotActions(root: VNode, elements: readonly AutomationElementS
 }
 
 export function buildAutomationSnapshot(root: VNode, grid: CellGrid, cols: number, rows: number, layoutPlan?: LayoutPlan): AutomationSnapshot {
-  const elements = buildSnapshotElements(root, grid, cols, rows, layoutPlan);
+  const resolvedPlan = layoutPlan ?? planLayout(root, cols, rows);
+  const elements = buildSnapshotElements(root, grid, cols, rows, resolvedPlan);
   const actions = buildSnapshotActions(root, elements);
   const focusedActionId = actions.find((action) => action.focused)?.id ?? null;
 
@@ -377,6 +378,6 @@ export function buildAutomationSnapshot(root: VNode, grid: CellGrid, cols: numbe
     elements,
     actions,
     focusedActionId,
-    audit: auditA11yTree(root),
+    audit: auditA11yTree(root, { width: cols, height: rows, layoutPlan: resolvedPlan, grid }),
   };
 }

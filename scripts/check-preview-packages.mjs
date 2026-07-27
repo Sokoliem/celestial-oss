@@ -380,6 +380,7 @@ const esmExports = {
   'compass.matchRoute': compass.matchRoute,
   'compass.parseUrl': compass.parseUrl,
   'nebula.createActionRegistry': nebula.createActionRegistry,
+  'nebula.auditInteractionTree': nebula.auditInteractionTree,
   'nebula.loadConfig': nebula.loadConfig,
   'nebula.subKind': nebula.subKind,
   'nebula.encodePointerCursor': nebula.encodePointerCursor,
@@ -408,6 +409,9 @@ for (const [name, value] of Object.entries(esmExports)) {
 const esmInferredRegion = nebula.event('packed-action', nebula.text('Packed action'), { onClick: 'activate' });
 if (esmInferredRegion.metadata?.cursor !== 'pointer' || !esmInferredRegion.metadata.affordances?.includes('click')) {
   throw new Error('ESM Nebula event metadata inference was not preserved in the packed package.');
+}
+if (nebula.auditInteractionTree(esmInferredRegion, { width: 20, height: 1 }).violations.length !== 0) {
+  throw new Error('ESM Nebula packed interaction audit rejected a valid inferred region.');
 }
 const esmRouter = compass.createRouter({ routes: [{ id: 'home', pattern: '/' }, { id: 'user', pattern: '/users/:id' }] });
 const esmResolution = esmRouter.resolve(esmRouter.init('/users/packed'));
@@ -457,6 +461,7 @@ const cjsExports = {
   'compass.matchRoute': compass.matchRoute,
   'compass.parseUrl': compass.parseUrl,
   'nebula.createActionRegistry': nebula.createActionRegistry,
+  'nebula.auditInteractionTree': nebula.auditInteractionTree,
   'nebula.loadConfig': nebula.loadConfig,
   'nebula.subKind': nebula.subKind,
   'nebula.encodePointerCursor': nebula.encodePointerCursor,
@@ -485,6 +490,9 @@ for (const [name, value] of Object.entries(cjsExports)) {
 const cjsInferredRegion = nebula.event('packed-action', nebula.text('Packed action'), { onClick: 'activate' });
 if (cjsInferredRegion.metadata?.cursor !== 'pointer' || !cjsInferredRegion.metadata.affordances?.includes('click')) {
   throw new Error('CommonJS Nebula event metadata inference was not preserved in the packed package.');
+}
+if (nebula.auditInteractionTree(cjsInferredRegion, { width: 20, height: 1 }).violations.length !== 0) {
+  throw new Error('CommonJS Nebula packed interaction audit rejected a valid inferred region.');
 }
 const cjsRouter = compass.createRouter({ routes: [{ id: 'home', pattern: '/' }, { id: 'user', pattern: '/users/:id' }] });
 const cjsResolution = cjsRouter.resolve(cjsRouter.init('/users/packed'));
@@ -533,7 +541,7 @@ import {
   screenStackUpdate,
   type RouterConfig,
 } from '@celestial/compass';
-import { loadConfig, type ConfigValidation } from '@celestial/nebula';
+import { auditInteractionTree, event, loadConfig, type ConfigValidation } from '@celestial/nebula';
 import {
   actionCommands,
   actionKeyBindings,
@@ -571,6 +579,10 @@ const windowed = virtualList({
   viewportRows: 1,
   getKey: (item) => item,
   renderItem: (item) => text(item),
+});
+const interactionAudit = auditInteractionTree(event('packed-action', text('Packed action'), { onClick: 'activate' }), {
+  width: 20,
+  height: 1,
 });
 const compassConfig = {
   routes: [
@@ -641,6 +653,7 @@ void keyboardHelp;
 void status;
 void scrollControl;
 void windowed;
+void interactionAudit;
 void compassResolution;
 void compassLocation;
 void compassScreen;

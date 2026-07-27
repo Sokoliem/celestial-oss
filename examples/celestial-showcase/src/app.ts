@@ -1880,7 +1880,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         `showcase-context-lab-${active.id}`,
         panel({ title: `${active.label} lab`, content: renderActiveLab(components, model, currentCaps, currentTheme), focused: true, fill: true, themeCtx }),
         { onRightClick: `showcase-context:lab:${active.id}` },
-        { label: `${active.label} lab context menu`, intent: 'menu', affordances: ['click'], cursor: 'pointer' },
+        { label: `${active.label} lab context menu`, intent: 'menu', affordances: ['click'], cursor: 'pointer', presentation: 'spatial' },
       );
       const content =
         tier === 'medium' ? splitPane({ direction: 'horizontal', ratio: 0.75, first: labContent, second: adaptiveContext(model), minSize: 22 }) : labContent;
@@ -1919,7 +1919,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         'showcase-context-deck',
         base,
         { onRightClick: 'showcase-context:deck' },
-        { label: 'Flight Deck context menu', intent: 'menu', affordances: ['click'], cursor: 'pointer' },
+        { label: 'Flight Deck context menu', intent: 'menu', affordances: ['click'], cursor: 'pointer', presentation: 'spatial' },
       );
 
       base = themedRoot(base, { theme: currentTheme });

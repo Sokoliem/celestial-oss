@@ -27,7 +27,7 @@ Nebula is the heart of Celestial. It implements the Elm Architecture (init/updat
 - **Profiler** - Render timing, frame budget tracking, structured tracing
 - **Scroll Driver** - Momentum scrolling, snap points, virtual viewport, scroll indicators
 - **Breakpoint Context** - Reactive responsive breakpoints via signals
-- **Automation** - VNode metadata, accessibility audits, text extraction
+- **Automation** - VNode metadata, accessibility and painted interaction audits, text extraction
 - **Clipboard** - OSC 52 clipboard copy/paste, bracketed paste mode
 - **Crash Recovery** - Automatic terminal state restoration on crash/signal
 - **Config Loading** - Adapter-based source precedence with explicit failure diagnostics
@@ -37,6 +37,24 @@ Nebula is the heart of Celestial. It implements the Elm Architecture (init/updat
 affordances from their handlers. Clickable regions receive a pointer cursor and
 drag regions receive a grab cursor unless explicit metadata overrides those
 defaults, keeping custom components consistent with packaged controls.
+
+`auditInteractionTree()` validates the planned/clipped regions and final cells produced
+by the same layout pass as the runtime. It checks safe consistent IDs and handler
+tags, labels, positive hit geometry, handler/affordance agreement, actionable cursors, disabled
+inertness, and 4.5:1 text or 3:1 glyph-only contrast. Automation snapshots run
+the audit automatically. Repeated responsive targets may share an ID when
+their handler and metadata contracts agree; conflicting reuse is reported.
+Standalone component and theme gates can supply
+terminal dimensions and resolved default colors:
+
+```typescript
+const audit = auditInteractionTree(view, {
+  width: 80,
+  height: 24,
+  defaultForeground: theme.colors.text,
+  defaultBackground: theme.colors.surface,
+});
+```
 
 ## The Elm Architecture
 
