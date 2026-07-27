@@ -991,8 +991,8 @@ describe('Celestial Flight Deck', () => {
     handle.pressKey('2');
     await handle.waitForUpdate();
 
-    expect(UI_BUILDER_COUNT).toBe(47);
-    expect([...UI_BUILDER_NAMES]).toEqual(expect.arrayContaining(['indeterminateProgress', 'cardGrid', 'popoverGroup']));
+    expect(UI_BUILDER_COUNT).toBe(49);
+    expect([...UI_BUILDER_NAMES]).toEqual(expect.arrayContaining(['indeterminateProgress', 'cardGrid', 'popoverGroup', 'virtualList', 'scrollbar']));
 
     const builders = new Set<string>();
     for (let page = 0; page < GALLERY_PAGE_COUNT; page += 1) {
@@ -1036,6 +1036,8 @@ describe('Celestial Flight Deck', () => {
     dispatchGallery({ id: 'tagInput', msg: { type: 'remove-tag', index: 0 } });
     dispatchGallery({ id: 'colorPicker', msg: { type: 'set-slider', field: 'hue', value: 200 } });
     dispatchGallery({ id: 'optionList', msg: { type: 'opt-click', id: 'beta' } });
+    dispatchGallery({ id: 'virtualList', msg: { type: 'vl-click', key: 'receipt-2' } });
+    dispatchGallery({ id: 'scrollbar', msg: { type: 'sb-page', direction: 1 } });
     dispatchGallery({ id: 'cardGrid', msg: { type: 'hover-card', index: 0 } });
     dispatchGallery({ id: 'popover', msg: { type: 'toggle' } });
     dispatchGallery({ id: 'popoverGroup', msg: { type: 'toggle-at', index: 0 } });
@@ -1054,11 +1056,13 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.galleryModels.tagInput.tags).toEqual(['mouse']);
     expect(handle.model.galleryModels.colorPicker.hsl.h).toBe(200);
     expect(handle.model.galleryModels.optionList.highlightedIndex).toBe(1);
+    expect(handle.model.galleryModels.virtualList.selectedKey).toBe('receipt-2');
+    expect(handle.model.galleryModels.scrollbar.scroll).toBe(15);
     expect(handle.model.galleryModels.cardGrid.hoveredIndex).toBe(0);
     expect(handle.model.galleryModels.popover.visible).toBe(true);
     expect(handle.model.galleryModels.popoverGroup.activeIndex).toBe(0);
     expect(handle.model.galleryModels.hovercard.state).toBe('pending-show');
-    expect(handle.model.evidence.componentChanges).toBe(changesBefore + 17);
+    expect(handle.model.evidence.componentChanges).toBe(changesBefore + 19);
     expect(handle.model.completed.has('component')).toBe(true);
   });
 
@@ -1133,6 +1137,20 @@ describe('Celestial Flight Deck', () => {
     await handle.waitForUpdate();
     expect(handle.model.table.columnWidths[0]).toBe(capabilityWidth + 4);
     expect(handle.model.table.columnResize).toBeNull();
+
+    const virtualRow = handle.snapshot().elements.find((element) => element.testId === 'showcase-virtual-list:row:receipt-0');
+    expect(virtualRow).toBeDefined();
+    handle.click(virtualRow!.col + 2, virtualRow!.row);
+    expect(handle.model.galleryModels.virtualList.selectedKey).toBe('receipt-0');
+    fireMouse(handle.terminal, { type: 'scroll', direction: 'down', col: virtualRow!.col + 2, row: virtualRow!.row });
+    expect(handle.model.galleryModels.virtualList.scrollOffset).toBe(3);
+    expect(handle.lastFrame()).toContain('Receipt 03');
+
+    const standaloneScrollbar = handle.snapshot().elements.find((element) => element.testId === 'showcase-scrollbar');
+    expect(standaloneScrollbar).toBeDefined();
+    handle.click(standaloneScrollbar!.col + standaloneScrollbar!.width - 1, standaloneScrollbar!.row);
+    expect(handle.model.galleryModels.scrollbar.scroll).toBe(15);
+    expect(handle.lastFrame()).toContain('offset 15/45');
   });
 
   it('routes live mouse coordinates through raw and semantic hit regions after a lab switch', async () => {

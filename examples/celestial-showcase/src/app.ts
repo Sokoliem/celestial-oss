@@ -1226,6 +1226,24 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
                 (msg) => ({ type: 'gallery-component', component: { id: 'optionList', msg } }),
                 'Changed optionListView().',
               );
+            case 'virtualList':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.virtualListComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'virtualList', msg } }),
+                'Changed virtualList().',
+              );
+            case 'scrollbar':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.scrollbarComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'scrollbar', msg } }),
+                'Changed scrollbar().',
+              );
             case 'cardGrid':
               return updateGalleryDescriptor(
                 model,
@@ -2070,6 +2088,14 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           base.push(
             mapSubscriptions(components.tableComponent, model.table, (msg) => ({ type: 'table', msg })),
             mapSubscriptions(components.treeComponent, model.tree, (msg) => ({ type: 'tree', msg })),
+            mapSubscriptions(components.virtualListComponent, model.galleryModels.virtualList, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'virtualList', msg },
+            })),
+            mapSubscriptions(components.scrollbarComponent, model.galleryModels.scrollbar, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'scrollbar', msg },
+            })),
           );
         } else if (model.componentPage === 1) {
           base.push(

@@ -241,6 +241,16 @@ export type { SelectConfig, SelectDisplay, SelectModel, SelectMsg, SelectOption,
 export { select, selectContract } from './select.js';
 export type { SliderConfig, SliderModel, SliderMsg, SliderTokens } from './slider.js';
 export { slider, sliderContract } from './slider.js';
+export type {
+  ScrollbarConfig,
+  ScrollbarDrag,
+  ScrollbarMetrics,
+  ScrollbarModel,
+  ScrollbarMsg,
+  ScrollbarOrientation,
+  ScrollbarTokens,
+} from './scrollbar.js';
+export { getScrollbarMetrics, scrollbar, scrollbarContract } from './scrollbar.js';
 export type { StatusBarConfig, StatusBarModel, StatusBarMsg, StatusBarSection, StatusBarTokens } from './status-bar.js';
 export { statusBar, statusBarContract } from './status-bar.js';
 // Navigation
@@ -321,7 +331,15 @@ export type {
 export { normalizeContent } from './types.js';
 export type { ValidationResult, Validator } from './validation.js';
 export { compose, composeAll, custom, isValid, maxLength, minLength, pattern, required, validate } from './validation.js';
-// The hardened uniform-windowing kernel. Implemented, guarded and unit-tested,
-// but never re-exported, so no consumer of @celestial/ui could reach it.
 export type { VirtualScrollConfig, VirtualScrollMsg, VirtualScrollState, VisibleRange } from './virtual-scroll.js';
 export { createVirtualScrollState, getVisibleRange, scrollToIndex, virtualScrollUpdate } from './virtual-scroll.js';
+export type {
+  VirtualListConfig,
+  VirtualListItemState,
+  VirtualListModel,
+  VirtualListMsg,
+  VirtualListScrollAnchor,
+  VirtualListSelection,
+  VirtualListTokens,
+} from './virtual-list.js';
+export { virtualList, virtualListContract } from './virtual-list.js';

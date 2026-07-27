@@ -296,6 +296,30 @@ packedAssert(
     typeof packedStatusView.kind === 'string',
   'status-bar construction or projection failed.',
 );
+const packedScrollbarMetrics = ui.getScrollbarMetrics(100, 20, 10, 40);
+packedAssert(
+  packedScrollbarMetrics.thumbSize === 2 &&
+    packedScrollbarMetrics.thumbOffset === 4 &&
+    packedScrollbarMetrics.maxOffset === 80,
+  'scrollbar geometry failed.',
+);
+const packedVirtualList = ui.virtualList({
+  items: ['alpha', 'beta', 'gamma'],
+  viewportRows: 2,
+  getKey: (item) => item,
+  renderItem: (item) => nebula.text(item),
+});
+const [packedVirtualListModel] = packedVirtualList.init();
+const [packedVirtualListScrolled] = packedVirtualList.update(
+  { type: 'vl-wheel', direction: 1 },
+  packedVirtualListModel,
+);
+packedAssert(
+  packedVirtualListModel.items.length === 3 &&
+    packedVirtualListScrolled.scrollOffset === 1 &&
+    packedVirtualList.view(packedVirtualListScrolled)?.kind === 'row',
+  'virtual-list construction or scrolling failed.',
+);
 `;
 }
 
@@ -371,6 +395,8 @@ const esmExports = {
   'ui.modal': ui.modal,
   'ui.statusBar': ui.statusBar,
   'ui.dataTable': ui.dataTable,
+  'ui.scrollbar': ui.scrollbar,
+  'ui.virtualList': ui.virtualList,
   'test.createTestApp': test.createTestApp,
   'horizon.splitPane': horizon.splitPane,
   'horizon.createWindowManagerPointerState': horizon.createWindowManagerPointerState,
@@ -446,6 +472,8 @@ const cjsExports = {
   'ui.modal': ui.modal,
   'ui.statusBar': ui.statusBar,
   'ui.dataTable': ui.dataTable,
+  'ui.scrollbar': ui.scrollbar,
+  'ui.virtualList': ui.virtualList,
   'test.createTestApp': test.createTestApp,
   'horizon.splitPane': horizon.splitPane,
   'horizon.createWindowManagerPointerState': horizon.createWindowManagerPointerState,
@@ -516,7 +544,9 @@ import {
   helpView,
   keyMap,
   modal,
+  scrollbar,
   statusBar,
+  virtualList,
   type KeyBinding,
 } from '@celestial/ui';
 import { createTestApp } from '@celestial/test';
@@ -535,6 +565,13 @@ const binding: KeyBinding<Message> = { key: 'q', msg: { type: 'quit' }, descript
 const mappedKeys = keyMap([binding]);
 const keyboardHelp = helpView([binding]);
 const status = statusBar({ left: [{ text: 'READY', mode: true }] });
+const scrollControl = scrollbar({ total: 10, viewport: 2 });
+const windowed = virtualList({
+  items: ['ready'],
+  viewportRows: 1,
+  getKey: (item) => item,
+  renderItem: (item) => text(item),
+});
 const compassConfig = {
   routes: [
     { id: 'home', pattern: '/' },
@@ -602,6 +639,8 @@ void actionCommands;
 void mappedKeys;
 void keyboardHelp;
 void status;
+void scrollControl;
+void windowed;
 void compassResolution;
 void compassLocation;
 void compassScreen;

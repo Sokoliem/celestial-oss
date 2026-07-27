@@ -42,6 +42,7 @@ import {
   radioGroup,
   rangeSlider,
   rating,
+  scrollbar,
   segmentedControl,
   select,
   slider,
@@ -56,6 +57,7 @@ import {
   tooltip,
   tree,
   unbindableActionShortcuts,
+  virtualList,
 } from '../index.js';
 
 const componentBuilders = [
@@ -87,6 +89,8 @@ const componentBuilders = [
   dataTable,
   tree,
   list,
+  virtualList,
+  scrollbar,
   progressBar,
   indeterminateProgress,
   spinner,
@@ -111,8 +115,8 @@ const componentBuilders = [
 const excludedBuilders = ['fileExplorer', 'markdownViewer', 'terminal', 'kanbanBoard', 'imageViewer', 'notificationCenter'] as const;
 
 describe('@celestial/ui preview surface', () => {
-  it('exports the curated 47 component builders', () => {
-    expect(componentBuilders).toHaveLength(47);
+  it('exports the curated 49 component builders', () => {
+    expect(componentBuilders).toHaveLength(49);
     for (const builder of componentBuilders) expect(builder).toBeTypeOf('function');
   });
 

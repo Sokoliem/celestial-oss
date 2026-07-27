@@ -1,6 +1,6 @@
 # @celestial/ui
 
-A curated set of 47 terminal UI component builders for the Celestial preview.
+A curated set of 49 terminal UI component builders for the Celestial preview.
 
 ```ts
 import { button, cardGrid, combobox, dataTable, indeterminateProgress, modal, popoverGroup, statusBar, textInput } from '@celestial/ui';
@@ -26,6 +26,37 @@ Celestial controls follow one behavior model across themes and surfaces:
 Component tests ratchet these rules alongside the package-wide pointer/keyboard
 and wheel-parity suites. Application code should compose the public builders
 instead of recreating hover, scrolling, or disabled-state behavior.
+
+`virtualList()` closes the large-data path documented by `list()`. It renders
+exactly one terminal row per visible keyed item, composes a persistent
+`scrollbar()`, and reconciles focus and selection by key when items are
+replaced:
+
+```ts
+import { text } from '@celestial/core';
+import { virtualList } from '@celestial/ui';
+
+const receipts = virtualList({
+  items: auditReceipts,
+  viewportRows: 8,
+  selection: 'single',
+  getKey: (receipt) => receipt.id,
+  isDisabled: (receipt) => receipt.archived,
+  renderItem: (receipt) => text(receipt.summary),
+});
+```
+
+Use `vl-replace-items` for immutable collection changes and
+`vl-sync-viewport` after a terminal resize. In `bottom-sticky` mode, strict
+appends follow the tail only while the user remains anchored; otherwise the
+model exposes `unseenCount` and a clickable jump receipt. The first public
+version intentionally requires fixed one-row items.
+
+Standalone `scrollbar()` uses `total`, `viewport`, and `trackLength` as
+separate cell dimensions. It supports wheel, arrows, page keys, track paging,
+thumb dragging with global release, Escape rollback, controlled scroll and
+geometry messages, pointer cursor metadata, and accessible min/max/current
+values.
 
 Application shells can render a terminal-cell-accurate `statusBar` and compose
 the canonical `helpView` inside an existing modal or drawer. Both derive from

@@ -37,7 +37,7 @@ export const SHOWCASE_PACKAGE_COVERAGE = [
     packageName: '@celestial/ui',
     lab: 'Components/Layers/App shell',
     evidence: 'live',
-    capabilities: ['47 builders', 'context menu helper', 'responsive surfaces', 'headless app shell'],
+    capabilities: ['49 builders', 'context menu helper', 'responsive surfaces', 'headless app shell'],
   },
 ] as const satisfies readonly ShowcasePackageCoverage[];
 
@@ -71,6 +71,8 @@ export const UI_BUILDER_COVERAGE = [
   { name: 'dataTable', evidence: 'interactive', capabilities: ['theme', 'pointer', 'keyboard', 'wheel', 'states', 'a11y', 'responsive'] },
   { name: 'tree', evidence: 'interactive', capabilities: ['theme', 'pointer', 'keyboard', 'wheel', 'states', 'a11y', 'responsive'] },
   { name: 'list', evidence: 'rendered', capabilities: ['theme', 'wheel', 'states', 'a11y', 'responsive'] },
+  { name: 'virtualList', evidence: 'interactive', capabilities: ['theme', 'pointer', 'keyboard', 'wheel', 'states', 'a11y', 'responsive'] },
+  { name: 'scrollbar', evidence: 'interactive', capabilities: ['theme', 'pointer', 'keyboard', 'wheel', 'states', 'a11y', 'responsive'] },
   { name: 'progressBar', evidence: 'rendered', capabilities: ['theme', 'states', 'a11y', 'responsive'] },
   { name: 'indeterminateProgress', evidence: 'rendered', capabilities: ['theme', 'states', 'a11y', 'responsive'] },
   { name: 'spinner', evidence: 'rendered', capabilities: ['theme', 'states', 'a11y', 'responsive'] },

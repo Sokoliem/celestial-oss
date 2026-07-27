@@ -25,7 +25,7 @@ Four private workspaces demonstrate the supported packages without widening the 
 - `examples/task-console` uses `@celestial/core` and `@celestial/ui` with bundled Node worker fixtures.
 - `examples/api-inspector` uses `@celestial/core` and `@celestial/ui` with an ephemeral loopback HTTP server.
 - `examples/horizon-workbench` adds the `@celestial/horizon` beta surface for window and workspace management.
-- `examples/celestial-showcase` combines the entire focused preview into an adaptive, mouse-first Flight Deck with nine labs, five of them paged, a machine-checked 18-package/47-builder ledger, Compass navigation, explicit Nebula config-loading and diagnostic receipts, Rosetta locale and bidi receipts, deep Orbit and rich-rendering instruments, target-specific right-click menus, and Horizon windows, shelf, snap, tile, and session behavior.
+- `examples/celestial-showcase` combines the entire focused preview into an adaptive, mouse-first Flight Deck with nine labs, five of them paged, a machine-checked 18-package/49-builder ledger, Compass navigation, explicit Nebula config-loading and diagnostic receipts, Rosetta locale and bidi receipts, deep Orbit and rich-rendering instruments, target-specific right-click menus, and Horizon windows, shelf, snap, tile, and session behavior.
 
 The boundary checker validates both their manifests and source imports. `@celestial/test` and `@celestial/test/pty` are permitted only in test files. Other applications and examples are outside this repository's scope.
 
@@ -36,7 +36,7 @@ The boundary checker validates both their manifests and source imports. `@celest
 
 ## UI boundary
 
-`@celestial/ui` exposes 47 component builders. Its public barrel is the contract; files elsewhere in `packages/constellation/src` are not deep-import APIs. The selected interaction-heavy components are exercised through both mouse and keyboard paths in the headless harness. Modals and contextual surfaces must reflow at supported widths, expose a visible close affordance, and respond to Escape. Public keyboard-help, context-menu, and controlled notification-center composition helpers are not included in the builder count.
+`@celestial/ui` exposes 49 component builders. Its public barrel is the contract; files elsewhere in `packages/constellation/src` are not deep-import APIs. The selected interaction-heavy components are exercised through both mouse and keyboard paths in the headless harness. Modals and contextual surfaces must reflow at supported widths, expose a visible close affordance, and respond to Escape. Public keyboard-help, context-menu, and controlled notification-center composition helpers are not included in the builder count.
 
 ## Rich-rendering gate
 
