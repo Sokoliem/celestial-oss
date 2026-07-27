@@ -7,6 +7,7 @@
 
 export { theme } from './theme/bag.js';
 export { generateScale } from './theme/color-scales.js';
+export { resolveElevationBorder } from './elevation-border.js';
 export { applyVariant, createTheme, extendTheme } from './theme/create.js';
 export { defaultTheme } from './theme/defaults.js';
 export { interpolateTheme } from './theme/interpolation.js';

@@ -30,6 +30,7 @@ Nebula is the heart of Celestial. It implements the Elm Architecture (init/updat
 - **Automation** - VNode metadata, accessibility audits, text extraction
 - **Clipboard** - OSC 52 clipboard copy/paste, bracketed paste mode
 - **Crash Recovery** - Automatic terminal state restoration on crash/signal
+- **Config Loading** - Adapter-based source precedence with explicit failure diagnostics
 
 ## The Elm Architecture
 
@@ -892,6 +893,62 @@ const guard = installCrashRecovery({
 });
 guard.uninstall();
 ```
+
+## Config Loading
+
+`loadConfig` coordinates caller-owned readers without assuming a filesystem or
+silently substituting defaults. Sources are listed from highest to lowest
+precedence. Returning `undefined` means a source is absent; once a source
+returns content, any read, parse, or validation failure is terminal and
+reported.
+
+```typescript
+import { loadConfig, type ConfigValidation } from '@celestial/nebula';
+
+interface ToolConfig {
+  port: number;
+}
+
+const result = await loadConfig<ToolConfig>({
+  precedence: 'first-listed-wins',
+  sources: [
+    { id: 'project-file', read: () => storage.readText('./tool.json') },
+    { id: 'user-file', read: () => storage.readText(userConfigPath) },
+  ],
+  parse: (contents) => JSON.parse(contents) as unknown,
+  validate: (candidate): ConfigValidation<ToolConfig> =>
+    isToolConfig(candidate)
+      ? { valid: true, value: candidate }
+      : { valid: false, issues: ['port must be a positive integer'] },
+  stageTimeoutMs: 5_000,
+});
+
+if (!result.ok) {
+  reportDiagnostics(result.diagnostics);
+}
+```
+
+Readers may be synchronous or return genuine `Promise` objects. Structural
+thenables are treated as synchronous adapter values and rejected when they do
+not satisfy that stage's result contract; Nebula never invokes an
+attacker-owned `then` property. Nebula never imports Node
+filesystem APIs; applications provide adapters appropriate to their platform.
+Only `undefined` means a source is absent. Empty strings, `null`, malformed
+content, and invalid configs are present failures and never fall through.
+
+Successful validator values are detached into deeply frozen plain-data graphs.
+Plain objects, dense arrays, and primitive values are supported; class
+instances, functions, accessors, symbols, and stateful collections are rejected
+as invalid adapter output. This makes a successful result immune to later
+mutation of the validator's original object.
+
+`stageTimeoutMs` independently bounds each read, parse, and validate wait. A
+timeout stops the loader from waiting, but cannot cancel caller-owned work;
+adapters remain responsible for cancellation and resource cleanup. If the
+option is omitted, callers own the liveness guarantee for every adapter.
+Malformed loader options reject the returned promise during construction.
+Once options are accepted, source, parse, and validation failures are returned
+as immutable diagnostic receipts.
 
 ## Machine Registry
 

@@ -1,5 +1,5 @@
 import { color, defaultTheme } from '@celestial/core/corona';
-import type { BoxNode, ColumnNode, TextNode } from '@celestial/core/nebula';
+import { createThemeContext, type BoxNode, type ColumnNode, type TextNode } from '@celestial/core/nebula';
 import { describe, expect, it } from 'vitest';
 import { collapsiblePane, panel, titledPane } from '../panel.js';
 
@@ -40,5 +40,14 @@ describe('panel defaults', () => {
     const expandedContent = expanded.children[0] as ColumnNode;
     const expandedTitle = expandedContent.children[0] as TextNode;
     expect(expandedTitle.content).toBe(`${defaultTitle}${defaultTheme.glyphs.menuArrow} Files${color.reset.fg()}`);
+  });
+
+  it('reads panel chrome from the live theme context', () => {
+    const themeCtx = createThemeContext();
+    themeCtx.patch({ colors: { border: color.hex('#123456'), text: color.hex('#fedcba') } });
+    const node = panel({ content: textNode('body'), title: 'Live', themeCtx }) as BoxNode;
+    expect(node.style?.fg).toBe(themeCtx.current().elevation.raised.border?.fg() ?? themeCtx.current().colors.border.fg());
+    const content = node.children[0] as ColumnNode;
+    expect((content.children[0] as TextNode).content).toContain(themeCtx.current().typography.title.color.fg());
   });
 });

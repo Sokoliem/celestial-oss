@@ -1,0 +1,59 @@
+{
+  "name": "@celestial/compass",
+  "version": "0.1.0-preview.1",
+  "description": "Validated routing, immutable history, and modal-safe screen navigation for terminal applications",
+  "keywords": [
+    "tui",
+    "terminal",
+    "cli",
+    "typescript",
+    "celestial",
+    "router",
+    "routing",
+    "navigation"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sokoliem/celestial-oss.git",
+    "directory": "packages/compass"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/compass",
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "sideEffects": false
+}

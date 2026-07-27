@@ -1,5 +1,6 @@
 import { color, createTheme } from '@celestial/corona';
 import { afterEach, describe, expect, it } from 'vitest';
+import { embedChart } from '../chart-component.js';
 import {
   accessiblePalette,
   announceChartUpdate,
@@ -467,10 +468,7 @@ describe('accessiblePalette', () => {
 // ── Integration: chart-component shouldAnimate ──────────────────────────
 
 describe('chart-component reduced motion integration', () => {
-  it('embedChart respects REDUCE_MOTION env var', async () => {
-    // Dynamic import to get fresh module state
-    const { embedChart } = await import('../chart-component.js');
-
+  it('embedChart respects REDUCE_MOTION env var', () => {
     const chart = embedChart({
       id: 'motion-test',
       layers: () => [],

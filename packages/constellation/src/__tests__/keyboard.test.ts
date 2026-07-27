@@ -2,7 +2,7 @@ import { Cmd, getVNodeMeta, Sub, text } from '@celestial/core/nebula';
 import { measureTextWidth } from '@celestial/rosetta';
 import { auditA11y, createTestApp } from '@celestial/test';
 import { describe, expect, it } from 'vitest';
-import { getMatchingKeyBinding, helpView, type KeyBinding, keyMap, matchesKeyBinding } from '../keyboard.js';
+import { formatDisplayKey, formatKeyBinding, getMatchingKeyBinding, helpView, type KeyBinding, keyMap, matchesKeyBinding } from '../keyboard.js';
 
 type Msg = { readonly type: string };
 type RuntimeModel = { readonly received: readonly string[] };
@@ -166,9 +166,116 @@ describe('keyMap', () => {
     expect(() => keyMap([{ key: 'o', modifiers: { alt: true, shift: true }, msg: 'open', description: 'Open' }])).toThrow(/cannot be represented/i);
   });
 
+  it('rejects separators, bidi controls, and forged binding booleans', () => {
+    for (const unsafe of ['\u2028', '\u2029', '\u202e', '\u2066']) {
+      expect(() => keyMap([{ key: unsafe, msg: 'unsafe', description: 'Unsafe' }])).toThrow(/printable Unicode scalar/i);
+      expect(() => helpView([{ key: unsafe, msg: 'unsafe', description: 'Unsafe' }])).toThrow(/printable Unicode scalar/i);
+    }
+    expect(() =>
+      keyMap([
+        {
+          key: 'a',
+          modifiers: { ctrl: 'false' as never },
+          msg: 'forged',
+          description: 'Forged',
+        },
+      ]),
+    ).toThrow(/ctrl.*boolean/i);
+    expect(() =>
+      helpView([
+        {
+          key: 'a',
+          discoverable: 'false' as never,
+          msg: 'forged',
+          description: 'Forged',
+        },
+      ]),
+    ).toThrow(/discoverable.*boolean/i);
+    expect(() =>
+      helpView([{ key: 'a', msg: 'a', description: 'Alpha' }], {
+        includeInactive: 'yes' as never,
+      }),
+    ).toThrow(/includeInactive.*boolean/i);
+  });
+
+  it('rejects binding and help-option accessors plus oversized sparse arrays without reading them', () => {
+    let descriptionReads = 0;
+    const accessorBinding = Object.defineProperties(
+      {},
+      {
+        key: { enumerable: true, value: 'a' },
+        msg: { enumerable: true, value: 'a' },
+        description: {
+          enumerable: true,
+          get: () => {
+            descriptionReads += 1;
+            return 'Alpha';
+          },
+        },
+      },
+    );
+    expect(() => helpView([accessorBinding as never])).toThrow(/description.*own data property/i);
+    expect(() => keyMap([accessorBinding as never])).toThrow(/description.*own data property/i);
+    expect(descriptionReads).toBe(0);
+
+    let optionReads = 0;
+    const accessorOptions = Object.defineProperty({}, 'title', {
+      enumerable: true,
+      get: () => {
+        optionReads += 1;
+        return 'Keys';
+      },
+    });
+    expect(() => helpView([{ key: 'a', msg: 'a', description: 'Alpha' }], accessorOptions)).toThrow(/title.*own data property/i);
+    expect(optionReads).toBe(0);
+
+    const huge = new Array<KeyBinding<string>>(4_294_967_295);
+    expect(() => helpView(huge)).toThrow(/at most 10000/i);
+    expect(() => keyMap(huge)).toThrow(/at most 10000/i);
+  });
+
   it('produces no subscription when nothing is active', () => {
     const subs = keyMap<Msg>([{ key: 'a', msg: { type: 'x' }, description: 'X', when: () => false }]);
     expect((subs as unknown as { _kind?: { kind?: string } })._kind?.kind).toBe('none');
+  });
+});
+
+describe('display helpers', () => {
+  it('rejects controls, bidi text, and lone surrogates before rendering key labels', () => {
+    for (const unsafe of ['\u001b[31m', '\u202e', '\ud800']) {
+      for (const format of [formatDisplayKey, formatKeyBinding]) {
+        let thrown: unknown;
+        try {
+          format(unsafe);
+        } catch (error) {
+          thrown = error;
+        }
+        expect(thrown).toBeInstanceOf(TypeError);
+        expect((thrown as Error).message).toMatch(/Unicode scalar|printable/i);
+        expect((thrown as Error).message).not.toContain(unsafe);
+      }
+    }
+  });
+
+  it('snapshots and validates display modifiers without invoking accessors', () => {
+    let ctrlReads = 0;
+    const hostile = Object.defineProperty({}, 'ctrl', {
+      enumerable: true,
+      get: () => {
+        ctrlReads += 1;
+        return true;
+      },
+    });
+
+    expect(() => formatKeyBinding('c', hostile)).toThrow(/ctrl.*own data property/i);
+    expect(ctrlReads).toBe(0);
+  });
+
+  it('keeps display-only combining and emoji graphemes intact', () => {
+    expect(formatDisplayKey('e\u0301')).toBe('e\u0301');
+    expect(formatDisplayKey('👩')).toBe('👩');
+    expect(() => formatKeyBinding('e\u0301')).toThrow(/Unicode scalar/i);
+    expect(formatKeyBinding('👩')).toBe('👩');
   });
 });
 
@@ -231,5 +338,42 @@ describe('helpView', () => {
 
     expect(lines).toContain('First close');
     expect(lines).not.toContain('Second close');
+  });
+
+  it('never exceeds the requested width, even below the normal indentation width', () => {
+    const lines = textLines(helpView([{ key: 'x', msg: 'x', description: 'Execute action' }], { width: 2 }));
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.every((line) => measureTextWidth(line) <= 2)).toBe(true);
+  });
+
+  it('keeps non-ASCII printable keys identical to the executable chord', () => {
+    const binding: KeyBinding<string> = { key: 'ß', msg: 'eszett', description: 'Insert eszett' };
+    expect(matchesKeyBinding(binding, press('ß'))).toBe(true);
+    expect(textLines(helpView([binding])).join('\n')).toContain('ß');
+    expect(textLines(helpView([binding])).join('\n')).not.toContain('SS');
+  });
+
+  it('rejects terminal controls in measured headings, categories, and descriptions', () => {
+    const binding: KeyBinding<string> = { key: 'x', msg: 'x', description: 'Execute' };
+
+    expect(() => helpView([binding], { title: 'Keys\tNow' })).toThrow(/printable/i);
+    expect(() => helpView([{ ...binding, category: 'Shell\u001b' }])).toThrow(/printable/i);
+    expect(() => helpView([{ ...binding, description: 'Execute\u009fnow' }])).toThrow(/printable/i);
+  });
+
+  it('rejects separators, bidi controls, and lone surrogates in help text', () => {
+    const binding: KeyBinding<string> = { key: 'x', msg: 'x', description: 'Execute' };
+
+    for (const unsafe of ['\u2028', '\u2029', '\u2066', '\ud800']) {
+      expect(() => helpView([binding], { title: `Keys${unsafe}` })).toThrow(/printable/i);
+      expect(() => helpView([{ ...binding, category: `Shell${unsafe}` }])).toThrow(/printable/i);
+      expect(() => helpView([{ ...binding, description: `Execute${unsafe}` }])).toThrow(/printable/i);
+    }
+  });
+
+  it('retains intentional line feeds in wrapped descriptions', () => {
+    const output = textLines(helpView([{ key: 'x', msg: 'x', description: 'First line\nSecond line' }], { width: 24 })).join('\n');
+    expect(output).toContain('First line');
+    expect(output).toContain('Second line');
   });
 });

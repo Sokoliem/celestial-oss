@@ -1,5 +1,5 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { border, style } from '@celestial/core/corona';
+import { resolveElevationBorder, style } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, component, empty, event, focus, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { measureTextWidth, truncateCellText } from '@celestial/rosetta';
@@ -7,7 +7,7 @@ import { button } from './clickable.js';
 import { assignFocusGroup, generateFocusGroupId } from './focus-group.js';
 import { positiveInteger } from './internal.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
-import { applyTypography, type ConstellationTone, useTokens } from './theme.js';
+import { applyTypography, type ConstellationTone, resolveTheme, useTokens } from './theme.js';
 import { type ComponentDescriptor, normalizeContent } from './types.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
@@ -217,8 +217,9 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
       }
 
       const tokens = useTokens(drawerContract, config, 'Drawer');
+      const theme = resolveTheme(config);
       const contentArr = contentNodes.map((node) => (trapFocus ? assignFocusGroup(node, groupId) : node));
-      const drawerStyle = style({ border: border.double, borderColor: tokens.border, background: tokens.bg, padding: [0, 1] });
+      const drawerStyle = style({ border: resolveElevationBorder(theme, 'modal'), borderColor: tokens.border, background: tokens.bg, padding: [0, 1] });
       const headerStyle = style({ background: tokens.headerBg });
       const hoveredControlStyle = style({ color: tokens.hoverText, background: tokens.hoverBg, bold: true });
 
@@ -251,31 +252,21 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
         );
         const actionNodes = actionEntries.map((entry) => {
           const visibleLabel = truncateCellText(entry.action.label, Math.max(1, innerWidth - 4));
-          const actionContent = button({
+          const actionNode = button({
+            id: entry.elementId,
             label: visibleLabel,
-            onClick: entry.action.id,
-            x: 0,
-            y: 0,
+            onClick: entry.clickTag,
+            onMouseEnter: entry.hoverTag,
+            onMouseLeave: entry.leaveTag,
             buttonVariant: 'outline',
             tone: entry.action.tone,
             hovered: model.hoveredActionId === entry.action.id || model.focusedActionId === entry.action.id,
+            keyboardHint: 'Enter or Space',
+            intent: 'action',
             themeCtx: config.themeCtx,
             theme: config.theme,
-          }).view();
-          const actionNode = event(
-            entry.elementId,
-            trapFocus ? focus(entry.focusId, actionContent, { group: groupId }) : actionContent,
-            { onClick: entry.clickTag, onMouseEnter: entry.hoverTag, onMouseLeave: entry.leaveTag },
-            {
-              label: entry.action.label,
-              intent: 'action',
-              affordances: ['hover', 'click'],
-              cursor: 'pointer',
-              keyboardHint: 'Enter or Space',
-            },
-          );
-          setVNodeMeta(actionNode, { a11y: { role: 'button', label: entry.action.label } });
-          return actionNode;
+          });
+          return trapFocus ? focus(entry.focusId, actionNode, { group: groupId }) : actionNode;
         });
         const bodyNodes = [...contentArr, ...actionNodes];
         const body = bodyNodes.length > 0 ? column(...bodyNodes) : text('');

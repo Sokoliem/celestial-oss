@@ -11,6 +11,7 @@ import type { ComponentDescriptor } from './types.js';
 
 export interface NumberInputTokens {
   text: Color;
+  chrome: Color;
   placeholder: Color;
   border: Color;
   borderHover: Color;
@@ -21,6 +22,7 @@ export interface NumberInputTokens {
 
 export const numberInputContract: TokenContract<NumberInputTokens> = {
   text: (t: SemanticTheme) => t.colors.text,
+  chrome: (t: SemanticTheme) => t.colors.textSoft,
   placeholder: (t: SemanticTheme) => t.colors.muted,
   border: (t: SemanticTheme) => t.colors.border,
   borderHover: (t: SemanticTheme) => t.colors.borderHover,
@@ -222,7 +224,9 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
       const tokens = useTokens(numberInputContract, config, 'NumberInput');
       const value = applyChange(model.value);
       const parts: VNode[] = [];
-      const borderColor = model.focused ? tokens.borderFocus : tokens.border;
+      // Brackets are text glyphs, not a painted border. Use a text-safe token
+      // at rest so terminal a11y scanners and real users get readable chrome.
+      const borderColor = model.focused ? tokens.borderFocus : tokens.chrome;
       const focusedStyle = model.focused ? style({ color: tokens.text }) : undefined;
       const dimStyle = style({ dim: true, color: tokens.placeholder });
 

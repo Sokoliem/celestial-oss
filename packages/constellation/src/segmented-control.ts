@@ -24,6 +24,7 @@ export interface SegmentedControlTokens {
   text: Color;
   activeText: Color;
   border: Color;
+  chrome: Color;
   labelStyle: TypographyToken;
 }
 
@@ -33,6 +34,7 @@ export const segmentedControlContract: TokenContract<SegmentedControlTokens> = {
   text: (t: SemanticTheme) => t.colors.text,
   activeText: (t: SemanticTheme) => t.colors.highlight,
   border: (t: SemanticTheme) => t.colors.border,
+  chrome: (t: SemanticTheme) => t.colors.textSoft,
   labelStyle: (t: SemanticTheme) => t.typography.label,
 };
 
@@ -153,7 +155,9 @@ export function segmentedControl(config: SegmentedControlConfig): ComponentDescr
       const tokens = useTokens(segmentedControlContract, config, 'SegmentedControl');
 
       const parts: VNode[] = [];
-      const borderStyle = style({ color: tokens.border });
+      // Separators are rendered as text glyphs, so use a text-contrast token.
+      // `border` remains available for the focused option underline.
+      const borderStyle = style({ color: tokens.chrome });
 
       parts.push(text('[ ', borderStyle));
 

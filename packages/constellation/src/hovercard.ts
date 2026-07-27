@@ -17,11 +17,11 @@
  */
 
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
-import { border, style } from '@celestial/corona';
+import { resolveElevationBorder, style } from '@celestial/corona';
 import { box, Cmd, column, event, type Msg, Sub, setVNodeMeta, type ThemeContext, text, type VNode } from '@celestial/nebula';
 import { nonNegativeInteger, positiveInteger } from './internal.js';
 import { broadcastSurfacePanic, surfaceContractSubs } from './surface-container.js';
-import { applyTypography, useTokens } from './theme.js';
+import { applyTypography, resolveTheme, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 import { transformVNode } from './vnode-transform.js';
 
@@ -134,6 +134,7 @@ export function hovercard(config: HovercardConfig): ComponentDescriptor<Hovercar
       );
       if (model.state !== 'open') return trigger;
       const tokens = useTokens(hovercardContract, config, 'Hovercard');
+      const theme = resolveTheme(config);
       const preferredWidth = Math.max(12, positiveInteger(config.width, 36));
       const viewportCols = model.viewportCols === undefined ? preferredWidth : positiveInteger(model.viewportCols, preferredWidth);
       const width = Math.max(1, Math.min(preferredWidth, Math.max(1, viewportCols - 2)));
@@ -154,7 +155,7 @@ export function hovercard(config: HovercardConfig): ComponentDescriptor<Hovercar
         cardId,
         box(
           column(enableHovercardTextWrapping(contentNode), close),
-          style({ border: border.rounded, borderColor: tokens.border, background: tokens.background, padding: 1 }),
+          style({ border: resolveElevationBorder(theme, 'floating'), borderColor: tokens.border, background: tokens.background, padding: 1 }),
           { width, fit: 'content', overflow: 'hidden' },
         ),
         { onMouseEnter: enterTag, onMouseLeave: leaveTag },

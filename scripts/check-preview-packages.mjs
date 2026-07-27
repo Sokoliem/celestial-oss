@@ -1,9 +1,9 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { previewPackageDirectories, previewPackages, previewPackageSet } from './preview-packages.mjs';
+import { previewPackageDirectories, previewPackageSet, previewPackages } from './preview-packages.mjs';
 
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const keep = process.argv.includes('--keep');
@@ -130,6 +130,175 @@ function assertPackedPackage(packageName, result, manifest) {
   }
 }
 
+function uiGoldenPathRuntimeSmoke(format) {
+  return `const packedFormat = ${JSON.stringify(format)};
+const packedAssert = (condition, message) => {
+  if (!condition) throw new Error(packedFormat + ' UI golden-path smoke test failed: ' + message);
+};
+const packedHostModel = Object.freeze({ ready: true });
+const packedRegistry = nebula.createActionRegistry([
+  {
+    id: 'packed.action',
+    title: 'Packed action',
+    description: 'Exercise the packed UI action path',
+    category: 'Packed',
+    shortcuts: ['ctrl+k'],
+    when: (model) => model.ready,
+    run: () => ({ type: 'packed-action' }),
+  },
+]);
+packedAssert(
+  Object.isFrozen(packedRegistry) &&
+    Object.isFrozen(packedRegistry.actions) &&
+    packedRegistry.byId.get('packed.action')?.title === 'Packed action',
+  'canonical action registry construction failed.',
+);
+
+const packedToMessage = (actionId) => ({ type: 'packed-action-request', actionId });
+const packedCommands = ui.actionCommands(packedRegistry, packedHostModel, { toMsg: packedToMessage });
+packedAssert(
+  packedCommands.length === 1 &&
+    packedCommands[0]?.id === 'packed.action' &&
+    packedCommands[0]?.msg.actionId === 'packed.action',
+  'action command projection failed.',
+);
+const packedActionBindings = ui.actionKeyBindings(packedRegistry, packedHostModel, { toMsg: packedToMessage });
+packedAssert(
+  packedActionBindings.length === 1 &&
+    packedActionBindings[0]?.key === 'k' &&
+    packedActionBindings[0]?.modifiers?.ctrl === true &&
+    packedActionBindings[0]?.msg.actionId === 'packed.action',
+  'action key-binding projection failed.',
+);
+const packedKeySubscription = ui.keyMap(packedActionBindings);
+packedAssert(
+  packedKeySubscription?._tag === 'sub' && nebula.subKind(packedKeySubscription).kind === 'batch',
+  'key-map subscription projection failed.',
+);
+const packedHelpView = ui.helpView(packedActionBindings, { title: 'Packed help', width: 40 });
+packedAssert(
+  packedHelpView !== null && typeof packedHelpView === 'object' && typeof packedHelpView.kind === 'string',
+  'help-view projection failed.',
+);
+
+const packedStore = ui.createNotificationStore({ now: () => 1_000 });
+const packedInitialNotifications = packedStore.init();
+const packedEnqueued = packedStore.enqueue(packedInitialNotifications, {
+  message: 'Packed notification',
+  level: 'info',
+  delivery: 'both',
+  durationMs: null,
+  actionIds: ['packed.action'],
+});
+packedAssert(packedEnqueued.ok, 'notification store enqueue failed.');
+const packedNotifications = packedEnqueued.value.model;
+const packedNotificationId = packedEnqueued.value.entry.id;
+packedAssert(
+  Object.isFrozen(packedNotifications) &&
+    packedNotifications.entries.length === 1 &&
+    packedNotifications.visibleToastIds[0] === packedNotificationId,
+  'notification store model projection failed.',
+);
+const packedCenter = ui.createNotificationCenter({
+  store: packedStore,
+  ownsToastEscape: false,
+  initiallyOpen: true,
+  formatTimestamp: (timestamp) => String(timestamp),
+  resolveAction: (actionId) => ({ label: actionId }),
+});
+const packedCenterState = packedCenter.init(packedNotifications);
+const packedCenterView = packedCenter.view(packedCenterState, packedNotifications, { cols: 80, rows: 24 });
+packedAssert(
+  packedCenterState.open === true &&
+    packedCenterState.selectedId === packedNotificationId &&
+    packedCenterView !== null &&
+    typeof packedCenterView === 'object' &&
+    typeof packedCenterView.kind === 'string',
+  'notification-center construction or projection failed.',
+);
+const packedToastManager = ui.createToastManager({ store: packedStore, dismissalOwner: 'host' });
+const packedToastProjection = packedToastManager.project(packedNotifications);
+packedAssert(
+  packedToastProjection.ok &&
+    packedToastProjection.value.toasts.length === 1 &&
+    packedToastProjection.value.toasts[0]?.id === packedNotificationId &&
+    packedToastProjection.value.entries.length === 1,
+  'toast-model projection failed.',
+);
+
+const packedShell = ui.createAppShell({
+  registry: packedRegistry,
+  notificationStore: packedStore,
+  formatTimestamp: (timestamp) => String(timestamp),
+  canUseGlobalShortcuts: () => true,
+});
+const packedShellModel = packedShell.init(packedHostModel);
+packedAssert(
+  Object.isFrozen(packedShellModel) && packedShell.validateModel(packedShellModel).length === 0,
+  'app-shell initialization failed.',
+);
+const packedShellProjection = packedShell.project(packedShellModel, packedHostModel);
+packedAssert(
+  packedShellProjection.diagnostics.length === 0 &&
+    packedShellProjection.commands.some((command) => command.id === 'packed.action') &&
+    packedShellProjection.keyBindings.some(
+      (binding) =>
+        binding.key === 'k' &&
+        binding.modifiers?.ctrl === true &&
+        binding.msg.type === 'shell-request-action' &&
+        binding.msg.actionId === 'packed.action',
+    ) &&
+    packedShellProjection.helpBindings.some(
+      (binding) => binding.msg.type === 'shell-request-action' && binding.msg.actionId === 'packed.action',
+    ),
+  'app-shell action projection failed.',
+);
+const packedShellOpened = packedShell.update(
+  { type: 'shell-open-palette' },
+  packedShellModel,
+  { hostModel: packedHostModel, viewport: { cols: 80, rows: 24 } },
+);
+packedAssert(
+  packedShellOpened.diagnostics.length === 0 && packedShellOpened.model.palette.open === true,
+  'app-shell state update failed.',
+);
+const packedShellRequested = packedShell.update(
+  { type: 'shell-request-action', actionId: 'packed.action', source: 'shortcut' },
+  packedShellModel,
+  { hostModel: packedHostModel, viewport: { cols: 80, rows: 24 } },
+);
+packedAssert(
+  packedShellRequested.diagnostics.length === 0 &&
+    packedShellRequested.receipts.length === 1 &&
+    packedShellRequested.receipts[0]?.type === 'action-requested' &&
+    packedShellRequested.receipts[0]?.actionId === 'packed.action',
+  'app-shell action update failed.',
+);
+const packedStatusSections = packedShell.status(packedShellRequested.model, {
+  mode: 'PACKED',
+  title: 'Packed shell',
+  showShortcutHints: true,
+});
+packedAssert(
+  packedStatusSections.left[0]?.text === 'PACKED' &&
+    packedStatusSections.center[0]?.text === 'Packed shell' &&
+    packedStatusSections.right.some((section) => section.text.startsWith('Palette ')),
+  'app-shell status projection failed.',
+);
+const packedStatusBar = ui.statusBar({ width: 80, ...packedStatusSections });
+const [packedStatusModel] = packedStatusBar.init();
+const packedStatusView = packedStatusBar.view(packedStatusModel);
+packedAssert(
+  packedStatusModel.width === 80 &&
+    packedStatusModel.left[0]?.text === 'PACKED' &&
+    packedStatusView !== null &&
+    typeof packedStatusView === 'object' &&
+    typeof packedStatusView.kind === 'string',
+  'status-bar construction or projection failed.',
+);
+`;
+}
+
 try {
   run('node', ['scripts/check-preview-boundary.mjs']);
 
@@ -166,6 +335,8 @@ try {
     join(fixtureDirectory, 'smoke.mjs'),
     `for (const specifier of ${JSON.stringify(runtimeModuleSpecifiers)}) await import(specifier);
 const core = await import('@celestial/core');
+const compass = await import('@celestial/compass');
+const nebula = await import('@celestial/nebula');
 const ui = await import('@celestial/ui');
 const test = await import('@celestial/test');
 const horizon = await import('@celestial/horizon');
@@ -178,22 +349,64 @@ await import('@celestial/core/nexus');
 await import('@celestial/test/pty');
 const esmExports = {
   'core.app': core.app,
+  'compass.createHistory': compass.createHistory,
+  'compass.createRouter': compass.createRouter,
+  'compass.createScreenStack': compass.createScreenStack,
+  'compass.matchRoute': compass.matchRoute,
+  'compass.parseUrl': compass.parseUrl,
+  'nebula.createActionRegistry': nebula.createActionRegistry,
+  'nebula.loadConfig': nebula.loadConfig,
+  'nebula.subKind': nebula.subKind,
+  'ui.actionKeyBindings': ui.actionKeyBindings,
   'ui.actionCommands': ui.actionCommands,
+  'ui.createAppShell': ui.createAppShell,
+  'ui.createNotificationCenter': ui.createNotificationCenter,
+  'ui.createNotificationStore': ui.createNotificationStore,
+  'ui.createToastManager': ui.createToastManager,
   'ui.helpView': ui.helpView,
   'ui.keyMap': ui.keyMap,
   'ui.modal': ui.modal,
+  'ui.statusBar': ui.statusBar,
   'test.createTestApp': test.createTestApp,
   'horizon.splitPane': horizon.splitPane,
 };
 for (const [name, value] of Object.entries(esmExports)) {
   if (typeof value !== 'function') throw new Error('ESM preview smoke test could not find ' + name + '.');
 }
+const esmRouter = compass.createRouter({ routes: [{ id: 'home', pattern: '/' }, { id: 'user', pattern: '/users/:id' }] });
+const esmResolution = esmRouter.resolve(esmRouter.init('/users/packed'));
+if (esmResolution.status !== 'matched' || esmResolution.match.params.id !== 'packed') {
+  throw new Error('ESM Compass router smoke test did not resolve the packed route.');
+}
+const esmHistory = compass.createHistory('/start');
+if (compass.currentLocation(esmHistory).href !== '/start') throw new Error('ESM Compass history smoke test failed.');
+const esmScreens = compass.screenStackUpdate(
+  { type: 'screen:push', id: 'confirm', modal: true },
+  compass.createScreenStack({ id: 'home' }),
+);
+if (compass.currentScreen(esmScreens).id !== 'confirm') throw new Error('ESM Compass screen-stack smoke test failed.');
+const esmConfig = await nebula.loadConfig({
+  precedence: 'first-listed-wins',
+  sources: [{ id: 'packed', read: () => '{"ready":true}' }],
+  parse: (contents) => JSON.parse(contents),
+  validate: (candidate) =>
+    candidate && candidate.ready === true
+      ? { valid: true, value: { ready: true } }
+      : { valid: false, issues: ['ready must be true'] },
+  stageTimeoutMs: 1_000,
+});
+if (!esmConfig.ok || esmConfig.value.ready !== true || !Object.isFrozen(esmConfig.value)) {
+  throw new Error('ESM Nebula config-loader smoke test failed.');
+}
+${uiGoldenPathRuntimeSmoke('ESM')}
 `,
   );
   writeFileSync(
     join(fixtureDirectory, 'smoke.cjs'),
     `for (const specifier of ${JSON.stringify(runtimeModuleSpecifiers)}) require(specifier);
 const core = require('@celestial/core');
+const compass = require('@celestial/compass');
+const nebula = require('@celestial/nebula');
 const ui = require('@celestial/ui');
 const test = require('@celestial/test');
 const horizon = require('@celestial/horizon');
@@ -201,24 +414,91 @@ require('@celestial/core/nebula');
 require('@celestial/test/pty');
 const cjsExports = {
   'core.app': core.app,
+  'compass.createHistory': compass.createHistory,
+  'compass.createRouter': compass.createRouter,
+  'compass.createScreenStack': compass.createScreenStack,
+  'compass.matchRoute': compass.matchRoute,
+  'compass.parseUrl': compass.parseUrl,
+  'nebula.createActionRegistry': nebula.createActionRegistry,
+  'nebula.loadConfig': nebula.loadConfig,
+  'nebula.subKind': nebula.subKind,
+  'ui.actionKeyBindings': ui.actionKeyBindings,
   'ui.actionCommands': ui.actionCommands,
+  'ui.createAppShell': ui.createAppShell,
+  'ui.createNotificationCenter': ui.createNotificationCenter,
+  'ui.createNotificationStore': ui.createNotificationStore,
+  'ui.createToastManager': ui.createToastManager,
   'ui.helpView': ui.helpView,
   'ui.keyMap': ui.keyMap,
   'ui.modal': ui.modal,
+  'ui.statusBar': ui.statusBar,
   'test.createTestApp': test.createTestApp,
   'horizon.splitPane': horizon.splitPane,
 };
 for (const [name, value] of Object.entries(cjsExports)) {
   if (typeof value !== 'function') throw new Error('CommonJS preview smoke test could not find ' + name + '.');
 }
+const cjsRouter = compass.createRouter({ routes: [{ id: 'home', pattern: '/' }, { id: 'user', pattern: '/users/:id' }] });
+const cjsResolution = cjsRouter.resolve(cjsRouter.init('/users/packed'));
+if (cjsResolution.status !== 'matched' || cjsResolution.match.params.id !== 'packed') {
+  throw new Error('CommonJS Compass router smoke test did not resolve the packed route.');
+}
+const cjsHistory = compass.createHistory('/start');
+if (compass.currentLocation(cjsHistory).href !== '/start') throw new Error('CommonJS Compass history smoke test failed.');
+const cjsScreens = compass.screenStackUpdate(
+  { type: 'screen:push', id: 'confirm', modal: true },
+  compass.createScreenStack({ id: 'home' }),
+);
+if (compass.currentScreen(cjsScreens).id !== 'confirm') throw new Error('CommonJS Compass screen-stack smoke test failed.');
+void nebula.loadConfig({
+  precedence: 'first-listed-wins',
+  sources: [{ id: 'packed', read: () => '{"ready":true}' }],
+  parse: (contents) => JSON.parse(contents),
+  validate: (candidate) =>
+    candidate && candidate.ready === true
+      ? { valid: true, value: { ready: true } }
+      : { valid: false, issues: ['ready must be true'] },
+  stageTimeoutMs: 1_000,
+}).then((result) => {
+  if (!result.ok || result.value.ready !== true || !Object.isFrozen(result.value)) {
+    throw new Error('CommonJS Nebula config-loader smoke test failed.');
+  }
+}).catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+${uiGoldenPathRuntimeSmoke('CommonJS')}
 `,
   );
   writeFileSync(
     join(fixtureDirectory, 'smoke.ts'),
     `${moduleSpecifiers.map((specifier, index) => `import * as packedModule${index} from '${specifier}';`).join('\n')}
 import { type AppConfig, Cmd, Sub, text } from '@celestial/core';
-import type { AriaAttrs } from '@celestial/core/nebula';
-import { actionCommands, helpView, keyMap, modal, type KeyBinding } from '@celestial/ui';
+import { type AriaAttrs, createActionRegistry } from '@celestial/core/nebula';
+import {
+  createHistory,
+  createRouter,
+  createScreenStack,
+  currentLocation,
+  currentScreen as currentCompassScreen,
+  parseUrl,
+  screenStackUpdate,
+  type RouterConfig,
+} from '@celestial/compass';
+import { loadConfig, type ConfigValidation } from '@celestial/nebula';
+import {
+  actionCommands,
+  actionKeyBindings,
+  createAppShell,
+  createNotificationCenter,
+  createNotificationStore,
+  createToastManager,
+  helpView,
+  keyMap,
+  modal,
+  statusBar,
+  type KeyBinding,
+} from '@celestial/ui';
 import { createTestApp } from '@celestial/test';
 import '@celestial/test/vitest';
 import * as horizon from '@celestial/horizon';
@@ -234,6 +514,66 @@ const surface = modal({ title: 'Ready', content: text('ready') });
 const binding: KeyBinding<Message> = { key: 'q', msg: { type: 'quit' }, description: 'Quit' };
 const mappedKeys = keyMap([binding]);
 const keyboardHelp = helpView([binding]);
+const status = statusBar({ left: [{ text: 'READY', mode: true }] });
+const compassConfig = {
+  routes: [
+    { id: 'home', pattern: '/' },
+    { id: 'user', pattern: '/users/:id' },
+  ],
+  initialLocation: '/',
+} as const satisfies RouterConfig<'home' | 'user'>;
+const compassRouter = createRouter(compassConfig);
+const compassResolution = compassRouter.resolve(compassRouter.init('/users/packed'));
+const compassHistory = createHistory(parseUrl('/packed?source=tarball'));
+const compassLocation = currentLocation(compassHistory);
+let compassScreens = createScreenStack<'home' | 'confirm'>({ id: 'home' });
+compassScreens = screenStackUpdate({ type: 'screen:push', id: 'confirm', modal: true }, compassScreens);
+const compassScreen = currentCompassScreen(compassScreens);
+const notificationStore = createNotificationStore();
+const notifications = notificationStore.init();
+const notificationCenter = createNotificationCenter({
+  store: notificationStore,
+  ownsToastEscape: false,
+  formatTimestamp: (timestamp) => String(timestamp),
+  resolveAction: (actionId) => ({ label: actionId }),
+});
+const notificationCenterState = notificationCenter.init(notifications);
+const shellRegistry = createActionRegistry<{ readonly ready: boolean }, { readonly type: 'packed-action' }>([
+  {
+    id: 'packed.action',
+    title: 'Packed action',
+    when: (model) => model.ready,
+    run: () => ({ type: 'packed-action' }),
+  },
+]);
+const packedActionBindings = actionKeyBindings(shellRegistry, { ready: true }, {
+  toMsg: (actionId) => ({ type: 'packed-action-request' as const, actionId }),
+});
+const toastManager = createToastManager({ store: notificationStore, dismissalOwner: 'host' });
+const toastProjection = toastManager.project(notifications);
+const appShell = createAppShell({
+  registry: shellRegistry,
+  notificationStore,
+  formatTimestamp: (timestamp) => String(timestamp),
+  canUseGlobalShortcuts: () => true,
+});
+const appShellModel = appShell.init({ ready: true });
+interface PackedConfig {
+  readonly ready: boolean;
+}
+const packedConfigLoad = loadConfig<PackedConfig>({
+  precedence: 'first-listed-wins',
+  sources: [{ id: 'packed', read: () => '{"ready":true}' }],
+  parse: (contents) => JSON.parse(contents) as unknown,
+  validate: (candidate): ConfigValidation<PackedConfig> =>
+    candidate !== null &&
+    typeof candidate === 'object' &&
+    'ready' in candidate &&
+    candidate.ready === true
+      ? { valid: true, value: { ready: true } }
+      : { valid: false, issues: ['ready must be true'] },
+  stageTimeoutMs: 1_000,
+});
 const disabledMenuitem: AriaAttrs = { role: 'menuitem', label: 'Unavailable', disabled: true };
 const handle = createTestApp(config);
 handle.stop();
@@ -241,6 +581,16 @@ void surface;
 void actionCommands;
 void mappedKeys;
 void keyboardHelp;
+void status;
+void compassResolution;
+void compassLocation;
+void compassScreen;
+void notifications;
+void notificationCenterState;
+void packedActionBindings;
+void toastProjection;
+void appShellModel;
+void packedConfigLoad;
 void disabledMenuitem;
 void horizon;
 void [${moduleSpecifiers.map((_specifier, index) => `packedModule${index}`).join(', ')}];

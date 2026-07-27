@@ -4,7 +4,7 @@ import type { KeyEvent, Msg, ThemeContext, VNode } from '@celestial/nebula';
 import { Cmd, column, event, row, Sub, text } from '@celestial/nebula';
 import { graphemes } from './editable-text.js';
 import { generateFocusGroupId } from './focus-group.js';
-import { boundedInteger, positiveInteger } from './internal.js';
+import { boundedInteger, positiveInteger, wheelDirection } from './internal.js';
 import { moveOptionHighlight } from './option-list-view.js';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
@@ -75,6 +75,7 @@ export function autocomplete(config: AutocompleteConfig): ComponentDescriptor<Au
   const selectTag = `${interactionId}:select`;
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
+  const scrollTag = `${interactionId}:scroll`;
 
   const suggestionsFor = (query: string): string[] => {
     const result = config.source(query);
@@ -169,7 +170,7 @@ export function autocomplete(config: AutocompleteConfig): ComponentDescriptor<Au
         return event(
           `${interactionId}:suggestion:${index}`,
           text((active ? '▸ ' : '  ') + suggestion, active ? hlStyle : applyTypography(tokens.labelStyle)),
-          { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+          { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag, onScroll: scrollTag },
           { label: suggestion, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Enter' },
         );
       });
@@ -177,6 +178,10 @@ export function autocomplete(config: AutocompleteConfig): ComponentDescriptor<Au
     },
     subscriptions(model: AutocompleteModel): Sub<AutocompleteMsg> {
       const pointer = Sub.elementMouse<AutocompleteMsg>((mouseEvent) => {
+        if (mouseEvent.handlerTag === scrollTag) {
+          const direction = wheelDirection(mouseEvent.deltaY);
+          return direction < 0 ? { type: 'up' } : direction > 0 ? { type: 'down' } : { type: 'noop' };
+        }
         if (mouseEvent.elementId === `${interactionId}:input` && mouseEvent.handlerTag === focusTag) return { type: 'focus' };
         if (!mouseEvent.elementId.startsWith(`${interactionId}:suggestion:`)) return { type: 'noop' };
         const index = Number(mouseEvent.elementId.slice(`${interactionId}:suggestion:`.length));

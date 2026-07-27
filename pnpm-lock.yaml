@@ -63,6 +63,9 @@ importers:
 
   examples/celestial-showcase:
     dependencies:
+      '@celestial/compass':
+        specifier: workspace:*
+        version: link:../../packages/compass
       '@celestial/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -189,6 +192,18 @@ importers:
       '@celestial/corona':
         specifier: workspace:*
         version: link:../corona
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)
+
+  packages/compass:
     devDependencies:
       tsup:
         specifier: ^8.3.0

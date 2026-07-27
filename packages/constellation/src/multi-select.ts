@@ -3,7 +3,7 @@ import { style } from '@celestial/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/nebula';
 import { Cmd, column, event, row, Sub, text } from '@celestial/nebula';
 import { generateFocusGroupId } from './focus-group.js';
-import { positiveInteger } from './internal.js';
+import { positiveInteger, wheelDirection } from './internal.js';
 import { moveOptionHighlight } from './option-list-view.js';
 import { applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
@@ -85,6 +85,7 @@ export function multiSelect(config: MultiSelectConfig): ComponentDescriptor<Mult
   const toggleItemTag = `${interactionId}:toggle-item`;
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
+  const scrollTag = `${interactionId}:scroll`;
 
   const validIndex = (index: number): number | null => {
     if (!Number.isFinite(index)) return null;
@@ -186,7 +187,7 @@ export function multiSelect(config: MultiSelectConfig): ComponentDescriptor<Mult
         return event(
           `${interactionId}:option:${i}`,
           row(text(prefix, prefixStyle), text(opt.label, s)),
-          { onClick: toggleItemTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+          { onClick: toggleItemTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag, onScroll: scrollTag },
           { label: opt.label, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Space' },
         );
       });
@@ -195,6 +196,10 @@ export function multiSelect(config: MultiSelectConfig): ComponentDescriptor<Mult
 
     subscriptions(model: MultiSelectModel): Sub<MultiSelectMsg> {
       const pointer = Sub.elementMouse<MultiSelectMsg>((mouseEvent) => {
+        if (mouseEvent.handlerTag === scrollTag) {
+          const direction = wheelDirection(mouseEvent.deltaY);
+          return direction < 0 ? { type: 'up' } : direction > 0 ? { type: 'down' } : { type: 'noop' };
+        }
         if (mouseEvent.elementId === `${interactionId}:trigger` && mouseEvent.handlerTag === toggleOpenTag) return { type: 'toggle-open' };
         if (!mouseEvent.elementId.startsWith(`${interactionId}:option:`)) return { type: 'noop' };
         const index = Number(mouseEvent.elementId.slice(`${interactionId}:option:`.length));

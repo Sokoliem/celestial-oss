@@ -84,6 +84,16 @@ describe('commandPalette', () => {
       expect(model.palette.query).toBe('O');
     });
 
+    it('cp-backspace removes one complete grapheme without creating a lone surrogate', () => {
+      const component = commandPalette({ commands: sampleCommands });
+      let model = openPalette();
+      [model] = component.update({ type: 'cp-input', char: '👩' }, model);
+      expect(model.palette.query).toBe('👩');
+      [model] = component.update({ type: 'cp-backspace' }, model);
+      expect(model.palette.query).toBe('');
+      expect(model.palette.query).not.toMatch(/[\uD800-\uDFFF]/u);
+    });
+
     it('cp-down navigates to next command', () => {
       const component = commandPalette({ commands: sampleCommands });
       let model = openPalette();

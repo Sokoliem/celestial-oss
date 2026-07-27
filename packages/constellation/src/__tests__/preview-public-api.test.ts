@@ -16,6 +16,9 @@ import {
   combobox,
   commandPalette,
   confirmDialog,
+  createAppShell,
+  createNotificationCenter,
+  createNotificationStore,
   createToastManager,
   dataTable,
   datePicker,
@@ -23,12 +26,12 @@ import {
   drawer,
   emptyState,
   formField,
-  hovercard,
   helpView,
+  hovercard,
   indeterminateProgress,
+  keyMap,
   list,
   modal,
-  keyMap,
   multiSelect,
   numberInput,
   optionListView,
@@ -43,6 +46,7 @@ import {
   select,
   slider,
   spinner,
+  statusBar,
   tabs,
   tagInput,
   textarea,
@@ -101,13 +105,14 @@ const componentBuilders = [
   popoverGroup,
   hovercard,
   toggleGroup,
+  statusBar,
 ];
 
 const excludedBuilders = ['fileExplorer', 'markdownViewer', 'terminal', 'kanbanBoard', 'imageViewer', 'notificationCenter'] as const;
 
 describe('@celestial/ui preview surface', () => {
-  it('exports the curated 46 component builders', () => {
-    expect(componentBuilders).toHaveLength(46);
+  it('exports the curated 47 component builders', () => {
+    expect(componentBuilders).toHaveLength(47);
     for (const builder of componentBuilders) expect(builder).toBeTypeOf('function');
   });
 
@@ -119,5 +124,14 @@ describe('@celestial/ui preview surface', () => {
     for (const helper of [actionCommands, actionKeyBindings, unbindableActionShortcuts, keyMap, helpView]) {
       expect(helper).toBeTypeOf('function');
     }
+  });
+
+  it('exports one canonical notification store for toast and inbox projections', () => {
+    expect(createNotificationStore).toBeTypeOf('function');
+    expect(createNotificationCenter).toBeTypeOf('function');
+  });
+
+  it('exports the headless application-shell coordinator without adding a builder', () => {
+    expect(createAppShell).toBeTypeOf('function');
   });
 });

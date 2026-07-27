@@ -1,5 +1,5 @@
 import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { border, resolveGlyph, style, tooltipVariantGlyphs } from '@celestial/core/corona';
+import { resolveElevationBorder, resolveGlyph, style, tooltipVariantGlyphs } from '@celestial/core/corona';
 import type { ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { measureTextWidth, wrapCellText } from '@celestial/rosetta';
@@ -176,7 +176,7 @@ export function tooltip(config: TooltipConfig): ComponentDescriptor<TooltipModel
       const accentStyle = style({ color: variantColor, background: tokens.bg, bold: true });
       const borderStyle = style({ color: borderColor });
       const bubbleStyle = style({
-        border: border.rounded,
+        border: resolveElevationBorder(theme, 'floating'),
         color: borderColor,
         background: tokens.bg,
         padding: 1,
@@ -266,7 +266,7 @@ export function renderTooltipBubble(options: TooltipBubbleOptions): VNode {
       ...measurement.lines.slice(1).map((line) => text(`  ${line}`, applyTypography(tokens.captionStyle, { color: tokens.text, background: tokens.bg }))),
     ),
     style({
-      border: border.rounded,
+      border: resolveElevationBorder(theme, 'floating'),
       color: borderColor,
       background: tokens.bg,
       padding: 1,

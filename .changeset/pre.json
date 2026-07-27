@@ -4,6 +4,7 @@
   "initialVersions": {
     "@celestial/atlas": "0.1.0-preview.1",
     "@celestial/aurora": "0.1.0-preview.1",
+    "@celestial/compass": "0.1.0-preview.1",
     "@celestial/core": "0.1.0-preview.1",
     "@celestial/corona": "0.1.0-preview.1",
     "@celestial/gravity": "0.1.0-preview.1",

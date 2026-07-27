@@ -19,6 +19,12 @@ pnpm add @celestial/orbit@preview @celestial/pulsar@preview
 pnpm add @celestial/spectrum@preview @celestial/mirage@preview @celestial/nova@preview @celestial/stellar@preview
 ```
 
+Headless routing and modal-safe screen navigation are available separately:
+
+```bash
+pnpm add @celestial/compass@preview
+```
+
 Testing utilities are optional:
 
 ```bash
@@ -89,7 +95,7 @@ The same architecture powers four supported, local-only demos:
 | Task Console | `pnpm demo:tasks` | Real worker processes, streaming subscriptions, progress, cancellation, retry, responsive layout, and layered UI |
 | API Inspector | `pnpm demo:api` | Loopback HTTP, abortable commands, form controls, response tabs, history, and error states |
 | Horizon Workbench | `pnpm demo:horizon` | Beta splits, tabs, workspaces, responsive panes, managed floating windows, and window chrome |
-| Celestial Flight Deck | `pnpm demo:showcase` | A machine-backed tour of all 17 public packages and 46 curated builders, with Rosetta locale/bidi tools, deep Orbit and rich-output instruments, layered controls, context menus, and workspace-aware Horizon windows, shelf, snapping, tiling, and sessions |
+| Celestial Flight Deck | `pnpm demo:showcase` | A machine-backed tour of all 18 public packages and 47 curated builders, with Compass navigation, explicit Nebula config loading and diagnostics, Rosetta locale/bidi tools, deep Orbit and rich-output instruments, layered controls, context menus, and workspace-aware Horizon windows, shelf, snapping, tiling, and sessions |
 
 All four demos import only the supported preview packages. They use bundled/local fixtures and never require credentials or an external service. The Flight Deck's detailed manual and automated acceptance path is in [`examples/celestial-showcase/README.md`](examples/celestial-showcase/README.md).
 
@@ -102,10 +108,11 @@ All four demos import only the supported preview packages. They use bundled/loca
 | `@celestial/corona` | Preview | Colors, themes, tokens, borders, and text styling |
 | `@celestial/aurora` | Preview | Tweens, springs, easing, and animation sequences |
 | `@celestial/rosetta` | Preview | Grapheme segmentation, bidi-safe terminal text, localization, and formatting |
-| `@celestial/nebula` | Preview | Elm runtime, virtual terminal DOM, commands, subscriptions, signals, and focus |
+| `@celestial/nebula` | Preview | Elm runtime, virtual terminal DOM, commands, subscriptions, signals, focus, and explicit config loading with diagnostics |
 | `@celestial/gravity` | Preview | Flex, grid, responsive, and spatial layout primitives |
 | `@celestial/nexus` | Preview | Hit testing, mouse interaction, focus stacks, and pointer primitives |
-| `@celestial/ui` | Preview | A curated set of 46 tested input, navigation, data, feedback, and contextual-surface builders |
+| `@celestial/compass` | Preview | Local URLs, deterministic route matching, immutable history, headless routing, and modal-safe screen navigation |
+| `@celestial/ui` | Preview | A curated set of 47 tested input, navigation, data, feedback, and contextual-surface builders |
 | `@celestial/orbit` | Preview | Forms, validation, prompts, schema-driven fields, and branching wizards |
 | `@celestial/spectrum` | Preview | State-machine syntax highlighting, language detection, and diagnostics |
 | `@celestial/mirage` | Preview | Grapheme-safe gradients and reduced-motion-aware text effects |
@@ -119,24 +126,26 @@ All four demos import only the supported preview packages. They use bundled/loca
 
 ## Curated UI
 
-The preview publishes 46 builders instead of the full repository's experimental catalog:
+The preview publishes 47 builders instead of the full repository's experimental catalog:
 
 - Input: `button`, `textInput`, `textarea`, `checkbox`, `radioGroup`, `select`, `toggle`, `slider`
 - Grouped and assisted input: `checkboxGroup`, `toggleGroup`, `autocomplete`, `combobox`, `datePicker`, `multiSelect`, `numberInput`
 - Specialized form controls: `rangeSlider`, `rating`, `segmentedControl`, `tagInput`, `colorPicker`, `formField`
 - Navigation: `tabs`, `breadcrumb`, `pagination`, `commandPalette`, `optionListView`
 - Data and display: `dataTable`, `tree`, `list`, `progressBar`, `indeterminateProgress`, `spinner`, `card`, `cardGrid`, `divider`, `emptyState`
-- Feedback: `badge`, `alert`, `tooltip`, `createToastManager`
+- Feedback: `badge`, `alert`, `statusBar`, `tooltip`, `createToastManager`
 - Layers: `modal`, `confirmDialog`, `drawer`
 - Context: `popover`, `popoverGroup`, `hovercard`
 
-`contextMenuView` and its reducer/measurement helpers are public context-menu composition primitives; they are demonstrated by the Flight Deck but are not counted as component builders.
+`contextMenuView`, `createNotificationCenter`, and their controlled
+reducer/measurement helpers are public composition primitives rather than
+component-owned stores. They are not counted as component builders.
 
 The public surface is mouse-aware, has keyboard fallbacks where appropriate, uses semantic theme tokens, reflows at narrow widths, and requires visible close affordances plus Escape dismissal for layered surfaces.
 
-## Workflows and rich output
+## Navigation, workflows, and rich output
 
-`@celestial/orbit` composes the curated UI controls into explicit Elm-style form and wizard models. `@celestial/pulsar` renders Markdown and delegates syntax highlighting and validated chart fences to `@celestial/spectrum` and `@celestial/stellar`. `@celestial/mirage` and `@celestial/nova` honor reduced-motion settings, while the rendering stack uses grapheme-safe primitives so resize and animation operations do not split user-perceived characters.
+`@celestial/compass` supplies dependency-free, headless route and screen models that applications can compose into their own Elm-style update loops. `@celestial/orbit` composes the curated UI controls into explicit form and wizard models. `@celestial/pulsar` renders Markdown and delegates syntax highlighting and validated chart fences to `@celestial/spectrum` and `@celestial/stellar`. `@celestial/mirage` and `@celestial/nova` honor reduced-motion settings, while the rendering stack uses grapheme-safe primitives so resize and animation operations do not split user-perceived characters.
 
 The preview intentionally uses safe fallbacks: Pulsar does not fetch remote images or emit binary image protocols, and Mermaid fences remain readable source until the Canvas package is admitted to the public boundary.
 

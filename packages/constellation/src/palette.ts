@@ -1,3 +1,4 @@
+import { segmentGraphemes } from '@celestial/rosetta';
 import { fuzzyFilter } from './fuzzy.js';
 import { moveOptionHighlight } from './option-list-view.js';
 
@@ -153,7 +154,9 @@ export function paletteUpdate<M>(msg: PaletteMsg, state: PaletteState, commands:
     }
 
     case 'pal-backspace': {
-      const newQuery = state.query.slice(0, -1);
+      const graphemes = segmentGraphemes(state.query);
+      graphemes.pop();
+      const newQuery = graphemes.join('');
       const filteredIds = filterPaletteCommandIds(newQuery, commands);
       return {
         ...state,

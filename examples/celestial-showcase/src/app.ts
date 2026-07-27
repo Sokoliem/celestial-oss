@@ -6,7 +6,6 @@ import {
   column,
   createDragState,
   type DropTarget,
-  defaultTheme,
   dragUpdate,
   event,
   getCapabilities,
@@ -17,7 +16,6 @@ import {
   Sub,
   type Sub as Subscription,
   shouldAnimate,
-  style,
   text,
   type VNode,
 } from '@celestial/core';
@@ -49,7 +47,31 @@ import {
   workspaceUpdate,
 } from '@celestial/horizon';
 import type { ComponentDescriptor, MenuItem } from '@celestial/ui';
-import { badge, contextMenuUpdate, contextMenuView, createContextMenuState, getSelectedItem, measureContextMenuLayout, progressBar } from '@celestial/ui';
+import type { SemanticTheme } from '@celestial/core/corona';
+import {
+  badge,
+  button,
+  contextMenuUpdate,
+  contextMenuView,
+  createContextMenuState,
+  getSelectedItem,
+  interactiveRow,
+  measureContextMenuLayout,
+  progressBar,
+  themedRoot,
+} from '@celestial/ui';
+import {
+  APP_SHELL_LAB_TASK_OWNER,
+  appShellLabHasBlockingSurface,
+  appShellLabHasDismissTarget,
+  appShellLabSubscriptions,
+  closeAppShellLabTransientSurfaces,
+  composeAppShellLabSurfaces,
+  createAppShellLabModel,
+  isAppShellLabAction,
+  renderAppShellLab,
+  updateAppShellLab,
+} from './app-shell-lab.js';
 import {
   createShowcaseComponents,
   GALLERY_PAGE_COUNT,
@@ -78,6 +100,16 @@ import {
   WINDOW_PAGE_LABELS,
   WORKFLOW_PAGE_LABELS,
 } from './labs.js';
+import { applyShowcaseLabTheme, showcaseLabTheme } from './themes.js';
+import {
+  actionStyle,
+  headingStyle,
+  mutedStyle,
+  setShowcasePresentationTheme,
+  successStyle,
+  titleStyle,
+  warningStyle,
+} from './presentation.js';
 import type {
   CelestialShowcaseModel,
   CelestialShowcaseMsg,
@@ -102,24 +134,6 @@ export const SHOWCASE_MIN_ROWS = 32;
 
 const SHOWCASE_TOP_INSET = 3;
 const SHOWCASE_STATUS_INSET = 2;
-
-const headingStyle = style({ color: defaultTheme.colors.tones.accent, bold: true });
-const titleStyle = style({ color: defaultTheme.colors.text, bold: true });
-const mutedStyle = style({ color: defaultTheme.colors.muted });
-const actionStyle = style({ color: defaultTheme.colors.interactive, bold: true });
-const successStyle = style({ color: defaultTheme.colors.tones.success });
-const warningStyle = style({ color: defaultTheme.colors.tones.warning });
-
-const contextMenuTokens = {
-  background: defaultTheme.colors.surface,
-  border: defaultTheme.colors.border,
-  text: defaultTheme.colors.text,
-  textMuted: defaultTheme.colors.muted,
-  selectedBackground: defaultTheme.states.active.bg ?? defaultTheme.colors.interactive,
-  selectedText: defaultTheme.colors.inverse,
-  separator: defaultTheme.colors.border,
-  shortcut: defaultTheme.colors.textSoft,
-};
 
 const workspaceDefinitions: ShowcaseWorkspace[] = [
   { id: 'flight', name: 'Flight', summary: 'Operate the primary capability labs.' },
@@ -199,6 +213,7 @@ const EMPTY_EVIDENCE: SmokeEvidence = {
   layersOpened: 0,
   breakpointCrossings: 0,
   windowChanges: 0,
+  appShellActions: 0,
   helpOpens: 0,
 };
 
@@ -214,6 +229,7 @@ const evidenceField: Record<SmokeId, keyof SmokeEvidence> = {
   layer: 'layersOpened',
   adaptive: 'breakpointCrossings',
   window: 'windowChanges',
+  'app-shell': 'appShellActions',
   help: 'helpOpens',
 };
 
@@ -276,6 +292,17 @@ const actionLabels: Record<string, string> = {
   'window-cycle': 'Cycle snap zone and tile layout',
   'reopen-telemetry': 'Reopen telemetry instrument',
   'reopen-events': 'Reopen event instrument',
+  'app-shell-overview': 'Open app-shell overview',
+  'app-shell-jobs': 'Open app-shell job queue',
+  'app-shell-back': 'Navigate app-shell history back',
+  'app-shell-confirm': 'Open app-shell confirmation',
+  'app-shell-start': 'Start app-shell background task',
+  'app-shell-cancel': 'Cancel app-shell background task',
+  'app-shell-notify': 'Send shared app-shell notification',
+  'app-shell-inbox': 'Open shared notification center',
+  'app-shell-help': 'Open canonical app-shell help',
+  'app-shell-palette': 'Open coordinated action palette',
+  'app-shell-dismiss': 'Dismiss the active app-shell surface',
 };
 
 function switchLabItems(model: CelestialShowcaseModel): MenuItem<ShowcaseContextAction>[] {
@@ -549,37 +576,41 @@ function layerPip(
 
 function actionNode(model: CelestialShowcaseModel, id: string, label: string, shortcut?: string): VNode {
   const hovered = model.hoveredRegion === `action:${id}`;
-  const node = event(
-    `showcase-action:${id}`,
-    text(`[${label}]`, hovered ? style({ color: defaultTheme.colors.inverse, background: defaultTheme.colors.interactive, bold: true }) : actionStyle),
-    {
-      onClick: `showcase-action:${id}`,
-      onRightClick: `showcase-context:action:${id}`,
-      onMouseEnter: `showcase-hover:action:${id}`,
-      onMouseLeave: `showcase-leave:action:${id}`,
-    },
-    { label, intent: id, affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: shortcut },
-  );
-  runtime.setVNodeMeta(node, { a11y: { role: 'button', label } });
-  return node;
+  return button({
+    id: `showcase-action:${id}`,
+    label,
+    onClick: `showcase-action:${id}`,
+    onRightClick: `showcase-context:action:${id}`,
+    onMouseEnter: `showcase-hover:action:${id}`,
+    onMouseLeave: `showcase-leave:action:${id}`,
+    hovered,
+    keyboardHint: shortcut,
+    intent: id,
+  });
 }
 
-function labTab(model: CelestialShowcaseModel, lab: (typeof LABS)[number], active: boolean): VNode {
+function labTab(model: CelestialShowcaseModel, lab: (typeof LABS)[number], active: boolean, compact = false): VNode {
   const hovered = model.hoveredRegion === `lab:${lab.id}`;
-  const node = event(
-    `showcase-lab:${lab.id}`,
-    text(
-      `${active ? '[' : ' '}${lab.key} ${lab.label}${active ? ']' : ' '}`,
-      hovered ? style({ color: defaultTheme.colors.inverse, background: defaultTheme.colors.interactive, bold: true }) : active ? actionStyle : mutedStyle,
-    ),
-    {
-      onClick: `showcase-lab:${lab.id}`,
-      onRightClick: `showcase-context:lab:${lab.id}`,
-      onMouseEnter: `showcase-hover:lab:${lab.id}`,
-      onMouseLeave: `showcase-leave:lab:${lab.id}`,
-    },
-    { label: `Open ${lab.label} lab`, intent: 'navigate', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: lab.key },
-  );
+  const label = compact
+    ? active
+      ? `[${lab.key} ${lab.label}]`
+      : lab.id === 'app-shell'
+        ? ` ${lab.key} App shell `
+        : ` ${lab.key} `
+    : `${active ? '[' : ' '}${lab.key} ${lab.label}${active ? ']' : ' '}`;
+  const node = interactiveRow({
+    id: `showcase-lab:${lab.id}`,
+    label: `Open ${lab.label} lab`,
+    content: text(label),
+    onClick: `showcase-lab:${lab.id}`,
+    onRightClick: `showcase-context:lab:${lab.id}`,
+    onMouseEnter: `showcase-hover:lab:${lab.id}`,
+    onMouseLeave: `showcase-leave:lab:${lab.id}`,
+    hovered,
+    selected: active,
+    shortcut: lab.key,
+    intent: 'navigate',
+  });
   runtime.setVNodeMeta(node, { a11y: { role: 'tab', label: lab.label, selected: active } });
   return node;
 }
@@ -641,7 +672,12 @@ function minimumViewport(model: CelestialShowcaseModel): VNode {
   });
 }
 
-function composeSurfaces(base: VNode, components: ShowcaseComponents, model: CelestialShowcaseModel): VNode {
+function composeSurfaces(
+  base: VNode,
+  components: ShowcaseComponents,
+  model: CelestialShowcaseModel,
+  theme: SemanticTheme,
+): VNode {
   let layered = base;
   if (model.toast.toasts.length) {
     layered = components.toastManager.layer(
@@ -691,13 +727,20 @@ function composeSurfaces(base: VNode, components: ShowcaseComponents, model: Cel
       'palette',
     );
   }
+  if (model.activeLab === 'app-shell') {
+    layered = composeAppShellLabSurfaces(layered, model.appShellLab, {
+      cols: model.cols,
+      rows: model.rows,
+      theme,
+    });
+  }
 
   const composed = layered;
   if (!model.contextMenu.open) return composed;
 
   const menu = contextMenuView({
     state: model.contextMenu,
-    tokens: contextMenuTokens,
+    theme,
     viewport: { cols: model.cols, rows: model.rows },
     zIndex: 120,
   });
@@ -727,10 +770,15 @@ function composeSurfaces(base: VNode, components: ShowcaseComponents, model: Cel
   return runtime.layerStack(shielded, { ...menu, child: interactiveMenu });
 }
 
-function renderActiveLab(components: ShowcaseComponents, model: CelestialShowcaseModel, caps: ReturnType<typeof getCapabilities>): VNode {
+function renderActiveLab(
+  components: ShowcaseComponents,
+  model: CelestialShowcaseModel,
+  caps: ReturnType<typeof getCapabilities>,
+  theme: ReturnType<ReturnType<typeof runtime.createThemeContext>['current']>,
+): VNode {
   switch (model.activeLab) {
     case 'core':
-      return renderCoreLab(model, caps);
+      return renderCoreLab(model, caps, theme);
     case 'components':
       return column(
         row(
@@ -745,15 +793,22 @@ function renderActiveLab(components: ShowcaseComponents, model: CelestialShowcas
     case 'workflows':
       return renderWorkflowsLab(components, model);
     case 'visuals':
-      return renderVisualsLab(model, caps);
+      return renderVisualsLab(model, caps, theme);
     case 'mouse':
-      return renderMouseLab(model);
+      return renderMouseLab(model, theme);
     case 'layers':
       return renderLayersLab(model);
     case 'windows':
       return renderWindowsLab(model);
     case 'smoke':
       return renderSmokeLab(model);
+    case 'app-shell':
+      return renderAppShellLab(
+        model.appShellLab,
+        model.cols,
+        model.hoveredRegion,
+        theme,
+      );
   }
 }
 
@@ -792,8 +847,9 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
   const size = options.initialSize ?? getTerminalSize();
   const fast = options.fast ?? process.env['CELESTIAL_DEMO_FAST'] === '1';
   const caps = getCapabilities();
-  const components = createShowcaseComponents();
   const themeCtx = runtime.createThemeContext({ unicodeLevel: caps.unicodeLevel, motion: { reduceMotion: caps.reducedMotion } });
+  applyShowcaseLabTheme(themeCtx, 'core', caps);
+  const components = createShowcaseComponents(themeCtx);
 
   const freshModel = (nextSize = size): CelestialShowcaseModel => {
     const workspaces = createWorkspaceModel(workspaceDefinitions);
@@ -830,6 +886,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
       windowDrag: null,
       workspaces,
       windows: initialWindows(nextSize, workspaceDefinitions[workspaces.activeIndex]!.id),
+      appShellLab: createAppShellLabModel(),
       ...initialComponentModels(components),
     };
   };
@@ -840,7 +897,19 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
     update(message, model) {
       switch (message.type) {
         case 'switch-lab': {
-          const closed = cancelActiveInteractions(model, true);
+          applyShowcaseLabTheme(themeCtx, message.lab, effectiveCapabilities(model, caps));
+          const appShellLab =
+            model.activeLab === 'app-shell' && message.lab !== 'app-shell'
+              ? closeAppShellLabTransientSurfaces(model.appShellLab, {
+                  cols: model.cols,
+                  rows: model.rows,
+                  fast,
+                })
+              : model.appShellLab;
+          const closed = cancelActiveInteractions(
+            { ...model, appShellLab },
+            true,
+          );
           const next = {
             ...closed,
             activeLab: message.lab,
@@ -925,6 +994,27 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         }
         case 'run-action': {
           const action = message.action;
+          if (action.startsWith('app-shell-')) {
+            const labAction = action.slice('app-shell-'.length);
+            if (isAppShellLabAction(labAction)) {
+              return this.update(
+                {
+                  type: 'app-shell-lab',
+                  msg: { type: 'activate', action: labAction },
+                },
+                model,
+              );
+            }
+          }
+          if (action === 'palette' && model.activeLab === 'app-shell') {
+            return this.update(
+              {
+                type: 'app-shell-lab',
+                msg: { type: 'activate', action: 'palette' },
+              },
+              model,
+            );
+          }
           if (['modal', 'confirm', 'drawer', 'tooltip', 'palette', 'toast'].includes(action))
             return this.update({ type: 'open-surface', surface: action as SurfaceId }, model);
           if (action === 'help') return this.update({ type: 'open-help' }, model);
@@ -1289,6 +1379,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
                 { id: 'layers', msg: { type: 'switch-lab', lab: 'layers' } as CelestialShowcaseMsg },
                 { id: 'windows', msg: { type: 'switch-lab', lab: 'windows' } as CelestialShowcaseMsg },
                 { id: 'smoke', msg: { type: 'switch-lab', lab: 'smoke' } as CelestialShowcaseMsg },
+                { id: 'app-shell', msg: { type: 'switch-lab', lab: 'app-shell' } as CelestialShowcaseMsg },
                 { id: 'help', msg: { type: 'open-help' } as CelestialShowcaseMsg },
                 { id: 'reset', msg: { type: 'reset' } as CelestialShowcaseMsg },
               ].find((entry) => entry.id === selectedId)?.msg
@@ -1297,11 +1388,48 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           const mapped = Cmd.map(inner, (msg) => ({ type: 'palette', msg }) as CelestialShowcaseMsg);
           return [{ ...model, palette }, command ? Cmd.batch(mapped, Cmd.msg(command)) : mapped];
         }
+        case 'app-shell-lab': {
+          const [appShellLab, command] = updateAppShellLab(
+            message.msg,
+            model.appShellLab,
+            {
+              cols: model.cols,
+              rows: model.rows,
+              fast,
+            },
+          );
+          const earnedEvidence =
+            appShellLab.evidenceVersion > model.appShellLab.evidenceVersion;
+          const receipt = appShellLab.lastEvidenceReceipt;
+          const next = {
+            ...model,
+            appShellLab,
+            lastAction: earnedEvidence ? receipt : model.lastAction,
+          };
+          return [
+            earnedEvidence
+              ? mark(next, 'app-shell', receipt)
+              : next,
+            Cmd.map(
+              command,
+              (msg): CelestialShowcaseMsg => ({ type: 'app-shell-lab', msg }),
+            ),
+          ];
+        }
         case 'help-surface':
           return message.msg.type === 'close' || message.msg.type === 'panic'
             ? [{ ...model, helpOpen: false, lastAction: 'Closed contextual help.' }, Cmd.none()]
             : [model, Cmd.none()];
         case 'open-help': {
+          if (model.activeLab === 'app-shell') {
+            return this.update(
+              {
+                type: 'app-shell-lab',
+                msg: { type: 'activate', action: 'help' },
+              },
+              model,
+            );
+          }
           if (model.helpOpen) return [model, Cmd.none()];
           const cancelled = cancelActiveInteractions(model);
           return [mark({ ...cancelled, helpOpen: true, lastAction: `Opened contextual help for ${model.activeLab}.` }, 'help'), Cmd.none()];
@@ -1653,6 +1781,18 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         }
         case 'dismiss-top': {
           if (model.contextMenu.open) return this.update({ type: 'context-menu', msg: { type: 'ctx-close' } }, model);
+          if (
+            model.activeLab === 'app-shell'
+            && appShellLabHasDismissTarget(model.appShellLab)
+          ) {
+            return this.update(
+              {
+                type: 'app-shell-lab',
+                msg: { type: 'shell', msg: { type: 'shell-dismiss' } },
+              },
+              model,
+            );
+          }
           if (model.dragDemo.phase === 'dragging') {
             return [
               {
@@ -1678,8 +1818,11 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           return [withComponentFocus(model, 'none'), Cmd.none()];
         }
         case 'reset':
-          themeCtx.patch({ unicodeLevel: caps.unicodeLevel, motion: { reduceMotion: caps.reducedMotion } });
-          return [{ ...freshModel({ cols: model.cols, rows: model.rows }), lastAction: 'Reset the Flight Deck and smoke receipts.' }, Cmd.none()];
+          applyShowcaseLabTheme(themeCtx, 'core', caps);
+          return [
+            { ...freshModel({ cols: model.cols, rows: model.rows }), lastAction: 'Reset the Flight Deck and smoke receipts.' },
+            Cmd.cancelTasksByOwner<CelestialShowcaseMsg>(APP_SHELL_LAB_TASK_OWNER),
+          ];
         case 'quit':
           return [model, Cmd.quit()];
         case 'noop':
@@ -1691,8 +1834,11 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
       const tier = viewportTier(model.cols);
       const active = LABS[activeLabIndex(model.activeLab)]!;
       const currentCaps = effectiveCapabilities(model, caps);
+      const currentTheme = themeCtx.current();
+      setShowcasePresentationTheme(currentTheme);
+      const currentThemeLabel = showcaseLabTheme(model.activeLab).label;
       if (model.cols < SHOWCASE_MIN_COLS || model.rows < SHOWCASE_MIN_ROWS) {
-        return composeSurfaces(minimumViewport(model), components, model);
+        return composeSurfaces(minimumViewport(model), components, model, currentTheme);
       }
       const tierLabel = tier === 'wide' ? 'WIDE / floating' : tier === 'medium' ? 'MEDIUM / split' : 'COMPACT / single';
       const title =
@@ -1701,20 +1847,49 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
               text('CELESTIAL FLIGHT DECK', headingStyle),
               text('  '),
               badge({ label: 'OSS preview', variant: 'success', size: 'sm' }).view({ visible: true }),
-              text('  COMPACT / single', mutedStyle),
+              text(`  ${currentThemeLabel} theme  COMPACT / single`, mutedStyle),
             )
           : row(
               text('CELESTIAL FLIGHT DECK', headingStyle),
               text('  '),
               badge({ label: 'OSS preview', variant: 'success', size: 'sm' }).view({ visible: true }),
-              text(' '),
-              badge({ label: 'Horizon beta', variant: 'warning', size: 'sm' }).view({ visible: true }),
+              ...(tier === 'wide'
+                ? [
+                    text(' '),
+                    badge({ label: 'Horizon beta', variant: 'warning', size: 'sm' }).view({ visible: true }),
+                    text(' '),
+                    badge({ label: `${currentThemeLabel} theme`, variant: 'info', size: 'sm', themeCtx }).view({ visible: true }),
+                  ]
+                : [text(`  ${currentThemeLabel} theme`, mutedStyle)]),
               text(`  ${tierLabel}`, tier === 'wide' ? successStyle : warningStyle),
             );
-      const labStrip = row(...LABS.flatMap((lab) => [labTab(model, lab, model.activeLab === lab.id), text(' ')]));
+      const labStrip =
+        tier === 'compact'
+          ? row(...LABS.map((lab) => labTab(model, lab, model.activeLab === lab.id, true)))
+          : tier === 'wide'
+          ? row(
+              ...LABS.flatMap((lab) => [
+                labTab(model, lab, model.activeLab === lab.id),
+                text(' '),
+              ]),
+            )
+          : column(
+              row(
+                ...LABS.slice(0, 5).flatMap((lab) => [
+                  labTab(model, lab, model.activeLab === lab.id),
+                  text(' '),
+                ]),
+              ),
+              row(
+                ...LABS.slice(5).flatMap((lab) => [
+                  labTab(model, lab, model.activeLab === lab.id),
+                  text(' '),
+                ]),
+              ),
+            );
       const labContent = event(
         `showcase-context-lab-${active.id}`,
-        panel({ title: `${active.label} lab`, content: renderActiveLab(components, model, currentCaps), focused: true, fill: true }),
+        panel({ title: `${active.label} lab`, content: renderActiveLab(components, model, currentCaps, currentTheme), focused: true, fill: true, themeCtx }),
         { onRightClick: `showcase-context:lab:${active.id}` },
         { label: `${active.label} lab context menu`, intent: 'menu', affordances: ['click'], cursor: 'context-menu' },
       );
@@ -1743,7 +1918,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           : status;
       let base: VNode = shellLayout({
         header: column(title, labStrip),
-        sidebar: tier === 'wide' ? panel({ title: 'Mission', content: missionRail(model), fill: true }) : undefined,
+        sidebar: tier === 'wide' ? panel({ title: 'Mission', content: missionRail(model), fill: true, themeCtx }) : undefined,
         content,
         statusBar,
         sidebarRatio: 0.23,
@@ -1758,7 +1933,8 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         { label: 'Flight Deck context menu', intent: 'menu', affordances: ['click'], cursor: 'context-menu' },
       );
 
-      return composeSurfaces(base, components, model);
+      base = themedRoot(base, { theme: currentTheme });
+      return composeSurfaces(base, components, model, currentTheme);
     },
 
     subscriptions(model) {
@@ -1771,6 +1947,60 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           ? [Sub.map(components.toastManager.subscriptions(model.toast), (msg) => ({ type: 'toast', msg }) as CelestialShowcaseMsg)]
           : []),
       ];
+
+      if (model.activeLab === 'app-shell' && model.contextMenu.open) {
+        return Sub.batch(
+          ...persistent,
+          Sub.key('escape', {
+            type: 'context-menu',
+            msg: { type: 'ctx-close' },
+          }),
+          Sub.key('up', { type: 'context-menu', msg: { type: 'ctx-up' } }),
+          Sub.key('down', { type: 'context-menu', msg: { type: 'ctx-down' } }),
+          Sub.key('left', {
+            type: 'context-menu',
+            msg: { type: 'ctx-exit-submenu' },
+          }),
+          Sub.key('right', {
+            type: 'context-menu',
+            msg: { type: 'ctx-enter-submenu' },
+          }),
+          Sub.key('enter', { type: 'context-menu-activate' }),
+        );
+      }
+
+      if (model.activeLab === 'app-shell') {
+        const appShellSubscriptions = Sub.map(
+          appShellLabSubscriptions(model.appShellLab, {
+            cols: model.cols,
+            rows: model.rows,
+          }),
+          (msg): CelestialShowcaseMsg => ({ type: 'app-shell-lab', msg }),
+        );
+        const activeSubscriptions: Subscription<CelestialShowcaseMsg>[] = [
+          appShellSubscriptions,
+          Sub.keyWithModifiers('c', { ctrl: true }, { type: 'quit' }),
+        ];
+        if (!appShellLabHasBlockingSurface(model.appShellLab)) {
+          activeSubscriptions.push(
+            Sub.keyWithModifiers(
+              'f10',
+              { shift: true },
+              { type: 'open-context-menu-keyboard' },
+            ),
+            Sub.key('f10', { type: 'open-context-menu-keyboard' }),
+            Sub.key('r', { type: 'reset' }),
+            ...LABS.map((lab) =>
+              Sub.key(
+                lab.key,
+                { type: 'switch-lab', lab: lab.id } as CelestialShowcaseMsg,
+              ),
+            ),
+            Sub.key('q', { type: 'quit' }),
+          );
+        }
+        return Sub.batch(...persistent, ...activeSubscriptions);
+      }
 
       const surface = topSurface(model);
       if (surface === 'context-menu') {

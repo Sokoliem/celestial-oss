@@ -9,6 +9,7 @@
     "paths": {
       "@celestial/core": ["./packages/core/src/index.ts"],
       "@celestial/core/*": ["./packages/core/src/*.ts"],
+      "@celestial/compass": ["./packages/compass/src/index.ts"],
       "@celestial/ui": ["./packages/constellation/src/index.ts"],
       "@celestial/orbit": ["./packages/orbit/src/index.ts"],
       "@celestial/spectrum": ["./packages/spectrum/src/index.ts"],

@@ -5,7 +5,7 @@ import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { padCellText } from '@celestial/rosetta';
 import { generateFocusGroupId } from './focus-group.js';
-import { boundedInteger, MAX_RENDER_CELLS, positiveInteger } from './internal.js';
+import { boundedInteger, MAX_RENDER_CELLS, positiveInteger, wheelDirection } from './internal.js';
 import { applyState, applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
@@ -733,7 +733,8 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
           return { type: 'sort-at', index: Number(mouseEvent.elementId.slice(`${interactionId}:header:`.length)) };
         }
         if (mouseEvent.handlerTag === scrollTag && mouseEvent.elementId === interactionId) {
-          return mouseEvent.deltaY === -1 ? { type: 'cursor-up' } : { type: 'cursor-down' };
+          const direction = wheelDirection(mouseEvent.deltaY);
+          return direction < 0 ? { type: 'cursor-up' } : direction > 0 ? { type: 'cursor-down' } : { type: 'noop' };
         }
         return { type: 'noop' };
       });

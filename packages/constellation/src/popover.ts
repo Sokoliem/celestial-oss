@@ -1,5 +1,5 @@
 import type { Color, GlyphLevel, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
-import { border, popoverGlyphs, resolveGlyph, style } from '@celestial/corona';
+import { popoverGlyphs, resolveElevationBorder, resolveGlyph, style } from '@celestial/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/nebula';
 import { box, Cmd, collectFocusNodes, column, event, row, Sub, setVNodeMeta, text } from '@celestial/nebula';
 import { caretFor } from './anchored-overlay.js';
@@ -164,7 +164,7 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
           { label: 'Close popover', intent: 'close', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Escape' },
         ),
       );
-      const popoverContent = box(column(...panelChildren), style({ border: border.rounded, borderColor: variantColor, background: tokens.bg, padding: 1 }), {
+      const popoverContent = box(column(...panelChildren), style({ border: resolveElevationBorder(theme, 'floating'), borderColor: variantColor, background: tokens.bg, padding: 1 }), {
         width,
         fit: 'content',
         overflow: 'hidden',
@@ -287,7 +287,7 @@ export function popoverGroup(config: PopoverGroupConfig): ComponentDescriptor<{ 
         );
         const panel = box(
           column(enablePopoverTextWrapping(text(popoverItem.content)), close),
-          style({ border: border.rounded, borderColor: variantColor, background: tokens.bg, padding: 1 }),
+          style({ border: resolveElevationBorder(theme, 'floating'), borderColor: variantColor, background: tokens.bg, padding: 1 }),
           { width: 36, fit: 'content', overflow: 'hidden' },
         );
         setVNodeMeta(panel, { testId: `${groupId}:panel`, a11y: { role: 'dialog', label: popoverItem.trigger } });

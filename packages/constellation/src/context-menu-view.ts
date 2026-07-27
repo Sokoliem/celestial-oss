@@ -18,11 +18,24 @@
  * `ctx-open` message and for handling the selected item's `msg` once the user
  * confirms a selection.
  */
-import { border, type Color, DEFAULT_GLYPH_TOKENS, type GlyphLevel, resolveGlyph, style, truncate, visualWidth } from '@celestial/corona';
+import {
+  type Color,
+  DEFAULT_GLYPH_TOKENS,
+  type GlyphLevel,
+  resolveElevationBorder,
+  resolveGlyph,
+  type SemanticTheme,
+  style,
+  truncate,
+  type ThemeInput,
+  type TokenContract,
+  visualWidth,
+} from '@celestial/corona';
 import { stack } from '@celestial/gravity';
-import { box, overlay, row, text, type VNode } from '@celestial/nebula';
+import { box, overlay, row, text, type ThemeContext, type VNode } from '@celestial/nebula';
 import { type ContextMenuState, MAX_CONTEXT_MENU_ITEMS, type MenuItem } from './context-menu.js';
 import { nonNegativeInteger, positiveInteger } from './internal.js';
+import { resolveTheme, useTokens } from './theme.js';
 
 export interface ContextMenuViewTokens {
   background: Color;
@@ -34,6 +47,17 @@ export interface ContextMenuViewTokens {
   separator: Color;
   shortcut: Color;
 }
+
+export const contextMenuViewContract: TokenContract<ContextMenuViewTokens> = {
+  background: (theme: SemanticTheme) => theme.elevation.floating.surface ?? theme.colors.surfaceRaised,
+  border: (theme: SemanticTheme) => theme.elevation.floating.border ?? theme.colors.border,
+  text: (theme: SemanticTheme) => theme.colors.text,
+  textMuted: (theme: SemanticTheme) => theme.colors.muted,
+  selectedBackground: (theme: SemanticTheme) => theme.states.selected.bg ?? theme.colors.surfaceAlt,
+  selectedText: (theme: SemanticTheme) => theme.states.selected.fg,
+  separator: (theme: SemanticTheme) => theme.colors.divider,
+  shortcut: (theme: SemanticTheme) => theme.colors.textSoft,
+};
 
 /**
  * Geometry-only options accepted by `measureContextMenuLayout`. Tokens are
@@ -61,7 +85,10 @@ export interface ContextMenuLayoutOptions<M> {
 }
 
 export interface ContextMenuViewOptions<M> extends ContextMenuLayoutOptions<M> {
-  tokens: ContextMenuViewTokens;
+  /** Optional semantic overrides. Defaults resolve from the live theme. */
+  tokens?: Partial<ContextMenuViewTokens>;
+  theme?: ThemeInput;
+  themeCtx?: ThemeContext;
   /** Z-index for the overlay (default 100). */
   zIndex?: number;
   /**
@@ -239,9 +266,12 @@ function applyClampBounds(
 }
 
 export function contextMenuView<M>(options: ContextMenuViewOptions<M>): VNode | null {
-  const { state, tokens, width: widthOverride, clampBounds, visibleHeight, glyphLevel = 'wide' } = options;
+  const { state, width: widthOverride, clampBounds, visibleHeight, glyphLevel = 'wide' } = options;
   if (!state.open || state.items.length === 0) return null;
   if (visibleHeight !== undefined && visibleHeight <= 0) return null;
+  const resolvedTokens = useTokens(contextMenuViewContract, options, 'ContextMenuView');
+  const tokens: ContextMenuViewTokens = { ...resolvedTokens, ...options.tokens };
+  const theme = resolveTheme(options);
 
   const viewport = normalizedViewport(options.viewport);
   const window = visibleMenuWindow(state, viewport);
@@ -299,7 +329,7 @@ export function contextMenuView<M>(options: ContextMenuViewOptions<M>): VNode | 
     box(
       stack(rows),
       style({
-        border: border.rounded,
+        border: resolveElevationBorder(theme, 'floating'),
         borderColor: tokens.border,
         background: tokens.background,
       }),

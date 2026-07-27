@@ -38,7 +38,7 @@ export type {
   ActionUpdate,
   ResolvedAction,
 } from './actions.js';
-export { applyAction, createActionRegistry, getAction, getAvailableActions, invokeAction, resolveAction } from './actions.js';
+export { applyAction, createActionRegistry, getAction, getAvailableActions, invokeAction, isActionRegistry, resolveAction } from './actions.js';
 export type {
   AgentEvent,
   AgentMessage,
@@ -108,6 +108,19 @@ export {
 } from './clipboard.js';
 export type { Compositor, CompositorOptions, LayoutTransitionConfig } from './compositor.js';
 export { createCompositor } from './compositor.js';
+export {
+  type ConfigDiagnostic,
+  type ConfigDiagnosticCode,
+  type ConfigDiagnosticStage,
+  type ConfigLoadContext,
+  type ConfigLoadFailure,
+  type ConfigLoadOptions,
+  type ConfigLoadResult,
+  type ConfigLoadSuccess,
+  type ConfigSource,
+  type ConfigValidation,
+  loadConfig,
+} from './config-loader.js';
 export type {
   CrashRecoveryGuard,
   CrashRecoveryOptions,
@@ -230,6 +243,13 @@ export {
   getPendingCount,
   rejectOptimistic,
 } from './optimistic.js';
+export {
+  deserializeFromStorage,
+  migrateData,
+  type PersistedData,
+  type PersistenceConfig,
+  serializeForStorage,
+} from './persistence.js';
 export { type ConfigSwapInfo, createPlugin, getAttachedPlugins, loggerPlugin, PLUGINS_SYMBOL, type Plugin, withPlugins } from './plugin.js';
 export type {
   FrameProfile,
@@ -312,13 +332,6 @@ export {
   rgbToFgAnsi,
   shaders,
 } from './shader.js';
-export {
-  deserializeFromStorage,
-  migrateData,
-  type PersistedData,
-  type PersistenceConfig,
-  serializeForStorage,
-} from './persistence.js';
 export { batch, computed, createSignalContext, derived, effect, history, previous, type Signal, type SignalContext, signal } from './signals.js';
 export type { TaskDescriptor, TaskState, TaskStatus } from './tasks.js';
 export {

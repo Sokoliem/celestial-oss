@@ -31,18 +31,26 @@
  *     }
  */
 
-import { type Border, border, type Color, color, defaultTheme, style } from '@celestial/core/corona';
-import { box, column, Sub, scroll, text, type VNode } from '@celestial/core/nebula';
+import {
+  type Border,
+  type Color,
+  color,
+  createTheme,
+  defaultTheme,
+  resolveElevationBorder,
+  style,
+  type ThemeInput,
+} from '@celestial/core/corona';
+import { box, column, Sub, scroll, text, type ThemeContext, type VNode } from '@celestial/core/nebula';
 import { clampFinite, nonNegativeInteger, positiveInteger } from './internal.js';
 import { getScrollProgress, type ScrollRegionModel, type ScrollRegionMsg } from './scroll.js';
 
-const PANEL_BORDER_COLOR = defaultTheme.elevation.raised.border ?? defaultTheme.colors.border;
-const PANEL_TITLE_COLOR = defaultTheme.typography.title.color;
-const PANEL_FOCUS_COLOR = defaultTheme.states.focus.border ?? defaultTheme.colors.borderActive;
-const INDICATOR_COLOR = defaultTheme.typography.label?.color ?? PANEL_BORDER_COLOR;
-
 /** Inputs to {@link scrollablePane}. */
 export interface ScrollablePaneConfig {
+  /** Static theme override for this pane. */
+  theme?: ThemeInput;
+  /** Reactive host theme. Takes precedence over `theme`. */
+  themeCtx?: ThemeContext;
   /** The scrollable body content. */
   body: VNode;
   /** Current vertical scroll offset in lines (typically `model.scroll.scrollY`). */
@@ -78,7 +86,7 @@ export interface ScrollablePaneConfig {
    * `title` prop on {@link titledPane}.
    */
   title?: string;
-  /** Border style (default: {@link border.rounded}). */
+  /** Border style (default: the active theme's raised elevation border). */
   borderStyle?: Border;
   /** Border color (default: semantic panel border). */
   borderColor?: Color;
@@ -102,6 +110,8 @@ export interface ScrollablePaneConfig {
  * scroll keys via {@link scrollPaneSubscriptions} or roll your own.
  */
 export function scrollablePane(config: ScrollablePaneConfig): VNode {
+  const theme = config.themeCtx?.current() ?? (config.theme ? createTheme(config.theme) : defaultTheme);
+  const panelBorderColor = theme.elevation.raised.border ?? theme.colors.border;
   const {
     body,
     scrollY,
@@ -111,11 +121,11 @@ export function scrollablePane(config: ScrollablePaneConfig): VNode {
     footer,
     showIndicator = contentHeight !== undefined,
     title,
-    borderStyle = border.rounded,
-    borderColor = PANEL_BORDER_COLOR,
-    titleColor = PANEL_TITLE_COLOR,
+    borderStyle = resolveElevationBorder(theme, 'raised'),
+    borderColor = panelBorderColor,
+    titleColor = theme.typography.title.color,
     focused = false,
-    focusColor = PANEL_FOCUS_COLOR,
+    focusColor = theme.states.focus.border ?? theme.colors.borderActive,
     padding = 0,
   } = config;
 
@@ -137,7 +147,8 @@ export function scrollablePane(config: ScrollablePaneConfig): VNode {
   children.push(scroll(body, { height: safeViewport, offset: safeOffset }));
 
   if (showIndicator && safeContentHeight !== undefined) {
-    children.push(text(`${INDICATOR_COLOR.fg()}${formatIndicator(safeOffset, safeViewport, safeContentHeight)}${R}`));
+    const indicatorColor = theme.typography.label?.color ?? panelBorderColor;
+    children.push(text(`${indicatorColor.fg()}${formatIndicator(safeOffset, safeViewport, safeContentHeight)}${R}`));
   }
 
   if (typeof footer === 'string') {

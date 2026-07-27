@@ -3,7 +3,7 @@ import { style } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { Cmd, column, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { generateFocusGroupId } from './focus-group.js';
-import { positiveInteger } from './internal.js';
+import { positiveInteger, wheelDirection } from './internal.js';
 import { applyState, applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 import { createVirtualScrollState, getVisibleRange, scrollToIndex, type VirtualScrollConfig, type VirtualScrollState } from './virtual-scroll.js';
@@ -109,6 +109,7 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
   const selectTag = `${interactionId}:select`;
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
+  const scrollTag = `${interactionId}:scroll`;
 
   function vsConfig(): VirtualScrollConfig<SelectOption> {
     return { items: options, viewportHeight: maxVisible, rowHeight: 1, overscan: 0 };
@@ -244,7 +245,9 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
             event(
               `${interactionId}:option:${i}`,
               text((i === highlighted ? tokens.indicator + ' ' : '  ') + opt.label, s),
-              opt.disabled ? {} : { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+              opt.disabled
+                ? { onScroll: scrollTag }
+                : { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag, onScroll: scrollTag },
               {
                 label: opt.label,
                 intent: 'select',
@@ -292,6 +295,10 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
     },
     subscriptions(model: SelectModel): Sub<SelectMsg> {
       const mouse = Sub.elementMouse<SelectMsg>((mouseEvent) => {
+        if (mouseEvent.handlerTag === scrollTag) {
+          const direction = wheelDirection(mouseEvent.deltaY);
+          return direction < 0 ? { type: 'up' } : direction > 0 ? { type: 'down' } : { type: 'noop' };
+        }
         if (mouseEvent.elementId === `${interactionId}:trigger`) {
           if (mouseEvent.handlerTag === toggleTag) return { type: 'toggle' };
           if (mouseEvent.handlerTag === hoverTag) return { type: 'hover' };

@@ -1,4 +1,5 @@
-import { Cmd, type Cmd as Command, column, defaultTheme, event, row, runtime, style, text, type VNode } from '@celestial/core';
+import { Cmd, type Cmd as Command, column, event, row, text, type VNode } from '@celestial/core';
+import type { ThemeContext } from '@celestial/core/nebula';
 import { schemaForm, wizard } from '@celestial/orbit';
 import {
   alert,
@@ -39,9 +40,11 @@ import {
   rangeSlider,
   rating,
   segmentedControl,
+  semanticGlyph,
   select,
   slider,
   spinner,
+  statusBar,
   tabs,
   tagInput,
   textarea,
@@ -52,6 +55,7 @@ import {
   tree,
 } from '@celestial/ui';
 import { UI_BUILDER_COUNT } from './coverage.js';
+import { headingStyle, labelStyle, mutedStyle } from './presentation.js';
 import type { CelestialShowcaseModel, CelestialShowcaseMsg, LabId, ShowcaseGalleryModels } from './types.js';
 
 export { UI_BUILDER_COUNT, UI_BUILDER_NAMES } from './coverage.js';
@@ -62,10 +66,6 @@ interface CapabilityRow {
   package: string;
   state: string;
 }
-
-const headingStyle = style({ color: defaultTheme.colors.tones.accent, bold: true });
-const labelStyle = style({ color: defaultTheme.colors.textSoft, bold: true });
-const mutedStyle = style({ color: defaultTheme.colors.muted });
 
 export const GALLERY_PAGE_COUNT = 8;
 
@@ -115,7 +115,12 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
   smoke: {
     purpose: 'Turn the interaction history into a repeatable acceptance check.',
     mouse: 'Click any incomplete receipt to jump to its relevant lab.',
-    verify: 'Complete all twelve receipts, then run the README headless and PTY commands.',
+    verify: 'Complete all thirteen receipts, then run the README headless and PTY commands.',
+  },
+  'app-shell': {
+    purpose: 'Compose Compass navigation with one headless action, task, status, help, confirmation, and notification coordinator.',
+    mouse: 'Navigate screens, confirm a release, start or cancel the background task, and open the shared inbox.',
+    verify: 'Confirm the route and screen stack agree, shell receipts stay explicit, and one notification entry powers both inbox and toast views.',
   },
 };
 
@@ -133,14 +138,14 @@ function helpContent(lab: LabId): VNode {
     text('Smoke receipt', labelStyle),
     text(copy.verify, undefined, { wrap: true }),
     text(''),
-    text('Global: 1-8 labs | ?/F1 help | Esc dismiss | Ctrl+P commands | Q quit', mutedStyle, { wrap: true }),
+    text('Global: 1-9 labs | ?/F1 help | Esc dismiss | Ctrl+P commands | Q quit', mutedStyle, { wrap: true }),
   );
 }
 
-export function createShowcaseComponents() {
-  const textInputComponent = textInput({ value: 'celestial-flight-deck', placeholder: 'Mission name' });
-  const textareaComponent = textarea({ value: 'Mouse-first\nAdaptive by default', rows: 2, maxLines: 4, showLineNumbers: true });
-  const checkboxComponent = checkbox({ label: 'Run headless checks', checked: true });
+export function createShowcaseComponents(themeCtx: ThemeContext) {
+  const textInputComponent = textInput({ value: 'celestial-flight-deck', placeholder: 'Mission name', themeCtx });
+  const textareaComponent = textarea({ value: 'Mouse-first\nAdaptive by default', rows: 2, maxLines: 4, showLineNumbers: true, themeCtx });
+  const checkboxComponent = checkbox({ label: 'Run headless checks', checked: true, themeCtx });
   const radioComponent = radioGroup({
     options: [
       { label: 'Compact', value: 'compact' },
@@ -148,6 +153,7 @@ export function createShowcaseComponents() {
       { label: 'Dense', value: 'dense' },
     ],
     selected: 1,
+    themeCtx,
   });
   const selectComponent = select({
     options: [
@@ -157,14 +163,17 @@ export function createShowcaseComponents() {
     ],
     selected: 0,
     placeholder: 'Render target',
+    maxVisibleOptions: 3,
+    themeCtx,
   });
-  const toggleComponent = toggle({ label: 'Live motion', checked: true, variant: 'success' });
-  const sliderComponent = slider({ min: 0, max: 100, step: 10, value: 70, width: 16, label: 'Density' });
+  const toggleComponent = toggle({ label: 'Live motion', checked: true, variant: 'success', themeCtx });
+  const sliderComponent = slider({ min: 0, max: 100, step: 10, value: 70, width: 16, label: 'Density', themeCtx });
   const checkboxGroupComponent = checkboxGroup({
     options: [
       { label: 'Unit', value: 'unit', checked: true },
       { label: 'PTY', value: 'pty' },
     ],
+    themeCtx,
   });
   const toggleGroupComponent = toggleGroup({
     options: [
@@ -172,34 +181,45 @@ export function createShowcaseComponents() {
       { label: 'Keys', value: 'keys', checked: true },
     ],
     layout: 'row',
+    themeCtx,
   });
   const autocompleteComponent = autocomplete({
-    source: (query) => ['release', 'resize', 'render'].filter((value) => value.startsWith(query)),
+    source: (query) => ['release', 'resize', 'render', 'reactive', 'receipt', 'region'].filter((value) => value.startsWith(query)),
     placeholder: 'Search APIs',
+    maxSuggestions: 3,
+    themeCtx,
   });
   const comboboxComponent = combobox({
     options: [
       { label: 'Pulsar', value: 'pulsar' },
       { label: 'Stellar', value: 'stellar' },
       { label: 'Spectrum', value: 'spectrum' },
+      { label: 'Horizon', value: 'horizon' },
+      { label: 'Orbit', value: 'orbit' },
     ],
     value: 'Stellar',
+    maxVisibleOptions: 3,
+    themeCtx,
   });
-  const datePickerComponent = datePicker({ selected: { year: 2026, month: 7, day: 19 } });
+  const datePickerComponent = datePicker({ selected: { year: 2026, month: 7, day: 19 }, themeCtx });
   const multiSelectComponent = multiSelect({
     options: [
       { label: 'Unicode', value: 'unicode' },
       { label: 'Mouse', value: 'mouse' },
       { label: 'Motion', value: 'motion' },
+      { label: 'Layers', value: 'layers' },
+      { label: 'Windows', value: 'windows' },
     ],
     selected: [0, 1],
+    maxVisibleOptions: 3,
+    themeCtx,
   });
-  const numberInputComponent = numberInput({ value: UI_BUILDER_COUNT, min: 1, max: 99, label: 'Builders' });
-  const rangeSliderComponent = rangeSlider({ min: 40, max: 160, low: 70, high: 120, width: 18 });
-  const ratingComponent = rating({ value: 4, max: 5, interactive: true });
-  const segmentedControlComponent = segmentedControl({ options: ['Compact', 'Wide'], selected: 1 });
-  const tagInputComponent = tagInput({ tags: ['unicode', 'mouse'], placeholder: 'Add capability' });
-  const colorPickerComponent = colorPicker({ value: '#5FD7FF' });
+  const numberInputComponent = numberInput({ value: UI_BUILDER_COUNT, min: 1, max: 99, label: 'Builders', themeCtx });
+  const rangeSliderComponent = rangeSlider({ min: 40, max: 160, low: 70, high: 120, width: 18, themeCtx });
+  const ratingComponent = rating({ value: 4, max: 5, interactive: true, themeCtx });
+  const segmentedControlComponent = segmentedControl({ options: ['Compact', 'Wide'], selected: 1, themeCtx });
+  const tagInputComponent = tagInput({ tags: ['unicode', 'mouse'], placeholder: 'Add capability', themeCtx });
+  const colorPickerComponent = colorPicker({ value: '#5FD7FF', themeCtx });
   const schemaFormComponent = schemaForm({
     schema: {
       fields: [
@@ -228,6 +248,7 @@ export function createShowcaseComponents() {
     },
     value: {},
     onChange: () => undefined,
+    themeCtx,
   });
   const workflowStep = (summary: string) => ({
     init: (): [string, Command<unknown>] => [summary, Cmd.none<unknown>()],
@@ -236,7 +257,7 @@ export function createShowcaseComponents() {
   });
   const wizardComponent = wizard({
     steps: [
-      { name: 'scope', title: 'Scope', description: 'Choose the public package boundary.', component: workflowStep('17 packages pass the allowlist gate.') },
+      { name: 'scope', title: 'Scope', description: 'Choose the public package boundary.', component: workflowStep('18 packages pass the allowlist gate.') },
       {
         name: 'verify',
         title: 'Verify',
@@ -251,6 +272,7 @@ export function createShowcaseComponents() {
       },
     ],
     focusGroup: 'showcase-release-wizard',
+    themeCtx,
   });
   const tabsComponent = tabs({
     tabs: [
@@ -258,6 +280,7 @@ export function createShowcaseComponents() {
       { key: 'view', label: 'View' },
       { key: 'test', label: 'Test', badge: '3' },
     ],
+    themeCtx,
   });
   const breadcrumbComponent = breadcrumb({
     id: 'showcase-breadcrumb',
@@ -266,15 +289,19 @@ export function createShowcaseComponents() {
       { label: 'Preview', key: 'preview' },
       { label: 'Flight Deck', key: 'flight-deck' },
     ],
+    themeCtx,
   });
-  const paginationComponent = pagination({ total: 50, pageSize: 10, current: 1 });
+  const paginationComponent = pagination({ total: 50, pageSize: 10, current: 1, themeCtx });
   const optionListComponent = optionListView({
     items: [
       { id: 'preview', label: 'Preview', value: 'preview' },
       { id: 'beta', label: 'Beta', value: 'beta' },
       { id: 'private', label: 'Private', value: 'private', disabled: true },
+      { id: 'canary', label: 'Canary', value: 'canary' },
+      { id: 'stable', label: 'Stable', value: 'stable' },
     ],
     maxVisible: 3,
+    themeCtx,
   });
   const tableComponent = dataTable<CapabilityRow>({
     columns: [
@@ -289,6 +316,7 @@ export function createShowcaseComponents() {
     multiSelect: true,
     rowNumbers: true,
     title: 'Preview contract',
+    themeCtx,
   });
   const treeComponent = tree({
     nodes: [
@@ -304,9 +332,10 @@ export function createShowcaseComponents() {
       { key: 'ui', label: '@celestial/ui' },
       { key: 'horizon', label: '@celestial/horizon (beta)' },
     ],
+    themeCtx,
   });
-  const spinnerComponent = spinner({ style: 'arc', speed: 120 });
-  const indeterminateProgressComponent = indeterminateProgress({ width: 16, speed: 120 });
+  const spinnerComponent = spinner({ style: 'arc', speed: 120, themeCtx });
+  const indeterminateProgressComponent = indeterminateProgress({ width: 16, speed: 120, themeCtx });
   const cardGridComponent = cardGrid({
     cards: [
       { title: 'Runtime', content: text('Elm loop', mutedStyle), variant: 'outlined', size: 'sm', width: 15, onClick: () => undefined },
@@ -314,6 +343,7 @@ export function createShowcaseComponents() {
     ],
     columns: 2,
     gap: 1,
+    themeCtx,
   });
   const tooltipComponent = tooltip({
     content: 'Tooltip content is tokenized, capability-aware, animated, and Escape-dismissible.',
@@ -321,6 +351,7 @@ export function createShowcaseComponents() {
     variant: 'info',
     caret: false,
     children: text('[ Tooltip target ]', labelStyle),
+    themeCtx,
   });
   const toastManager = createToastManager({ id: 'celestial-showcase-toasts' });
   const modalComponent = modal({
@@ -332,6 +363,7 @@ export function createShowcaseComponents() {
     ),
     width: 52,
     open: false,
+    themeCtx,
   });
   const confirmComponent = confirmDialog({
     title: 'Confirm launch receipt',
@@ -339,15 +371,16 @@ export function createShowcaseComponents() {
     confirmLabel: 'Record',
     cancelLabel: 'Not yet',
     open: false,
+    themeCtx,
   });
   const drawerComponent = drawer({
     title: 'Layer stack',
     content: column(
       text('Current stack', labelStyle),
-      text(`${defaultTheme.glyphs.bullet} Base application remains mounted.`),
-      text(`${defaultTheme.glyphs.bullet} Transparent backdrop shields click-through.`),
-      text(`${defaultTheme.glyphs.bullet} Right edge anchors this drawer.`),
-      text(`${defaultTheme.glyphs.bullet} Escape, [x], and click-away dismissal remain active.`, mutedStyle, { wrap: true }),
+      text(`${semanticGlyph('bullet', { themeCtx })} Base application remains mounted.`),
+      text(`${semanticGlyph('bullet', { themeCtx })} Transparent backdrop shields click-through.`),
+      text(`${semanticGlyph('bullet', { themeCtx })} Right edge anchors this drawer.`),
+      text(`${semanticGlyph('bullet', { themeCtx })} Escape, [x], and click-away dismissal remain active.`, mutedStyle, { wrap: true }),
       text(''),
       text('Interactive layer actions', labelStyle),
       text('Each control below updates the same Elm model used by the underlying lab.', mutedStyle, { wrap: true }),
@@ -362,6 +395,7 @@ export function createShowcaseComponents() {
     variant: 'overlay',
     width: 42,
     height: 22,
+    themeCtx,
   });
   const popoverComponent = popover({
     trigger: text('[ Inspect release ]', labelStyle),
@@ -369,18 +403,21 @@ export function createShowcaseComponents() {
     content: text('Only allowlisted packages ship.', undefined, { wrap: true }),
     position: 'bottom',
     width: 34,
+    themeCtx,
   });
   const popoverGroupComponent = popoverGroup({
     popovers: [
       { trigger: '[ Runtime ]', content: 'Elm state remains explicit.', variant: 'info', position: 'bottom' },
       { trigger: '[ Render ]', content: 'Terminal cells remain width-safe.', variant: 'success', position: 'bottom' },
     ],
+    themeCtx,
   });
   const hovercardComponent = hovercard({
     id: 'showcase-package-card',
     trigger: text('[ Hover package ]', labelStyle),
     content: column(text('@celestial/pulsar', labelStyle), text('Markdown + Spectrum + Stellar', mutedStyle)),
     width: 36,
+    themeCtx,
   });
   const paletteComponent = commandPalette<CelestialShowcaseMsg>({
     placeholder: 'Jump to a lab or run an action...',
@@ -393,9 +430,12 @@ export function createShowcaseComponents() {
       { id: 'layers', label: 'Open Layers lab', category: 'Labs', shortcut: '6', msg: { type: 'switch-lab', lab: 'layers' } },
       { id: 'windows', label: 'Open Windows lab', category: 'Labs', shortcut: '7', msg: { type: 'switch-lab', lab: 'windows' } },
       { id: 'smoke', label: 'Open Smoke lab', category: 'Labs', shortcut: '8', msg: { type: 'switch-lab', lab: 'smoke' } },
+      { id: 'app-shell', label: 'Open App shell lab', category: 'Labs', shortcut: '9', msg: { type: 'switch-lab', lab: 'app-shell' } },
       { id: 'help', label: 'Open contextual help', category: 'Actions', shortcut: '?', msg: { type: 'open-help' } },
       { id: 'reset', label: 'Reset all receipts', category: 'Actions', shortcut: 'R', msg: { type: 'reset' } },
     ],
+    maxVisible: 10,
+    themeCtx,
   });
   const helpDrawers = Object.fromEntries(
     (Object.keys(helpCopy) as LabId[]).map((lab) => [
@@ -407,11 +447,13 @@ export function createShowcaseComponents() {
         variant: 'overlay',
         width: 46,
         height: 28,
+        themeCtx,
       }),
     ]),
   ) as Record<LabId, ReturnType<typeof drawer>>;
 
   return {
+    themeCtx,
     textInputComponent,
     textareaComponent,
     checkboxComponent,
@@ -526,20 +568,18 @@ function action(
   label: string,
   tone: 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info' = 'accent',
 ): VNode {
-  const visual = button({ label, onClick: id, x: 0, y: 0, buttonVariant: 'outline', tone, hovered: model.hoveredRegion === `action:${id}` }).view();
-  const node = event(
-    `showcase-action:${id}`,
-    visual,
-    {
-      onClick: `showcase-action:${id}`,
-      onRightClick: `showcase-context:action:${id}`,
-      onMouseEnter: `showcase-hover:action:${id}`,
-      onMouseLeave: `showcase-leave:action:${id}`,
-    },
-    { label, intent: id, affordances: ['hover', 'click'], cursor: 'pointer' },
-  );
-  runtime.setVNodeMeta(node, { a11y: { role: 'button', label } });
-  return node;
+  return button({
+    id: `showcase-action:${id}`,
+    label,
+    onClick: `showcase-action:${id}`,
+    onRightClick: `showcase-context:action:${id}`,
+    onMouseEnter: `showcase-hover:action:${id}`,
+    onMouseLeave: `showcase-leave:action:${id}`,
+    buttonVariant: 'outline',
+    tone,
+    hovered: model.hoveredRegion === `action:${id}`,
+    intent: id,
+  });
 }
 
 function focusable(id: string, label: string, child: VNode, direct = false): VNode {
@@ -681,9 +721,16 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
         named('emptyState()', emptyState({ title: 'No private dependencies', description: 'The supported demo stays inside the focused preview.', width: 42 })),
       );
     }
-    case 6:
+    case 6: {
+      const shellStatus = statusBar({
+        width: Math.max(1, Math.min(42, model.cols - 18)),
+        left: [{ text: 'FLIGHT DECK', mode: true }],
+        center: [{ text: 'Components' }],
+        right: [{ text: `${UI_BUILDER_COUNT} ready` }],
+      });
+      const [shellStatusModel] = shellStatus.init();
       return column(
-        galleryHeader(6, 'Feedback and layers - 7 builders'),
+        galleryHeader(6, 'Feedback and layers - 8 builders'),
         row(
           named('badge()', badge({ label: `${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} curated`, variant: 'success', size: 'sm' }).view({ visible: true })),
           text('    '),
@@ -704,23 +751,16 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
           text('  '),
           action(model, 'drawer', 'drawer()', 'info'),
         ),
+        named('statusBar()', shellStatus.view(shellStatusModel)),
         text('Each layered builder opens as a real stacked surface; Escape always dismisses.', mutedStyle, { wrap: true }),
       );
+    }
     default: {
       const contextNode = contextMenuView({
         state: model.galleryContextMenu,
         width: 22,
         viewport: { cols: Math.max(24, model.cols - 8), rows: Math.max(8, model.rows - 8) },
-        tokens: {
-          background: defaultTheme.colors.surface,
-          border: defaultTheme.colors.border,
-          text: defaultTheme.colors.text,
-          textMuted: defaultTheme.colors.muted,
-          selectedBackground: defaultTheme.states.active.bg ?? defaultTheme.colors.interactive,
-          selectedText: defaultTheme.colors.text,
-          separator: defaultTheme.colors.border,
-          shortcut: defaultTheme.colors.textSoft,
-        },
+        themeCtx: components.themeCtx,
       });
       const popoverNode = named('popover()', galleryView(model, 'popover', components.popoverComponent, { viewportCols: Math.max(36, model.cols - 8) }));
       const hovercardNode = named(

@@ -20,6 +20,12 @@ export function nonNegativeInteger(value: number | undefined, fallback = 0, max:
   return boundedInteger(value, fallback, 0, max);
 }
 
+/** Normalize a terminal wheel delta without treating non-wheel events as down. */
+export function wheelDirection(deltaY: unknown): -1 | 0 | 1 {
+  if (typeof deltaY !== 'number' || !Number.isFinite(deltaY) || deltaY === 0) return 0;
+  return deltaY < 0 ? -1 : 1;
+}
+
 /** Normalize recurring timer intervals to values supported by Node timers. */
 export function timerInterval(value: number | undefined, fallback: number): number {
   return positiveInteger(value, fallback, 2_147_483_647);
