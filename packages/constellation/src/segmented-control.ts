@@ -58,10 +58,20 @@ export interface SegmentedControlModel {
   highlighted: number;
   /** Whether the control is focused. */
   focused: boolean;
+  /** Option currently under the pointer, or -1 when none. */
+  hovered?: number;
 }
 
 /** Messages the segmented control can handle. */
-export type SegmentedControlMsg = Msg<'select', { index: number }> | Msg<'highlight-left'> | Msg<'highlight-right'> | Msg<'focus'> | Msg<'blur'> | Msg<'noop'>;
+export type SegmentedControlMsg =
+  | Msg<'select', { index: number }>
+  | Msg<'hover', { index: number }>
+  | Msg<'leave', { index: number }>
+  | Msg<'highlight-left'>
+  | Msg<'highlight-right'>
+  | Msg<'focus'>
+  | Msg<'blur'>
+  | Msg<'noop'>;
 
 // ─── Mouse hit-testing ──────────────────────────────────────────────────────
 
@@ -107,17 +117,20 @@ export function segmentedControl(config: SegmentedControlConfig): ComponentDescr
   const count = options.length;
   const interactionId = generateFocusGroupId('segmented-control');
   const selectTag = `${interactionId}:select`;
+  const hoverTag = `${interactionId}:hover`;
+  const leaveTag = `${interactionId}:leave`;
   const normalizeIndex = (index: number, emptyValue = -1): number => (count === 0 ? emptyValue : boundedInteger(index, 0, 0, count - 1));
   const normalizeModel = (model: SegmentedControlModel): SegmentedControlModel => ({
     selected: normalizeIndex(model.selected),
     highlighted: normalizeIndex(model.highlighted),
     focused: Boolean(model.focused),
+    hovered: typeof model.hovered === 'number' && Number.isInteger(model.hovered) && model.hovered >= 0 && model.hovered < count ? model.hovered : -1,
   });
 
   return {
     init(): [SegmentedControlModel, Cmd<SegmentedControlMsg>] {
       const selected = count === 0 ? -1 : Number.isFinite(config.selected) ? Math.max(0, Math.min(Math.trunc(config.selected!), count - 1)) : 0;
-      return [{ selected, highlighted: selected, focused: false }, Cmd.none()];
+      return [{ selected, highlighted: selected, focused: false, hovered: -1 }, Cmd.none()];
     },
 
     update(msg: SegmentedControlMsg, model: SegmentedControlModel): [SegmentedControlModel, Cmd<SegmentedControlMsg>] {
@@ -141,6 +154,12 @@ export function segmentedControl(config: SegmentedControlConfig): ComponentDescr
           const next = (safeModel.highlighted + 1) % count;
           return [{ ...safeModel, highlighted: next }, Cmd.none()];
         }
+        case 'hover': {
+          if (!Number.isInteger(msg.index) || msg.index < 0 || msg.index >= count) return [model, Cmd.none()];
+          return safeModel.hovered === msg.index ? [safeModel, Cmd.none()] : [{ ...safeModel, hovered: msg.index }, Cmd.none()];
+        }
+        case 'leave':
+          return safeModel.hovered === msg.index ? [{ ...safeModel, hovered: -1 }, Cmd.none()] : [safeModel, Cmd.none()];
         case 'focus':
           return [{ ...safeModel, focused: true }, Cmd.none()];
         case 'blur':
@@ -168,12 +187,15 @@ export function segmentedControl(config: SegmentedControlConfig): ComponentDescr
 
         const isSelected = safeModel.selected === i;
         const isHighlighted = safeModel.focused && safeModel.highlighted === i;
+        const isHovered = safeModel.hovered === i;
 
         const optStyle = isSelected
-          ? style({ color: tokens.activeText, bold: true })
-          : isHighlighted
-            ? style({ color: tokens.border, underline: true })
-            : style({ color: tokens.text });
+          ? style({ color: tokens.activeText, background: tokens.activeBg, bold: true, underline: isHovered })
+          : isHovered
+            ? style({ color: tokens.border, background: tokens.activeBg, bold: true })
+            : isHighlighted
+              ? style({ color: tokens.border, underline: true })
+              : style({ color: tokens.text, background: tokens.bg });
 
         const option = text(options[i]!, optStyle);
         setVNodeMeta(option, { testId: `segment-${i}`, a11y: { role: 'radio', label: options[i]!, checked: isSelected } });
@@ -181,8 +203,8 @@ export function segmentedControl(config: SegmentedControlConfig): ComponentDescr
           event(
             `${interactionId}:option:${i}`,
             option,
-            { onClick: selectTag },
-            { label: options[i]!, intent: 'select', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Left/Right, Enter' },
+            { onClick: selectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+            { label: options[i]!, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Left/Right, Enter' },
           ),
         );
       }
@@ -194,8 +216,12 @@ export function segmentedControl(config: SegmentedControlConfig): ComponentDescr
 
     subscriptions(model: SegmentedControlModel): Sub<SegmentedControlMsg> {
       const mouse = Sub.elementMouse<SegmentedControlMsg>((mouseEvent) => {
-        if (mouseEvent.handlerTag !== selectTag || !mouseEvent.elementId.startsWith(`${interactionId}:option:`)) return { type: 'noop' };
-        return { type: 'select', index: Number(mouseEvent.elementId.slice(`${interactionId}:option:`.length)) };
+        if (!mouseEvent.elementId.startsWith(`${interactionId}:option:`)) return { type: 'noop' };
+        const index = Number(mouseEvent.elementId.slice(`${interactionId}:option:`.length));
+        if (mouseEvent.handlerTag === selectTag) return { type: 'select', index };
+        if (mouseEvent.handlerTag === hoverTag) return { type: 'hover', index };
+        if (mouseEvent.handlerTag === leaveTag) return { type: 'leave', index };
+        return { type: 'noop' };
       });
       if (!model.focused) return mouse;
       const highlighted = normalizeIndex(model.highlighted);

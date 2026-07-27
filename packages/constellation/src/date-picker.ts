@@ -70,6 +70,8 @@ export interface DatePickerModel {
   selected: SimpleDate | null;
   /** Whether the picker is focused. */
   focused: boolean;
+  /** Semantic calendar target currently under the pointer. */
+  hovered?: string | null;
 }
 
 /** Messages the date picker can handle. */
@@ -85,6 +87,8 @@ export type DatePickerMsg =
   | Msg<'select'>
   | Msg<'select-day', { day: number }>
   | Msg<'today'>
+  | Msg<'hover', { target: string }>
+  | Msg<'leave', { target: string }>
   | Msg<'focus'>
   | Msg<'blur'>
   | Msg<'noop'>;
@@ -147,6 +151,8 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
   const nextTag = `${interactionId}:next`;
   const dayTag = `${interactionId}:day`;
   const todayTag = `${interactionId}:today`;
+  const hoverTag = `${interactionId}:hover`;
+  const leaveTag = `${interactionId}:leave`;
   const onSelect = config.onSelect;
   const todayAtCreation = getToday();
   const normalizeDate = (date: SimpleDate, fallback = todayAtCreation): SimpleDate => {
@@ -158,13 +164,25 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
   const normalizeModel = (model: DatePickerModel): DatePickerModel => {
     const viewYear = normalizeYear(model.viewYear, todayAtCreation.year);
     const viewMonth = normalizeMonth(model.viewMonth, todayAtCreation.month);
+    const totalDays = daysInMonth(viewYear, viewMonth);
+    const validHoverTargets = new Set(['previous', 'next', 'today', ...Array.from({ length: totalDays }, (_, index) => `day:${index + 1}`)]);
     return {
       viewYear,
       viewMonth,
-      cursorDay: boundedInteger(model.cursorDay, 1, 1, daysInMonth(viewYear, viewMonth)),
+      cursorDay: boundedInteger(model.cursorDay, 1, 1, totalDays),
       selected: model.selected ? normalizeDate(model.selected) : null,
       focused: Boolean(model.focused),
+      hovered: model.hovered !== undefined && model.hovered !== null && validHoverTargets.has(model.hovered) ? model.hovered : null,
     };
+  };
+
+  const targetForElement = (elementId: string): string | null => {
+    if (elementId === `${interactionId}:previous`) return 'previous';
+    if (elementId === `${interactionId}:next`) return 'next';
+    if (elementId === `${interactionId}:today`) return 'today';
+    if (!elementId.startsWith(`${interactionId}:day:`)) return null;
+    const day = Number(elementId.slice(`${interactionId}:day:`.length));
+    return Number.isInteger(day) ? `day:${day}` : null;
   };
 
   return {
@@ -181,6 +199,7 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
           cursorDay: Math.min(cursorDay, daysInMonth(viewYear, viewMonth)),
           selected: sel,
           focused: false,
+          hovered: null,
         },
         Cmd.none(),
       ];
@@ -310,6 +329,12 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
             Cmd.none(),
           ];
         }
+        case 'hover':
+          return normalizeModel({ ...model, hovered: msg.target }).hovered === msg.target
+            ? [{ ...model, hovered: msg.target }, Cmd.none()]
+            : [model, Cmd.none()];
+        case 'leave':
+          return model.hovered === msg.target ? [{ ...model, hovered: null }, Cmd.none()] : [model, Cmd.none()];
         case 'focus':
           return [{ ...model, focused: true }, Cmd.none()];
         case 'blur':
@@ -326,6 +351,7 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
       const titleStyle = style({ bold: true, color: tokens.selected });
       const headerStyle = style({ dim: true, color: tokens.muted });
       const cursorStyle = style({ reverse: true, bold: true });
+      const hoverStyle = style({ color: tokens.borderHover, reverse: true, bold: true });
       const selectedStyle = style({ color: tokens.selected, bold: true });
       const todayStyle = style({ color: tokens.selected });
 
@@ -357,8 +383,9 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
         const isToday = today.year === model.viewYear && today.month === model.viewMonth && today.day === d;
         const isSelected = model.selected !== null && isSameDay(model.selected, { year: model.viewYear, month: model.viewMonth, day: d });
         const isCursor = d === model.cursorDay && model.focused;
+        const isHovered = model.hovered === `day:${d}`;
 
-        const dayStyle = isCursor ? cursorStyle : isSelected ? selectedStyle : isToday ? todayStyle : undefined;
+        const dayStyle = isCursor ? cursorStyle : isHovered ? hoverStyle : isSelected ? selectedStyle : isToday ? todayStyle : undefined;
 
         const dayNode = text(dayStr, dayStyle);
         setVNodeMeta(dayNode, {
@@ -369,8 +396,8 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
           event(
             `${interactionId}:day:${d}`,
             dayNode,
-            { onClick: dayTag },
-            { label: `${title} ${d}`, intent: 'select', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Enter' },
+            { onClick: dayTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+            { label: `${title} ${d}`, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Enter' },
           ),
         );
         col++;
@@ -392,26 +419,28 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
       }
 
       const hintStyle = style({ dim: true, color: tokens.muted });
+      const previousStyle = model.hovered === 'previous' ? hoverStyle : titleStyle;
+      const nextStyle = model.hovered === 'next' ? hoverStyle : titleStyle;
       const titleNode = row(
         event(
           `${interactionId}:previous`,
-          text('◀', titleStyle),
-          { onClick: previousTag },
-          { label: 'Previous month', intent: 'navigate', affordances: ['click'], cursor: 'pointer' },
+          text('◀', previousStyle),
+          { onClick: previousTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+          { label: 'Previous month', intent: 'navigate', affordances: ['hover', 'click'], cursor: 'pointer' },
         ),
         text(` ${title} `, titleStyle),
         event(
           `${interactionId}:next`,
-          text('▶', titleStyle),
-          { onClick: nextTag },
-          { label: 'Next month', intent: 'navigate', affordances: ['click'], cursor: 'pointer' },
+          text('▶', nextStyle),
+          { onClick: nextTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+          { label: 'Next month', intent: 'navigate', affordances: ['hover', 'click'], cursor: 'pointer' },
         ),
       );
       const todayNode = event(
         `${interactionId}:today`,
-        text('[Today]', hintStyle),
-        { onClick: todayTag },
-        { label: 'Today', intent: 'navigate', affordances: ['click'], cursor: 'pointer', keyboardHint: 'T' },
+        text('[Today]', model.hovered === 'today' ? hoverStyle : hintStyle),
+        { onClick: todayTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+        { label: 'Today', intent: 'navigate', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'T' },
       );
       return column(titleNode, text(dayHeader, headerStyle), ...calendarLines, text(''), row(text('[←→↑↓] navigate  [enter] select  ', hintStyle), todayNode));
     },
@@ -420,6 +449,9 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
       const model = normalizeModel(unsafeModel);
       const mouse = Sub.elementMouse<DatePickerMsg>((mouseEvent) => {
         if (!mouseEvent.elementId.startsWith(`${interactionId}:`)) return { type: 'noop' };
+        const target = targetForElement(mouseEvent.elementId);
+        if (mouseEvent.handlerTag === hoverTag && target !== null) return { type: 'hover', target };
+        if (mouseEvent.handlerTag === leaveTag && target !== null) return { type: 'leave', target };
         if (mouseEvent.handlerTag === previousTag) return { type: 'prev-month' };
         if (mouseEvent.handlerTag === nextTag) return { type: 'next-month' };
         if (mouseEvent.handlerTag === todayTag) return { type: 'today' };

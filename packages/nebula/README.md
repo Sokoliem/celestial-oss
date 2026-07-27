@@ -33,6 +33,11 @@ Nebula is the heart of Celestial. It implements the Elm Architecture (init/updat
 - **Config Loading** - Adapter-based source precedence with explicit failure diagnostics
 - **Pointer Shapes** - Typed region cursors with topmost-hit resolution, drag/resize capture, host callbacks, and conservative OSC 22 projection
 
+`event()` and `region()` derive baseline hover, click, drag, and scroll
+affordances from their handlers. Clickable regions receive a pointer cursor and
+drag regions receive a grab cursor unless explicit metadata overrides those
+defaults, keeping custom components consistent with packaged controls.
+
 ## The Elm Architecture
 
 ```typescript

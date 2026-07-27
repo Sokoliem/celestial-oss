@@ -379,6 +379,10 @@ const esmExports = {
 for (const [name, value] of Object.entries(esmExports)) {
   if (typeof value !== 'function') throw new Error('ESM preview smoke test could not find ' + name + '.');
 }
+const esmInferredRegion = nebula.event('packed-action', nebula.text('Packed action'), { onClick: 'activate' });
+if (esmInferredRegion.metadata?.cursor !== 'pointer' || !esmInferredRegion.metadata.affordances?.includes('click')) {
+  throw new Error('ESM Nebula event metadata inference was not preserved in the packed package.');
+}
 const esmRouter = compass.createRouter({ routes: [{ id: 'home', pattern: '/' }, { id: 'user', pattern: '/users/:id' }] });
 const esmResolution = esmRouter.resolve(esmRouter.init('/users/packed'));
 if (esmResolution.status !== 'matched' || esmResolution.match.params.id !== 'packed') {
@@ -449,6 +453,10 @@ const cjsExports = {
 };
 for (const [name, value] of Object.entries(cjsExports)) {
   if (typeof value !== 'function') throw new Error('CommonJS preview smoke test could not find ' + name + '.');
+}
+const cjsInferredRegion = nebula.event('packed-action', nebula.text('Packed action'), { onClick: 'activate' });
+if (cjsInferredRegion.metadata?.cursor !== 'pointer' || !cjsInferredRegion.metadata.affordances?.includes('click')) {
+  throw new Error('CommonJS Nebula event metadata inference was not preserved in the packed package.');
 }
 const cjsRouter = compass.createRouter({ routes: [{ id: 'home', pattern: '/' }, { id: 'user', pattern: '/users/:id' }] });
 const cjsResolution = cjsRouter.resolve(cjsRouter.init('/users/packed'));

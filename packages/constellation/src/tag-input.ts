@@ -64,6 +64,8 @@ export interface TagInputModel {
   highlightedTag: number;
   /** Whether the tag input is focused. */
   focused: boolean;
+  /** Tag chip currently under the pointer, or -1 when none. */
+  hoveredTag?: number;
 }
 
 /** Messages the tag input can handle. */
@@ -79,6 +81,8 @@ export type TagInputMsg =
   | Msg<'end'>
   | Msg<'commit-tag'>
   | Msg<'remove-tag', { index: number }>
+  | Msg<'hover-tag', { index: number }>
+  | Msg<'leave-tag', { index: number }>
   | Msg<'highlight-tag-left'>
   | Msg<'highlight-tag-right'>
   | Msg<'focus'>
@@ -122,6 +126,8 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
   const inputId = generateFocusGroupId('tag-input');
   const inputTag = `${inputId}:focus`;
   const removeTagPrefix = `${inputId}:remove:`;
+  const hoverTagPrefix = `${inputId}:hover:`;
+  const leaveTagPrefix = `${inputId}:leave:`;
 
   function applyTextState(model: TagInputModel, value: string, cursorPos: number): TagInputModel {
     return { ...model, inputBuffer: value, cursorPos, highlightedTag: -1 };
@@ -136,6 +142,7 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
           cursorPos: 0,
           highlightedTag: -1,
           focused: false,
+          hoveredTag: -1,
         },
         Cmd.none(),
       ];
@@ -169,6 +176,7 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
                   ...model,
                   tags: newTags,
                   highlightedTag: -1,
+                  hoveredTag: -1,
                 },
                 Cmd.none(),
               ];
@@ -244,8 +252,14 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
           if (idx < 0 || idx >= model.tags.length) return [model, Cmd.none()];
           const newTags = model.tags.filter((_, i) => i !== idx);
           config.onChange?.(newTags);
-          return [{ ...model, tags: newTags, highlightedTag: -1 }, Cmd.none()];
+          return [{ ...model, tags: newTags, highlightedTag: -1, hoveredTag: -1 }, Cmd.none()];
         }
+        case 'hover-tag': {
+          if (!Number.isInteger(msg.index) || msg.index < 0 || msg.index >= model.tags.length) return [model, Cmd.none()];
+          return model.hoveredTag === msg.index ? [model, Cmd.none()] : [{ ...model, hoveredTag: msg.index }, Cmd.none()];
+        }
+        case 'leave-tag':
+          return model.hoveredTag === msg.index ? [{ ...model, hoveredTag: -1 }, Cmd.none()] : [model, Cmd.none()];
         case 'highlight-tag-left': {
           if (model.tags.length === 0) return [model, Cmd.none()];
           const next = model.highlightedTag <= 0 ? model.tags.length - 1 : model.highlightedTag - 1;
@@ -259,7 +273,7 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
         case 'focus':
           return [{ ...model, focused: true }, Cmd.none()];
         case 'blur':
-          return [{ ...model, focused: false, highlightedTag: -1 }, Cmd.none()];
+          return [{ ...model, focused: false, highlightedTag: -1, hoveredTag: -1 }, Cmd.none()];
         case 'noop':
           return [model, Cmd.none()];
       }
@@ -273,7 +287,8 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
       // Render tag chips
       for (let i = 0; i < model.tags.length; i++) {
         const isHighlighted = model.highlightedTag === i;
-        const tagStyle = isHighlighted
+        const isHovered = model.hoveredTag === i;
+        const tagStyle = isHighlighted || isHovered
           ? style({ color: tokens.tagText, background: tokens.removeBtn, bold: true })
           : style({ color: tokens.tagText, background: tokens.tagBg });
         const removeBtnStyle = style({ color: tokens.removeBtn, background: tokens.tagBg });
@@ -281,9 +296,9 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
         parts.push(
           event(
             `${inputId}:chip:${i}`,
-            row(text(`[${model.tags[i]!} `, tagStyle), text('×]', isHighlighted ? tagStyle : removeBtnStyle), text(' ', style({ color: tokens.text }))),
-            { onClick: `${removeTagPrefix}${i}` },
-            { label: `Remove tag ${model.tags[i]!}`, intent: 'remove', affordances: ['click'], cursor: 'pointer' },
+            row(text(`[${model.tags[i]!} `, tagStyle), text('×]', isHighlighted || isHovered ? tagStyle : removeBtnStyle), text(' ', style({ color: tokens.text }))),
+            { onClick: `${removeTagPrefix}${i}`, onMouseEnter: `${hoverTagPrefix}${i}`, onMouseLeave: `${leaveTagPrefix}${i}` },
+            { label: `Remove tag ${model.tags[i]!}`, intent: 'remove', affordances: ['hover', 'click'], cursor: 'pointer' },
           ),
         );
       }
@@ -320,6 +335,14 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
         if (mouseEvent.handlerTag?.startsWith(removeTagPrefix)) {
           const index = Number.parseInt(mouseEvent.handlerTag.slice(removeTagPrefix.length), 10);
           return Number.isInteger(index) ? { type: 'remove-tag', index } : { type: 'noop' };
+        }
+        if (mouseEvent.handlerTag?.startsWith(hoverTagPrefix)) {
+          const index = Number.parseInt(mouseEvent.handlerTag.slice(hoverTagPrefix.length), 10);
+          return Number.isInteger(index) ? { type: 'hover-tag', index } : { type: 'noop' };
+        }
+        if (mouseEvent.handlerTag?.startsWith(leaveTagPrefix)) {
+          const index = Number.parseInt(mouseEvent.handlerTag.slice(leaveTagPrefix.length), 10);
+          return Number.isInteger(index) ? { type: 'leave-tag', index } : { type: 'noop' };
         }
         return { type: 'noop' };
       });
