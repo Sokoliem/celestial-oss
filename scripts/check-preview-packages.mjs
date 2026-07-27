@@ -463,6 +463,9 @@ void nebula.loadConfig({
   if (!result.ok || result.value.ready !== true || !Object.isFrozen(result.value)) {
     throw new Error('CommonJS Nebula config-loader smoke test failed.');
   }
+}).catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
 });
 ${uiGoldenPathRuntimeSmoke('CommonJS')}
 `,
