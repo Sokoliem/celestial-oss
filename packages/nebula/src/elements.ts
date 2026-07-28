@@ -339,6 +339,7 @@ export function overlay(
     height?: number;
     zIndex?: number;
     transparent?: boolean;
+    pointerEvents?: OverlayNode['pointerEvents'];
     focusMode?: OverlayNode['focusMode'];
     layoutId?: string;
   },
@@ -352,6 +353,7 @@ export function overlay(
     height: options.height,
     zIndex: options.zIndex,
     transparent: options.transparent,
+    pointerEvents: options.pointerEvents,
     focusMode: options.focusMode,
     layoutId: options.layoutId,
   };

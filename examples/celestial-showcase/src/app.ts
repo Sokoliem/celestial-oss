@@ -1719,6 +1719,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
                   data: { id: 'verification-receipt', label: 'verification receipt' },
                   x,
                   y,
+                  sourceRect: message.event.currentTargetRect,
                 },
                 idle,
                 dragTargets,

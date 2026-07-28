@@ -99,6 +99,37 @@ describe('collectHitRegions', () => {
     expect(overlayRegion.zIndex).toBe(10);
   });
 
+  it('keeps pointer-transparent overlays visual without intercepting base regions', () => {
+    const node: VNode = {
+      kind: 'column',
+      children: [
+        {
+          kind: 'event',
+          id: 'base-btn',
+          child: { kind: 'text', content: 'Base' },
+          handlers: { onClick: 'base-click' },
+        } as EventNode,
+        {
+          kind: 'overlay',
+          child: {
+            kind: 'event',
+            id: 'visual-preview',
+            child: { kind: 'text', content: 'Preview' },
+            handlers: { onClick: 'preview-click' },
+          } as EventNode,
+          x: 0,
+          y: 0,
+          zIndex: 10,
+          pointerEvents: 'none',
+        } as OverlayNode,
+      ],
+    };
+
+    const regions = collectHitRegions(planLayout(node, 20, 5));
+
+    expect(regions.map((region) => region.id)).toEqual(['base-btn']);
+  });
+
   it('higher zIndex wins on overlap', () => {
     const node: VNode = {
       kind: 'column',

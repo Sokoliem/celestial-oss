@@ -1243,6 +1243,39 @@ describe('Celestial Flight Deck', () => {
     expect(handle.messageCoverage().byType['element-mouse']).toBeGreaterThan(0);
 
     const source = findText(handle.lastFrame(), 'verification receipt');
+    fireMouse(handle.terminal, { type: 'down', col: source.col + 2, row: source.row });
+    await handle.waitForUpdate();
+    expect(handle.model.dragDemo).toMatchObject({
+      phase: 'dragging',
+      sourceRect: {
+        x: expect.any(Number),
+        y: expect.any(Number),
+        width: expect.any(Number),
+        height: 7,
+      },
+    });
+    if (handle.model.dragDemo.phase !== 'dragging' || !handle.model.dragDemo.sourceRect) {
+      throw new Error('expected captured drag source bounds');
+    }
+    const sourceRect = handle.model.dragDemo.sourceRect;
+
+    fireMouse(handle.terminal, { type: 'move', col: source.col + 10, row: source.row + 2 });
+    await handle.waitForUpdate();
+    const movedSource = findText(handle.lastFrame(), 'verification receipt');
+    expect(movedSource).toEqual({ col: source.col + 8, row: source.row + 2 });
+    expect(handle.lastFrame()).toContain('release in the drop bay now');
+    expect(handle.lastFrame()).not.toContain('offset 8, 2');
+    const movedTopBorder = handle
+      .lastFrame()
+      .split('\n')[sourceRect.y + 2]!
+      .slice(sourceRect.x + 8, sourceRect.x + 8 + sourceRect.width);
+    expect(movedTopBorder.trimEnd()).toHaveLength(sourceRect.width);
+
+    fireMouse(handle.terminal, { type: 'up', col: movedSource.col, row: movedSource.row });
+    await handle.waitForUpdate();
+    expect(handle.model.dragDemo.phase).toBe('idle');
+    expect(findText(handle.lastFrame(), 'verification receipt')).toEqual(source);
+
     const dropTarget = findText(handle.lastFrame(), 'Drag the receipt here.');
     handle.drag(source.col + 2, source.row, dropTarget.col + 2, dropTarget.row);
     await handle.waitForUpdate();

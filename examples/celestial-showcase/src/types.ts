@@ -1,4 +1,4 @@
-import type { DragState, MouseEventData } from '@celestial/core';
+import type { DragState, LayoutRect, MouseEventData } from '@celestial/core';
 import type { WindowManager, WindowManagerPointerState, WorkspaceModel } from '@celestial/horizon';
 import type { SchemaFormModel, SchemaFormMsg, WizardModel, WizardMsg } from '@celestial/orbit';
 import type {
@@ -213,6 +213,7 @@ export interface ElementMouseReceipt {
   y: number;
   type?: MouseEventData['type'];
   deltaY?: number;
+  currentTargetRect?: LayoutRect;
   stopPropagation(): void;
 }
 

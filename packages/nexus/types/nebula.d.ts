@@ -165,6 +165,34 @@ declare module '@celestial/nebula' {
     readonly height: number;
   }
 
+  export interface VNode {
+    readonly kind: string;
+  }
+
+  export interface EmptyNode extends VNode {
+    readonly kind: 'empty';
+    readonly width?: number;
+    readonly height?: number;
+  }
+
+  export interface RowNode extends VNode {
+    readonly kind: 'row';
+    readonly children: readonly VNode[];
+  }
+
+  export interface OverlayNode extends VNode {
+    readonly kind: 'overlay';
+    readonly child: VNode;
+    readonly x: number;
+    readonly y: number;
+    readonly width?: number;
+    readonly height?: number;
+    readonly zIndex?: number;
+    readonly transparent?: boolean;
+    readonly pointerEvents?: 'auto' | 'none';
+    readonly focusMode?: 'passive' | 'active' | 'modal' | 'blocked';
+  }
+
   export interface HitRegionInfo {
     readonly id: string;
     readonly handlers: EventHandlers;
@@ -194,4 +222,29 @@ declare module '@celestial/nebula' {
   export function snapToNearest(offset: number, snapPoints: readonly SnapPoint[]): number;
   export function resolveMouseHandler(handler: MouseHandler | undefined, event: Pick<MouseEventData, 'shift' | 'ctrl' | 'alt'>): string | undefined;
   export function isPointerCursor(value: unknown): value is PointerCursor;
+  export function empty(width?: number, height?: number): EmptyNode;
+  export function row(...children: VNode[]): RowNode;
+  export function overlay(
+    child: VNode,
+    options: {
+      x: number;
+      y: number;
+      width?: number;
+      height?: number;
+      zIndex?: number;
+      transparent?: boolean;
+      pointerEvents?: OverlayNode['pointerEvents'];
+      focusMode?: OverlayNode['focusMode'];
+    },
+  ): OverlayNode;
+  export function text(content: string): VNode;
+  export function event(id: string, child: VNode, handlers: EventHandlers): VNode;
+  export function planLayout(
+    node: VNode,
+    width: number,
+    height: number,
+  ): {
+    readonly overlays: ReadonlyArray<{ readonly entry: { readonly rect: LayoutRect } }>;
+  };
+  export function collectHitRegions(plan: ReturnType<typeof planLayout>): HitRegionInfo[];
 }

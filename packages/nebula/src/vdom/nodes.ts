@@ -342,6 +342,14 @@ export interface OverlayNode {
   readonly zIndex?: number;
   /** If true, empty cells (char=' ', no bg) show through to content below */
   readonly transparent?: boolean;
+  /**
+   * Pointer hit-testing policy for this visual layer.
+   *
+   * `none` keeps the overlay visible while routing pointer input to regions
+   * beneath it. This is appropriate for drag previews and non-interactive
+   * visual affordances. Defaults to `auto`.
+   */
+  readonly pointerEvents?: 'auto' | 'none';
   /** Explicit keyboard-focus ownership for this visual layer. */
   readonly focusMode?: LayerFocusMode;
   readonly layoutId?: string;

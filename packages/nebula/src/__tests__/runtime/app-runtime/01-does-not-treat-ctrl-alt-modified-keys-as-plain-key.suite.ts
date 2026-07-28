@@ -355,6 +355,20 @@ describe('app runtime', () => {
 
     expect(
       updateCalls.mock.calls.map(([event]) => ({
+        localX: event.localX,
+        localY: event.localY,
+        currentTargetRect: event.currentTargetRect,
+      })),
+    ).toEqual(
+      Array.from({ length: 5 }, () => ({
+        localX: 0,
+        localY: 0,
+        currentTargetRect: { x: 0, y: 0, width: 1, height: 1 },
+      })),
+    );
+
+    expect(
+      updateCalls.mock.calls.map(([event]) => ({
         handlerTag: event.handlerTag,
         phase: event.phase,
         currentTargetId: event.currentTargetId,

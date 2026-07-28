@@ -18,7 +18,7 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
 
   function createElementMouseEvent(
     tag: string,
-    currentTargetId: string,
+    currentTarget: HitRegionInfo,
     targetId: string,
     phase: ElementMouseEvent['phase'],
     path: readonly string[],
@@ -27,15 +27,18 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
   ): ElementMouseEvent {
     return {
       handlerTag: tag,
-      elementId: currentTargetId,
+      elementId: currentTarget.id,
       phase,
       targetId,
-      currentTargetId,
+      currentTargetId: currentTarget.id,
       path,
       type: mouseEv.type,
       deltaY: mouseEv.type === 'scroll-up' ? -1 : mouseEv.type === 'scroll-down' ? 1 : 0,
       x: mouseEv.x,
       y: mouseEv.y,
+      localX: mouseEv.x - currentTarget.rect.x,
+      localY: mouseEv.y - currentTarget.rect.y,
+      currentTargetRect: currentTarget.rect,
       button: mouseEv.button,
       ctrl: mouseEv.ctrl,
       alt: mouseEv.alt,
@@ -52,14 +55,14 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
   function fireElementEvent(
     sub: Sub<M>,
     tag: string,
-    currentTargetId: string,
+    currentTarget: HitRegionInfo,
     targetId: string,
     phase: ElementMouseEvent['phase'],
     path: readonly string[],
     mouseEv: MouseEventData,
     propagation: { stopped: boolean },
   ): void {
-    ctx.dispatchElementMouseEvent(sub, createElementMouseEvent(tag, currentTargetId, targetId, phase, path, mouseEv, propagation));
+    ctx.dispatchElementMouseEvent(sub, createElementMouseEvent(tag, currentTarget, targetId, phase, path, mouseEv, propagation));
   }
 
   function getCaptureHandlerTag(hit: HitRegionInfo, mouseEv: MouseEventData): string | undefined {
@@ -107,7 +110,7 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
           fireElementEvent(
             sub,
             ctx.lastHoveredRegion.handlers.onMouseLeave,
-            ctx.lastHoveredRegion.id,
+            ctx.lastHoveredRegion,
             ctx.lastHoveredRegion.id,
             'target',
             ctx.lastHoveredRegion.eventPath,
@@ -132,7 +135,7 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
         fireElementEvent(
           sub,
           ctx.lastHoveredRegion.handlers.onMouseLeave,
-          ctx.lastHoveredRegion.id,
+          ctx.lastHoveredRegion,
           ctx.lastHoveredRegion.id,
           'target',
           ctx.lastHoveredRegion.eventPath,
@@ -141,7 +144,7 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
         );
       }
       if (hit?.handlers.onMouseEnter) {
-        fireElementEvent(sub, hit.handlers.onMouseEnter, hit.id, hit.id, 'target', hit.eventPath, mouseEv, { stopped: false });
+        fireElementEvent(sub, hit.handlers.onMouseEnter, hit, hit.id, 'target', hit.eventPath, mouseEv, { stopped: false });
       }
       ctx.lastHoveredId = currentId;
       ctx.lastHoveredRegion = hit ?? null;
@@ -154,28 +157,26 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
 
     const propagation = { stopped: false };
     for (let i = 0; i < path.length - 1; i++) {
-      const currentTargetId = path[i]!;
       const region = findEventPathHit(path.slice(0, i + 1));
       if (!region) continue;
       const handlerTag = getCaptureHandlerTag(region, mouseEv);
       if (!handlerTag) continue;
-      fireElementEvent(sub, handlerTag, currentTargetId, hit.id, 'capture', path, mouseEv, propagation);
+      fireElementEvent(sub, handlerTag, region, hit.id, 'capture', path, mouseEv, propagation);
       if (propagation.stopped) return;
     }
 
     const targetHandlerTag = getTargetHandlerTag(hit, mouseEv);
     if (targetHandlerTag) {
-      fireElementEvent(sub, targetHandlerTag, hit.id, hit.id, 'target', path, mouseEv, propagation);
+      fireElementEvent(sub, targetHandlerTag, hit, hit.id, 'target', path, mouseEv, propagation);
       if (propagation.stopped) return;
     }
 
     for (let i = path.length - 2; i >= 0; i--) {
-      const currentTargetId = path[i]!;
       const region = findEventPathHit(path.slice(0, i + 1));
       if (!region) continue;
       const handlerTag = getTargetHandlerTag(region, mouseEv);
       if (!handlerTag) continue;
-      fireElementEvent(sub, handlerTag, currentTargetId, hit.id, 'bubble', path, mouseEv, propagation);
+      fireElementEvent(sub, handlerTag, region, hit.id, 'bubble', path, mouseEv, propagation);
       if (propagation.stopped) return;
     }
   };
