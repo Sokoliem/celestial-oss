@@ -259,6 +259,38 @@ describe('focus', () => {
       expect(collectFocusNodes(tree)).toEqual([]);
     });
 
+    it('does not allow nested active or modal layers to escape a passive owner', () => {
+      const tree = mkColumn(
+        mkFocus('workspace'),
+        {
+          kind: 'overlay',
+          x: 0,
+          y: 0,
+          zIndex: 100,
+          focusMode: 'passive',
+          child: mkColumn(
+            mkFocus('passive-window'),
+            {
+              kind: 'overlay',
+              x: 0,
+              y: 0,
+              zIndex: 200,
+              focusMode: 'active',
+              child: mkFocus('nested-active'),
+            },
+            {
+              kind: 'portal',
+              target: 'passive-menu',
+              focusMode: 'modal',
+              child: mkFocus('nested-modal'),
+            },
+          ),
+        },
+      );
+
+      expect(collectFocusNodes(tree).map((node) => node.id)).toEqual(['workspace']);
+    });
+
     it('evicts focus retained by an obscured layer', () => {
       const tree = mkColumn(mkFocus('base'), {
         kind: 'overlay',

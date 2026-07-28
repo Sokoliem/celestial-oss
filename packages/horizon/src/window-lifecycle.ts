@@ -158,6 +158,29 @@ function nextZIndex<M>(windows: readonly DesktopWindowState<M>[]): number {
   return Math.min(windows.reduce((max, window) => Math.max(max, finiteCell(window.zIndex)), 0) + 1, MAX_CELL_SIZE);
 }
 
+function windowLayerRank(window: DesktopWindowState<unknown>): number {
+  if (window.modal || window.role === 'modal') return 2;
+  return window.alwaysOnTop ? 1 : 0;
+}
+
+/**
+ * Rebase lifecycle z-order into explicit normal, always-on-top, and modal
+ * bands. Standalone lifecycle helpers do not pass through WindowManager's
+ * normalizer, so they must preserve the same visual-modal invariant directly.
+ */
+function normalizeWindowZOrder<M>(windows: readonly DesktopWindowState<M>[]): DesktopWindowState<M>[] {
+  const ranked = windows
+    .map((window, index) => ({ window, index }))
+    .sort(
+      (a, b) =>
+        windowLayerRank(a.window) - windowLayerRank(b.window) ||
+        finiteCell(a.window.zIndex) - finiteCell(b.window.zIndex) ||
+        a.index - b.index,
+    );
+  const zById = new Map(ranked.map(({ window }, index) => [window.id, index + 1]));
+  return windows.map((window) => ({ ...window, zIndex: zById.get(window.id)! }));
+}
+
 function focusFallback<M>(windows: DesktopWindowState<M>[], preferredId?: string): DesktopWindowState<M>[] {
   const visible = windows.filter((window) => window.mode !== 'closed' && window.mode !== 'hidden' && window.mode !== 'minimized');
   const modal = [...visible].filter((window) => window.modal || window.role === 'modal').sort((a, b) => b.zIndex - a.zIndex)[0];
@@ -353,7 +376,7 @@ export function applyWindowCommand<M = unknown>(
       }
       const next = createDesktopWindow<M>({ ...command.window, zIndex: command.window.zIndex ?? nextZIndex(windows) } as FloatingWindowConfig &
         Partial<DesktopWindowState<M>>);
-      const focused = focusFallback([...windows, next], next.focused ? next.id : undefined);
+      const focused = focusFallback(normalizeWindowZOrder([...windows, next]), next.focused ? next.id : undefined);
       return {
         windows: focused,
         accepted: true,
@@ -419,7 +442,7 @@ export function applyWindowCommand<M = unknown>(
       const restored = restoreSuspendedWindow(target!, bounds);
       restored.zIndex = nextZIndex(windows);
       const replaced = windows.map((window) => (window.id === command.id ? restored : window));
-      const next = focusFallback(replaced, restored.focusable === false ? undefined : command.id);
+      const next = focusFallback(normalizeWindowZOrder(replaced), restored.focusable === false ? undefined : command.id);
       return { windows: next, accepted: true, focusedWindowId: next.find((window) => window.focused)?.id };
     }
     case 'minimize': {
@@ -450,7 +473,7 @@ export function applyWindowCommand<M = unknown>(
       nextTarget.restoreMode = 'maximized';
       nextTarget.zIndex = nextZIndex(windows);
       const next = focusFallback(
-        windows.map((window) => (window.id === command.id ? nextTarget : window)),
+        normalizeWindowZOrder(windows.map((window) => (window.id === command.id ? nextTarget : window))),
         command.id,
       );
       return { windows: next, accepted: true, focusedWindowId: next.find((window) => window.focused)?.id };
@@ -470,7 +493,7 @@ export function applyWindowCommand<M = unknown>(
       nextTarget.restoreMode = 'fullscreen';
       nextTarget.zIndex = nextZIndex(windows);
       const next = focusFallback(
-        windows.map((window) => (window.id === command.id ? nextTarget : window)),
+        normalizeWindowZOrder(windows.map((window) => (window.id === command.id ? nextTarget : window))),
         command.id,
       );
       return { windows: next, accepted: true, focusedWindowId: next.find((window) => window.focused)?.id };
@@ -486,7 +509,7 @@ export function applyWindowCommand<M = unknown>(
           : setMode(assignFrame(target!, frameForVisibleMode(target!, 'normal', bounds)), 'normal');
       nextTarget.zIndex = nextZIndex(windows);
       const next = focusFallback(
-        windows.map((window) => (window.id === command.id ? nextTarget : window)),
+        normalizeWindowZOrder(windows.map((window) => (window.id === command.id ? nextTarget : window))),
         command.id,
       );
       return { windows: next, accepted: true, focusedWindowId: next.find((window) => window.focused)?.id };
@@ -502,7 +525,7 @@ export function applyWindowCommand<M = unknown>(
       const focusedTarget = target!.mode === 'minimized' || target!.mode === 'hidden' ? restoreSuspendedWindow(target!, bounds) : target!;
       focusedTarget.zIndex = nextZIndex(windows);
       const replaced = windows.map((window) => (window.id === command.id ? focusedTarget : window));
-      const next = focusFallback(replaced, command.id);
+      const next = focusFallback(normalizeWindowZOrder(replaced), command.id);
       return { windows: next, accepted: true, focusedWindowId: next.find((window) => window.focused)?.id };
     }
   }

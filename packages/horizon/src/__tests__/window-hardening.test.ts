@@ -203,6 +203,43 @@ describe('window manager invariants', () => {
     expect(result.windows.every((window) => window.focused === false)).toBe(true);
   });
 
+  it.each(['focus', 'show', 'maximize', 'fullscreen', 'restore'] as const)(
+    'keeps standalone %s commands visually beneath a visible modal',
+    (type) => {
+      const background = createDesktopWindow({
+        id: 'main',
+        content: focusContent('main-action'),
+        x: 0,
+        y: 0,
+        width: 20,
+        height: 6,
+        zIndex: 1,
+        ...(type === 'show' ? { mode: 'hidden' as const } : {}),
+      });
+      const modal = createDesktopWindow({
+        id: 'dialog',
+        role: 'modal',
+        content: focusContent('dialog-action'),
+        x: 1,
+        y: 1,
+        width: 20,
+        height: 6,
+        zIndex: 2,
+      });
+
+      const result = applyWindowCommand({ type, id: 'main' }, [background, modal], {
+        bounds: { cols: 80, rows: 24 },
+      });
+      const main = result.windows.find((window) => window.id === 'main')!;
+      const dialog = result.windows.find((window) => window.id === 'dialog')!;
+
+      expect(result.accepted).toBe(true);
+      expect(dialog.zIndex).toBeGreaterThan(main.zIndex);
+      expect(dialog.focused).toBe(true);
+      expect(main.focused).toBe(false);
+    },
+  );
+
   it('filters workspace rendering and activate-window restores the target workspace', () => {
     const manager = createWindowManager(
       [

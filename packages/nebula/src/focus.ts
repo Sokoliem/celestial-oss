@@ -94,9 +94,10 @@ function walkLayer(
     nodes: [],
   };
   layers.push(layer);
-  if (mode !== 'blocked') {
-    walkTree(child, mode === 'passive' ? [] : layer.nodes, layers, order, priority);
-  }
+  // Passive and blocked layers exclude their entire subtree from keyboard
+  // ownership. In particular, an active/modal child must not escape an
+  // unfocused window merely because it registers as a separate layer.
+  if (mode === 'active' || mode === 'modal') walkTree(child, layer.nodes, layers, order, priority);
 }
 
 function walkTree(node: VNode, acc: FocusNodeInfo[], layers: FocusLayer[], order: { value: number }, priority: number): void {

@@ -123,4 +123,24 @@ describe('PTY lifecycle cleanup', () => {
     await expect(harness.waitForText(/ready/g)).resolves.toContain('ready');
     harness.dispose();
   });
+
+  it('accepts a receipt present when the timeout callback performs its final check', async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = await createPtyHarness({ command: 'mock-command', timeoutMs: 10 });
+      const waiting = harness.waitForText('deadline receipt');
+
+      // Advance to the deadline without awaiting timer dispatch, then deliver
+      // the receipt in the same turn. The timeout callback must inspect the
+      // latest transcript instead of unconditionally rejecting.
+      const advancing = vi.advanceTimersByTimeAsync(10);
+      mockedPty.emitData('deadline receipt');
+
+      await advancing;
+      await expect(waiting).resolves.toContain('deadline receipt');
+      harness.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
