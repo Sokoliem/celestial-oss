@@ -18,7 +18,11 @@ export interface ActiveLayoutContext {
 }
 
 let activeLayoutContext: ActiveLayoutContext | null = null;
-let activePortalCollector: { entries: Array<{ node: PortalNode; child: VNode }> } | null = null;
+export interface PortalCollector {
+  entries: Array<{ node: PortalNode; child: VNode; pointerEvents?: 'auto' | 'none' }>;
+}
+
+let activePortalCollector: PortalCollector | null = null;
 
 export function getActiveLayoutContext(): ActiveLayoutContext | null {
   return activeLayoutContext;
@@ -28,11 +32,11 @@ export function setActiveLayoutContext(context: ActiveLayoutContext | null): voi
   activeLayoutContext = context;
 }
 
-export function getActivePortalCollector(): { entries: Array<{ node: PortalNode; child: VNode }> } | null {
+export function getActivePortalCollector(): PortalCollector | null {
   return activePortalCollector;
 }
 
-export function setActivePortalCollector(collector: { entries: Array<{ node: PortalNode; child: VNode }> } | null): void {
+export function setActivePortalCollector(collector: PortalCollector | null): void {
   activePortalCollector = collector;
 }
 

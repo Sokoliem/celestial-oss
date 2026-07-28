@@ -44,7 +44,10 @@ export function getNodeId(node: VNode, nextId: () => string): string {
 export interface OverlayCollector {
   entries: Array<{
     node: OverlayNode;
+    pointerEvents?: 'auto' | 'none';
   }>;
+  /** Pointer policy inherited from a promoted overlay or portal ancestor. */
+  pointerEvents?: 'auto' | 'none';
 }
 
 /** Plan the layout of a VNode tree — compute positions without painting */
@@ -56,7 +59,9 @@ export function planLayout(node: VNode, width: number, height: number, options: 
     reusedEntries: 0,
   };
   const previousPortalCollector = getActivePortalCollector();
-  const portalCollector = { entries: [] as Array<{ node: PortalNode; child: VNode }> };
+  const portalCollector = {
+    entries: [] as Array<{ node: PortalNode; child: VNode; pointerEvents?: 'auto' | 'none' }>,
+  };
 
   setActiveLayoutContext({
     terminal: createLayoutSpace(width, height),
@@ -79,10 +84,14 @@ export function planLayout(node: VNode, width: number, height: number, options: 
     const overlays: OverlayEntry[] = [];
     for (const collected of overlayCollector.entries) {
       const ov = collected.node;
+      const pointerEvents = collected.pointerEvents === 'none' || ov.pointerEvents === 'none' ? 'none' : 'auto';
       const childSize = measure(ov.child, width, createPlanningRenderContext(width, height));
       const ovW = resolveResponsive(ov.width, bp) ?? childSize.width;
       const ovH = resolveResponsive(ov.height, bp) ?? childSize.height;
-      const childEntry = planNode(ov.child, ov.x, ov.y, ovW, ovH, index, nextId, overlayCollector);
+      const childEntry = planNode(ov.child, ov.x, ov.y, ovW, ovH, index, nextId, {
+        entries: overlayCollector.entries,
+        pointerEvents,
+      });
       const id = ov.layoutId ?? nextId();
       const available = createLayoutSpace(ovW, ovH);
       const entry: LayoutEntry = {
@@ -98,6 +107,7 @@ export function planLayout(node: VNode, width: number, height: number, options: 
         zIndex: ov.zIndex ?? 0,
         entry,
         transparent: ov.transparent ?? false,
+        pointerEvents,
       });
       getActiveLayoutContext()!.stats.plannedEntries += 1;
       traceEntry('plan', entry, available);
@@ -111,8 +121,16 @@ export function planLayout(node: VNode, width: number, height: number, options: 
       const targetEntry = index.get(portal.node.target);
       if (!targetEntry) continue;
       const { x: tx, y: ty, width: tw, height: th } = targetEntry.rect;
-      const childEntry = planNode(portal.child, tx, ty, tw, th, index, nextId, overlayCollector);
-      overlays.push({ zIndex: 1000, entry: childEntry, transparent: portal.node.transparent ?? false });
+      const childEntry = planNode(portal.child, tx, ty, tw, th, index, nextId, {
+        entries: overlayCollector.entries,
+        pointerEvents: portal.pointerEvents,
+      });
+      overlays.push({
+        zIndex: 1000,
+        entry: childEntry,
+        transparent: portal.node.transparent ?? false,
+        pointerEvents: portal.pointerEvents ?? 'auto',
+      });
     }
 
     return { root, index, width, height, overlays, trace, stats };

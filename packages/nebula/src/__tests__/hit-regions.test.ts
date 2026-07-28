@@ -130,6 +130,93 @@ describe('collectHitRegions', () => {
     expect(regions.map((region) => region.id)).toEqual(['base-btn']);
   });
 
+  it('keeps pointer-transparent descendants inert when overlays and portals are promoted', () => {
+    const node: VNode = {
+      kind: 'column',
+      children: [
+        {
+          kind: 'event',
+          id: 'base-btn',
+          child: { kind: 'text', content: 'Base', layoutId: 'portal-target' },
+          handlers: { onClick: 'base-click' },
+        } as EventNode,
+        {
+          kind: 'overlay',
+          x: 0,
+          y: 0,
+          zIndex: 10,
+          pointerEvents: 'none',
+          child: {
+            kind: 'column',
+            children: [
+              {
+                kind: 'event',
+                id: 'outer-preview',
+                child: { kind: 'text', content: 'Outer' },
+                handlers: { onClick: 'outer-click' },
+              } as EventNode,
+              {
+                kind: 'overlay',
+                x: 0,
+                y: 0,
+                zIndex: 20,
+                child: {
+                  kind: 'event',
+                  id: 'nested-preview',
+                  child: { kind: 'text', content: 'Nested' },
+                  handlers: { onClick: 'nested-click' },
+                } as EventNode,
+              } as OverlayNode,
+              {
+                kind: 'portal',
+                target: 'portal-target',
+                child: {
+                  kind: 'event',
+                  id: 'portal-preview',
+                  child: { kind: 'text', content: 'Portal' },
+                  handlers: { onClick: 'portal-click' },
+                } as EventNode,
+              },
+            ],
+          },
+        } as OverlayNode,
+      ],
+    };
+
+    const plan = planLayout(node, 20, 8);
+    const regions = collectHitRegions(plan);
+
+    expect(plan.overlays).toHaveLength(3);
+    expect(plan.overlays.every((entry) => entry.pointerEvents === 'none')).toBe(true);
+    expect(regions.map((region) => region.id)).toEqual(['base-btn']);
+  });
+
+  it('preserves unclipped element geometry separately from its hit-test intersection', () => {
+    const node: VNode = {
+      kind: 'scroll',
+      height: 2,
+      offset: 1,
+      child: {
+        kind: 'event',
+        id: 'partially-visible',
+        handlers: { onClick: 'select' },
+        child: {
+          kind: 'column',
+          children: [
+            { kind: 'text', content: 'first' },
+            { kind: 'text', content: 'second' },
+            { kind: 'text', content: 'third' },
+          ],
+        },
+      } as EventNode,
+    };
+
+    const [region] = collectHitRegions(planLayout(node, 20, 4));
+
+    expect(region?.rect).toEqual({ x: 0, y: 0, width: 20, height: 2 });
+    expect(region?.layoutRect).toEqual({ x: 0, y: -1, width: 20, height: 3 });
+  });
+
   it('higher zIndex wins on overlap', () => {
     const node: VNode = {
       kind: 'column',

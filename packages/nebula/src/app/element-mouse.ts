@@ -25,6 +25,7 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
     mouseEv: MouseEventData,
     propagation: { stopped: boolean },
   ): ElementMouseEvent {
+    const targetRect = currentTarget.layoutRect ?? currentTarget.rect;
     return {
       handlerTag: tag,
       elementId: currentTarget.id,
@@ -36,9 +37,9 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
       deltaY: mouseEv.type === 'scroll-up' ? -1 : mouseEv.type === 'scroll-down' ? 1 : 0,
       x: mouseEv.x,
       y: mouseEv.y,
-      localX: mouseEv.x - currentTarget.rect.x,
-      localY: mouseEv.y - currentTarget.rect.y,
-      currentTargetRect: currentTarget.rect,
+      localX: mouseEv.x - targetRect.x,
+      localY: mouseEv.y - targetRect.y,
+      currentTargetRect: targetRect,
       button: mouseEv.button,
       ctrl: mouseEv.ctrl,
       alt: mouseEv.alt,
