@@ -126,7 +126,6 @@ export function alert(config: AlertConfig): ComponentDescriptor<AlertModel, Aler
                 applyTypography(tokens.captionStyle, {
                   color: model.hoveredDismiss ? tokens.hoverText : tokens.textSoft,
                   background: model.hoveredDismiss ? tokens.hoverBackground : undefined,
-                  bold: model.hoveredDismiss,
                 }),
               ),
               { onClick: dismissTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },

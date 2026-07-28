@@ -211,8 +211,6 @@ export function tooltip(config: TooltipConfig): ComponentDescriptor<TooltipModel
             style({
               color: tokens.hoverText,
               background: tokens.hoverBackground,
-              bold: true,
-              underline: theme.states.hover.underline,
             }),
             { fit: 'content' },
           )

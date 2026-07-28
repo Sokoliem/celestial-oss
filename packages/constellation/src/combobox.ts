@@ -274,8 +274,8 @@ export function combobox(config: ComboboxConfig): ComponentDescriptor<ComboboxMo
       const tokens = useTokens(comboboxContract, config, 'Combobox');
       const dimStyle = applyTypography(tokens.placeholderStyle, { color: tokens.placeholder, dim: true });
       const hlStyle = style({ color: tokens.highlight, bold: true });
-      const hoverStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true });
-      const hoverCursorStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true, reverse: true });
+      const hoverStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground });
+      const hoverCursorStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, reverse: true });
 
       // Build input display
       let inputDisplay: VNode;

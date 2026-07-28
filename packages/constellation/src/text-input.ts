@@ -109,8 +109,6 @@ export function textInput(config: TextInputConfig): ComponentDescriptor<TextInpu
         placeholder,
         applyTypography(tokens.placeholderStyle, {
           color: model.hovered ? tokens.borderHover : tokens.placeholder,
-          bold: model.hovered,
-          reverse: model.hovered,
         }),
       );
     }
@@ -118,7 +116,7 @@ export function textInput(config: TextInputConfig): ComponentDescriptor<TextInpu
     const parts = displayedGraphemes(model.value);
     const display = parts.join('');
     if (!model.focused) {
-      return row(text(display, model.hovered ? style({ color: tokens.borderHover, bold: true, reverse: true }) : style({ color: tokens.text })));
+      return row(text(display, model.hovered ? style({ color: tokens.borderHover }) : style({ color: tokens.text })));
     }
 
     const range = selectionRange(model);

@@ -132,7 +132,6 @@ export function card(config: CardConfig): ComponentDescriptor<CardModel, CardMsg
           border: VARIANT_BORDER[variant],
           color: model.hovered && isInteractive ? tokens.hover : tokens.border,
           background: hoverState?.bg ?? (variant === 'outlined' || variant === 'ghost' ? undefined : tokens.bg),
-          bold: hoverState?.bold,
           padding,
         }),
         { width, height, fit: width !== undefined || height !== undefined ? 'fill' : 'content', overflow: 'hidden' },

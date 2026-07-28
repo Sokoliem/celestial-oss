@@ -125,7 +125,7 @@ describe('contextMenuView', () => {
     });
     const regions = collectHitRegions(planLayout(node!, 20, 6));
     const open = regions.find((region) => region.id === 'menu:item:0');
-    expect(open?.metadata).toMatchObject({ hoverFeedback: 'reverse', affordances: ['hover', 'click'] });
+    expect(open?.metadata).toMatchObject({ hoverFeedback: 'subtle', affordances: ['hover', 'click'] });
     expect(regions.some((region) => region.id === 'menu:item:1')).toBe(false);
     expect(contextMenuViewActionFromEvent({ elementId: 'menu:item:0', handlerTag: 'menu:highlight' }, 'menu')).toEqual({
       type: 'highlight',

@@ -141,8 +141,6 @@ export function hovercard(config: HovercardConfig): ComponentDescriptor<Hovercar
               style({
                 color: tokens.hoverText,
                 background: tokens.hoverBackground,
-                bold: true,
-                underline: theme.states.hover.underline,
               }),
               { fit: 'content' },
             )
@@ -161,7 +159,6 @@ export function hovercard(config: HovercardConfig): ComponentDescriptor<Hovercar
           applyTypography(tokens.captionStyle, {
             color: model.hoveredClose ? tokens.hoverText : tokens.textSoft,
             background: model.hoveredClose ? tokens.hoverBackground : undefined,
-            bold: model.hoveredClose,
           }),
         ),
         { onClick: dismissTag, onMouseEnter: hoverCloseTag, onMouseLeave: leaveCloseTag },

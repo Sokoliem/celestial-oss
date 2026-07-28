@@ -254,7 +254,7 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
         parts.push(
           event(
             `${interactionId}:decrement`,
-            text('\u25BC ', model.hoveredControl === 'decrement' ? style({ color: tokens.borderHover, bold: true, reverse: true }) : downStyle),
+            text('\u25BC ', model.hoveredControl === 'decrement' ? style({ color: tokens.borderHover }) : downStyle),
             atMin ? {} : { onClick: decrementTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
             { label: 'Decrease value', intent: 'edit', affordances: atMin ? [] : ['hover', 'click'], cursor: atMin ? undefined : 'pointer' },
           ),
@@ -280,7 +280,7 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
           parts.push(
             event(
               `${interactionId}:value`,
-              text(display, model.hoveredControl === 'value' ? style({ color: tokens.borderHover, underline: true }) : focusedStyle),
+              text(display, model.hoveredControl === 'value' ? style({ color: tokens.borderHover }) : focusedStyle),
               { onClick: editTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
               { label: config.label ?? 'Edit value', intent: 'edit', affordances: ['hover', 'click'], cursor: 'text' },
             ),
@@ -295,7 +295,7 @@ export function numberInput(config: NumberInputConfig): ComponentDescriptor<Numb
         parts.push(
           event(
             `${interactionId}:increment`,
-            text(' \u25B2', model.hoveredControl === 'increment' ? style({ color: tokens.borderHover, bold: true, reverse: true }) : upStyle),
+            text(' \u25B2', model.hoveredControl === 'increment' ? style({ color: tokens.borderHover }) : upStyle),
             atMax ? {} : { onClick: incrementTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
             { label: 'Increase value', intent: 'edit', affordances: atMax ? [] : ['hover', 'click'], cursor: atMax ? undefined : 'pointer' },
           ),

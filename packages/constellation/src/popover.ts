@@ -159,7 +159,6 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
       const closeStyle = applyTypography(tokens.captionStyle, {
         color: model.hoveredClose ? tokens.text : tokens.textSoft,
         background: model.hoveredClose ? theme.states.hover.bg : undefined,
-        bold: model.hoveredClose,
       });
       const panelChildren: VNode[] = [];
       if (title) panelChildren.push(text(title, applyTypography(tokens.titleStyle, { color: variantColor }), { wrap: true }));
@@ -185,8 +184,6 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
             style({
               color: theme.states.hover.fg,
               background: theme.states.hover.bg,
-              bold: theme.states.hover.bold ?? true,
-              underline: theme.states.hover.underline,
             }),
             { fit: 'content' },
           )
@@ -320,8 +317,6 @@ export function popoverGroup(config: PopoverGroupConfig): ComponentDescriptor<Po
           ? style({
               color: theme.states.hover.fg,
               background: theme.states.hover.bg,
-              bold: theme.states.hover.bold ?? true,
-              underline: theme.states.hover.underline,
             })
           : style({ color: isActive ? theme.colors.highlight : theme.colors.text });
         const trigger = event(
@@ -340,7 +335,6 @@ export function popoverGroup(config: PopoverGroupConfig): ComponentDescriptor<Po
             applyTypography(tokens.captionStyle, {
               color: model.hoveredClose ? theme.states.hover.fg : tokens.textSoft,
               background: model.hoveredClose ? theme.states.hover.bg : undefined,
-              bold: model.hoveredClose,
             }),
           ),
           { onClick: closeTag, onMouseEnter: hoverCloseTag, onMouseLeave: leaveCloseTag },

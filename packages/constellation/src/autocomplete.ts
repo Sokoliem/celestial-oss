@@ -168,8 +168,8 @@ export function autocomplete(config: AutocompleteConfig): ComponentDescriptor<Au
       const tokens = useTokens(autocompleteContract, config, 'Autocomplete');
       const dimStyle = applyTypography(tokens.placeholderStyle, { color: tokens.placeholder, dim: true });
       const hlStyle = style({ color: tokens.highlight, bold: true });
-      const hoverStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true });
-      const hoverCursorStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true, reverse: true });
+      const hoverStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground });
+      const hoverCursorStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, reverse: true });
       const display =
         model.query.length > 0
           ? row(text(model.query, model.hoveredInput ? hoverStyle : undefined), text(' ', model.hoveredInput ? hoverCursorStyle : style({ reverse: true })))

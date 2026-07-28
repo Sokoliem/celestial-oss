@@ -831,7 +831,7 @@ describe('built-in variants', () => {
   it('darkVariant applies typography and state overrides', () => {
     const dark = applyVariant(defaultTheme, darkVariant);
     expect(dark.typography.code.bold).toBe(true);
-    expect(dark.states.hover.bold).toBe(true);
+    expect(dark.states.hover.bold).toBeUndefined();
     expect(dark.states.selected.bold).toBe(true);
   });
 

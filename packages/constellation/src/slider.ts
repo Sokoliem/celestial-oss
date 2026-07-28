@@ -201,7 +201,7 @@ export function slider(config: SliderConfig): ComponentDescriptor<SliderModel, S
         const isThumb = index === thumbIndex;
         const cellStyle = style({
           color: activeColor ?? (isThumb ? tokens.thumb : filled ? tokens.track : tokens.trackEmpty),
-          bold: isThumb || model.dragging || model.hovered,
+          bold: isThumb || model.dragging,
           dim: !filled && !isThumb && !model.hovered,
         });
         parts.push(
@@ -216,7 +216,7 @@ export function slider(config: SliderConfig): ComponentDescriptor<SliderModel, S
 
       if (showValue) {
         const valueStr = Number.isInteger(value) ? String(value) : value.toFixed(1);
-        parts.push(text(` ${valueStr}`, style({ color: activeColor ?? tokens.text, bold: model.focused || model.hovered })));
+        parts.push(text(` ${valueStr}`, style({ color: activeColor ?? tokens.text, bold: model.focused })));
       }
 
       const node = row(...parts);

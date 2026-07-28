@@ -599,7 +599,7 @@ export function colorPicker(config: ColorPickerConfig): ComponentDescriptor<Colo
         const cells = Array.from({ length: layout.barWidth }, (_, index) =>
           event(
             `${interactionId}:slider:${field}:${index}`,
-            text(index === thumb ? '|' : index < thumb ? '=' : '-', style({ color: accent, bold: active || hovered })),
+            text(index === thumb ? '|' : index < thumb ? '=' : '-', style({ color: accent, bold: active })),
             { onMouseDown: sliderSetTag, onMouseMove: sliderDragTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
             {
               label: `${field} ${Math.round((index / Math.max(1, layout.barWidth - 1)) * max)}`,
@@ -611,7 +611,7 @@ export function colorPicker(config: ColorPickerConfig): ComponentDescriptor<Colo
         );
         return row(
           text(active ? '>' : hovered ? '+' : ' '),
-          text(getLabelPrefix(field), style({ color: accent, bold: active || hovered })),
+          text(getLabelPrefix(field), style({ color: accent, bold: active })),
           row(...cells),
           text(` ${suffix}`, style({ color: accent, bold: active })),
         );
@@ -628,7 +628,7 @@ export function colorPicker(config: ColorPickerConfig): ComponentDescriptor<Colo
           `${interactionId}:swatch:${index}`,
           text(
             active ? `[${label}]` : hovered ? `(${label})` : ` ${label} `,
-            style({ color: swatchText, background: swatchColor, bold: active || hovered }),
+            style({ color: swatchText, background: swatchColor, bold: active }),
           ),
           { onClick: swatchSelectTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
           { label: swatchLabels[index] ?? `Swatch ${index + 1}`, intent: 'select', affordances: ['hover', 'click'], cursor: 'pointer' },
@@ -646,7 +646,7 @@ export function colorPicker(config: ColorPickerConfig): ComponentDescriptor<Colo
             'Hex ',
             style({
               color: model.activeField === 'hex' ? tokens.borderActive : model.hoveredTarget === 'hex' ? tokens.borderHover : tokens.text,
-              bold: model.activeField === 'hex' || model.hoveredTarget === 'hex',
+              bold: model.activeField === 'hex',
             }),
           ),
           event(

@@ -263,11 +263,11 @@ export interface RegionMetadata {
   /**
    * How the region exposes pointer hover feedback.
    *
-   * `reverse` is supplied by Nebula as the deterministic fallback for an
+   * `subtle` is supplied by Nebula as a calm text/glyph-only fallback for an
    * otherwise click-only control. `managed` means the component owns a richer
    * state face and exposes paired enter/leave handlers.
    */
-  readonly hoverFeedback?: 'reverse' | 'managed';
+  readonly hoverFeedback?: 'subtle' | 'managed';
   readonly handlerRegionId?: string;
   /**
    * Standard semantic intent of this region (e.g. 'close', 'submit', 'scroll').

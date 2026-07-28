@@ -291,7 +291,11 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
         const isHighlighted = model.highlightedTag === i;
         const isHovered = model.hoveredTag === i;
         const tagStyle =
-          isHighlighted || isHovered ? applyState(tokens.hoverState, { bold: true }) : style({ color: tokens.tagText, background: tokens.tagBg });
+          isHighlighted
+            ? applyState(tokens.hoverState, { bold: true })
+            : isHovered
+              ? applyState(tokens.hoverState)
+              : style({ color: tokens.tagText, background: tokens.tagBg });
         const removeBtnStyle = style({ color: tokens.removeBtn, background: tokens.tagBg });
 
         parts.push(

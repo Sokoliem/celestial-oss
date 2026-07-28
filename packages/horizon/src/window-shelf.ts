@@ -167,7 +167,7 @@ export function windowShelf(config: WindowShelfConfig): VNode {
           style({
             color: hovered ? tokens.hoverText : focused ? tokens.activeText : tokens.text,
             background: hovered ? tokens.hoverBackground : focused ? tokens.activeBackground : tokens.itemBackground,
-            bold: hovered || focused,
+            bold: focused,
           }),
         ),
         {

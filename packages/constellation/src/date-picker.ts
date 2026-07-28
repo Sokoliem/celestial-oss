@@ -357,7 +357,7 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
       const titleStyle = style({ bold: true, color: tokens.selected });
       const headerStyle = style({ dim: true, color: tokens.muted });
       const cursorStyle = applyState(tokens.activeState, { bold: true });
-      const hoverStyle = applyState(tokens.hoverState, { bold: true });
+      const hoverStyle = applyState(tokens.hoverState);
       const selectedStyle = applyState(tokens.selectedState, { bold: true });
       const todayStyle = style({ color: tokens.selected });
 

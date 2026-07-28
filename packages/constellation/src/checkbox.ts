@@ -76,7 +76,7 @@ export function checkbox(config: CheckboxConfig): ComponentDescriptor<CheckboxMo
       const tokens = useTokens(checkboxContract, config, 'Checkbox');
       const ind = model.checked ? '[✓]' : '[ ]';
       const checkboxStyle = model.hovered
-        ? applyState(tokens.hoverState, { bold: true })
+        ? applyState(tokens.hoverState)
         : model.focused
           ? applyState(tokens.activeState, { bold: true })
           : model.checked

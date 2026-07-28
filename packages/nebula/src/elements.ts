@@ -69,7 +69,7 @@ function inferRegionMetadata(handlers: EventHandlers, metadata?: RegionMetadata)
       : hasMouseEnter && hasMouseLeave
         ? 'managed'
         : actionable
-          ? 'reverse'
+          ? 'subtle'
           : undefined);
 
   const inferredAffordances: RegionAffordance[] = [];

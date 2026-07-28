@@ -306,14 +306,14 @@ export function auditInteractionTree(root: VNode, options: AutomationInteraction
     const hasPairedHoverHandlers =
       hasHandler(hitRegion.handlers, ['onMouseEnter']) && hasHandler(hitRegion.handlers, ['onMouseLeave']);
     const hasDeterministicHoverFeedback =
-      hitRegion.metadata?.hoverFeedback === 'reverse' ||
+      hitRegion.metadata?.hoverFeedback === 'subtle' ||
       (hitRegion.metadata?.hoverFeedback === 'managed' && hasPairedHoverHandlers);
     if (!eventRegion.disabled && requiresHoverFeedback && (!hasDeterministicHoverFeedback || !declared.includes('hover'))) {
       pushViolation(
         violations,
         'mouse-actions-have-hover-feedback',
         eventRegion,
-        'Actionable mouse regions must use runtime reverse feedback or managed paired enter/leave feedback and expose a hover affordance.',
+        'Actionable mouse regions must use subtle runtime feedback or managed paired enter/leave feedback and expose a hover affordance.',
       );
       failed.add('mouse-actions-have-hover-feedback');
     }

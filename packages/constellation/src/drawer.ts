@@ -221,7 +221,7 @@ export function drawer(config: DrawerConfig): ComponentDescriptor<DrawerModel, D
       const contentArr = contentNodes.map((node) => (trapFocus ? assignFocusGroup(node, groupId) : node));
       const drawerStyle = style({ border: resolveElevationBorder(theme, 'modal'), borderColor: tokens.border, background: tokens.bg, padding: [0, 1] });
       const headerStyle = style({ background: tokens.headerBg });
-      const hoveredControlStyle = style({ color: tokens.hoverText, background: tokens.hoverBg, bold: true });
+      const hoveredControlStyle = style({ color: tokens.hoverText, background: tokens.hoverBg });
 
       const renderDrawerContent = (surfaceWidth: number, surfaceHeight: number) => {
         surfaceWidth = positiveInteger(surfaceWidth, width);

@@ -9,9 +9,9 @@
 ---
 
 Enforce deterministic pointer feedback for actionable regions. Nebula now
-infers managed or contrast-preserving reverse-video hover contracts, preserves
-terminal-native style effects through shaders and snapshots, and audits every
-actionable non-spatial surface for visible hover behavior.
+infers managed or calm, contrast-preserving text-cell hover contracts,
+preserves terminal-native style effects through shaders and snapshots, and
+audits every actionable non-spatial surface for visible hover behavior.
 
 Harden semantic hover faces for virtual lists, assisted inputs, range sliders,
 and popovers; repair context-menu token overrides for contrast; route Gravity

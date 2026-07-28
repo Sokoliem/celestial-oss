@@ -189,13 +189,13 @@ export function confirmDialog(config: ConfirmDialogConfig): ComponentDescriptor<
       const confirmHovered = model.hoveredButton === 'confirm';
 
       const cancelStyle = cancelHovered
-        ? applyState(tokens.hoverState, { bold: true })
+        ? applyState(tokens.hoverState)
         : cancelSelected
           ? applyState(tokens.selectedState)
           : applyState(tokens.restingState);
 
       const confirmStyle = confirmHovered
-        ? applyState(tokens.hoverState, { bold: true, color: danger ? tokens.danger : undefined })
+        ? applyState(tokens.hoverState, { color: danger ? tokens.danger : undefined })
         : confirmSelected
           ? applyState(tokens.selectedState, { color: danger ? tokens.danger : undefined })
           : danger

@@ -272,7 +272,7 @@ export function rangeSlider(config: RangeSliderConfig): ComponentDescriptor<Rang
             `${interactionId}:cell:${index}`,
             text(
               hovered ? '◆' : filled ? '█' : '░',
-              hovered ? style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true }) : filled ? filledStyle : emptyStyle,
+              hovered ? style({ color: tokens.hoverText, background: tokens.hoverBackground }) : filled ? filledStyle : emptyStyle,
             ),
             { onMouseDown: setTag, onMouseMove: dragTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
             { label: `Range ${index + 1} of ${width}`, intent: 'edit', affordances: ['hover', 'click', 'drag'], cursor: 'ew-resize' },

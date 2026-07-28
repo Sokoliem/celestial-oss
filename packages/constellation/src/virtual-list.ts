@@ -510,7 +510,7 @@ export function virtualList<T>(config: VirtualListConfig<T>): ComponentDescripto
           style({
             color: foreground,
             ...(background === undefined ? {} : { background }),
-            bold: hovered || selected || focused,
+            bold: selected || focused,
           }),
           {
             height: 1,

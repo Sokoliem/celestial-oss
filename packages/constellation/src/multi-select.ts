@@ -167,7 +167,7 @@ export function multiSelect(config: MultiSelectConfig): ComponentDescriptor<Mult
       const placeholderSt = applyTypography(tokens.placeholderStyle, { color: tokens.placeholder });
       const hlStyle = style({ color: tokens.highlight, bold: true });
       const tagStyle = style({ color: tokens.tag, background: tokens.tagBg });
-      const hoverStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true });
+      const hoverStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground });
       const checkStyle = style({ color: tokens.checkmark });
 
       if (!model.open) {

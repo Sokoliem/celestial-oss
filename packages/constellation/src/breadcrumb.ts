@@ -143,7 +143,7 @@ export function breadcrumb(config: BreadcrumbConfig): ComponentDescriptor<Breadc
             style({
               color: hovered ? tokens.hoverText : selected ? tokens.active : tokens.separator,
               background: hovered ? tokens.hoverBackground : undefined,
-              bold: hovered || selected,
+              bold: selected,
               underline: model.focused && cursor === index && !hovered,
             }),
           ),

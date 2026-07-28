@@ -29,20 +29,23 @@ Nebula event builders now enforce one of two pointer-feedback contracts for
 every actionable non-spatial region:
 
 1. `managed` feedback is inferred when paired `onMouseEnter` and
-   `onMouseLeave` handlers exist. The component owns its semantic state face,
-   while the runtime adds a bold/underline receipt to guarantee a transition.
-2. `reverse` feedback is inferred for other actionable regions, including
+   `onMouseLeave` handlers exist. The component exclusively owns its semantic
+   state face; the runtime does not layer decoration over it.
+2. `subtle` feedback is inferred for other actionable regions, including
    click-only controls and roving-highlight controls that update on entry.
-   After shaders run, the runtime applies reverse video and bold to the exact
-   clipped target rectangle. Entering and leaving either feedback mode
-   schedules a render even when no application message is needed.
+   After shaders run, the runtime slightly shifts the foreground of non-blank
+   text/glyph cells toward the higher-contrast neutral, using weight only when
+   rendered RGB is unavailable. It never fills blank layout cells or changes
+   the region background.
+   Entering and leaving automatic feedback schedules a render even when no
+   application message is needed.
 
-Reverse video is the fallback because it swaps an existing foreground and
-background instead of inventing a color outside the active theme; therefore it
-preserves the existing contrast ratio. The fallback is applied after raster
-and shader processing, and Corona's `blink`, `reverse`, and `hidden` effects
-are preserved through Nebula style conversion, responsive resolution, shader
-round-tripping, ANSI diff output, and Telescope color snapshots.
+The subtle foreground shift is accepted only when it preserves or improves the
+painted foreground/background contrast ratio. Bold is the terminal-capability
+fallback when resolved RGB is unavailable. The fallback is applied after
+raster and shader processing, and Corona's explicit `blink`, `reverse`, and
+`hidden` effects remain preserved through Nebula style conversion, responsive
+resolution, shader round-tripping, ANSI diff output, and Telescope snapshots.
 
 Handler-derived affordances are mandatory framework facts. `event()` and
 `region()` merge them with explicit descriptive metadata rather than allowing
@@ -51,7 +54,7 @@ actually wired. This supersedes the narrow rejected alternative in Decision
 0002: merging is appropriate for framework-owned handler facts; conflicting
 custom raw event nodes still fail the interaction audit.
 
-`auditInteractionTree()` requires either runtime reverse feedback or a managed
+`auditInteractionTree()` requires either runtime subtle feedback or a managed
 paired lifecycle plus the hover affordance. Spatial catch-alls remain exempt
 from visual feedback because their descendants own the painted face.
 
@@ -70,7 +73,7 @@ shelf cannot cover application content or the permanent status surface.
 - Disabled controls remain inert and do not receive automatic activation
   behavior.
 - Roving option lists may keep their keyboard highlight after pointer exit;
-  the runtime reverse face is still transient.
+  the runtime text emphasis is still transient.
 - Nested regions apply fallback feedback only to the topmost target.
 - Opaque image cells are not modified.
 - Clipped and zero-sized regions cannot paint outside their layout rectangle.
@@ -84,14 +87,18 @@ shelf cannot cover application content or the permanent status surface.
   application would reproduce the same contract and future components could
   regress.
 - Pick a universal hover color: rejected because a fixed color cannot be
-  contrast-safe across arbitrary themes.
+  contrast-safe across arbitrary themes. The automatic fallback instead
+  derives a small contrast-preserving shift from each painted cell.
+- Reverse or underline entire event rectangles: rejected because window-body
+  and multi-row regions become visually dominant and blank cells turn into
+  accidental panels.
 - Require paired enter/leave handlers on every control: rejected because
   click-only controls do not need application state merely to paint feedback,
   and roving highlight is intentionally not a transient hover model.
 - Float the minimized shelf above content: rejected because overlays can hide
   status and application information.
 - Exempt individual low-contrast controls: rejected because semantic pairs,
-  deterministic repair, and reverse video cover the valid cases.
+  deterministic repair, and cell-local emphasis cover the valid cases.
 
 ## Consequences and gates
 

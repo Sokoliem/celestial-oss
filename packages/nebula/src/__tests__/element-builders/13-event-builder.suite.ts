@@ -15,7 +15,7 @@ describe('event() builder', () => {
     expect(node.id).toBe('btn-1');
     expect(node.child).toBe(child);
     expect(node.handlers).toBe(handlers);
-    expect(node.metadata).toEqual({ affordances: ['hover', 'click'], cursor: 'pointer', hoverFeedback: 'reverse' });
+    expect(node.metadata).toEqual({ affordances: ['hover', 'click'], cursor: 'pointer', hoverFeedback: 'subtle' });
   });
 
   it('should create a measurable node', () => {
@@ -66,7 +66,7 @@ describe('event() builder', () => {
       label: 'Explicit',
       affordances: ['hover', 'click', 'scroll'],
       cursor: 'default',
-      hoverFeedback: 'reverse',
+      hoverFeedback: 'subtle',
     });
 
     const partial = event('partial', { kind: 'text', content: 'x' }, { onClick: 'click' }, { label: 'Partial' });
@@ -74,7 +74,7 @@ describe('event() builder', () => {
       label: 'Partial',
       affordances: ['hover', 'click'],
       cursor: 'pointer',
-      hoverFeedback: 'reverse',
+      hoverFeedback: 'subtle',
     });
   });
 });

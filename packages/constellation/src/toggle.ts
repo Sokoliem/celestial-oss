@@ -106,7 +106,7 @@ export function toggle(config: ToggleConfig): ComponentDescriptor<ToggleModel, T
 
       const trackColor = model.checked ? variantColors[variant]! : tokens.off;
       const trackChar = model.checked ? TRACK_CHARS.on[size] : TRACK_CHARS.off[size];
-      const trackStyle = style({ color: model.hovered ? tokens.borderHover : trackColor, bold: model.focused || model.hovered, reverse: model.hovered });
+      const trackStyle = style({ color: model.hovered ? tokens.borderHover : trackColor, bold: model.focused });
 
       const labelColor = model.checked ? tokens.text : tokens.textSoft;
       const labelStyle = style({ color: labelColor });

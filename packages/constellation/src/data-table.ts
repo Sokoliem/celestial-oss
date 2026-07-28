@@ -686,7 +686,7 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
       const dividerStyle = style({ color: tokens.divider });
       const textSoftStyle = applyTypography(tokens.captionStyle, { color: tokens.altRow, dim: false });
       const cursorStyle = style({ bold: true, color: tokens.selected });
-      const hoverStyle = applyState(tokens.hoverState, { bold: true });
+      const hoverStyle = applyState(tokens.hoverState);
       const selectedRowStyle = applyState(tokens.selectedState);
       const rangeRowStyle = applyState(tokens.rangeState, { bold: true });
       const selectedStyle = style({ color: tokens.selected });
@@ -820,7 +820,7 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
         const isHovered = model.hoveredRow === i;
         const interactionStyle = isHovered ? hoverStyle : isRangeSelected ? rangeRowStyle : isSelected ? selectedRowStyle : undefined;
         const interactionDividerStyle = isHovered
-          ? applyState(tokens.hoverState, { color: tokens.divider, bold: true })
+          ? applyState(tokens.hoverState, { color: tokens.divider })
           : isRangeSelected
             ? applyState(tokens.rangeState, { color: tokens.divider, bold: true })
             : isSelected

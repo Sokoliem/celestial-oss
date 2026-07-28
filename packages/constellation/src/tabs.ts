@@ -174,7 +174,7 @@ export function tabs(config: TabsConfig): ComponentDescriptor<TabsModel, TabsMsg
         const accent = config.accentResolver?.(tab, i) ?? tokens.active;
         const activeStyle = applyTypography(tokens.titleStyle, { color: accent, bold: true, underline: true });
         const customStyle = config.tabStyleResolver?.(tab, i, i === active) ?? null;
-        const hoverStyle = style({ color: accent, bold: true, reverse: true });
+        const hoverStyle = style({ color: accent });
         const s = customStyle ?? (tab.disabled ? disabledStyle : hoveredIndex === i ? hoverStyle : i === active ? activeStyle : dimStyle);
         const prefix = config.renderTabPrefix?.(tab, i) ?? null;
         // P0-3: optional suffix node rendered before the close affordance.

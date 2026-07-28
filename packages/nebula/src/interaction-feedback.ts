@@ -1,3 +1,4 @@
+import { color } from '@celestial/corona';
 import type { HitRegionInfo } from './hit-regions.js';
 import type { CellGrid } from './vdom.js';
 
@@ -5,24 +6,24 @@ function feedbackRegion(regions: readonly HitRegionInfo[], hoveredRegionId: stri
   if (hoveredRegionId === null) return undefined;
   for (let index = regions.length - 1; index >= 0; index--) {
     const region = regions[index]!;
-    if (!region.isHover && region.id === hoveredRegionId && region.metadata?.hoverFeedback !== undefined) return region;
+    if (!region.isHover && region.id === hoveredRegionId && region.metadata?.hoverFeedback === 'subtle') return region;
   }
   return undefined;
 }
 
 /** Whether entering or leaving this region requires a framework feedback render. */
 export function usesAutomaticHoverFeedback(region: HitRegionInfo | null | undefined): boolean {
-  return region?.metadata?.hoverFeedback !== undefined;
+  return region?.metadata?.hoverFeedback === 'subtle';
 }
 
 /**
  * Apply Nebula's theme-independent hover face to a rasterized frame.
  *
- * Fallback regions use reverse video, preserving the foreground/background
- * contrast ratio instead of inventing a color pair outside the active theme.
- * Managed semantic faces retain their colors and receive the same
- * framework-owned bold/underline receipt, so a missing component paint cannot
- * make hover invisible.
+ * Only painted text and glyph cells are adjusted; region backgrounds and blank
+ * layout cells are never filled. The foreground moves slightly toward the
+ * higher-contrast neutral endpoint; weight is only a compatibility fallback
+ * when resolved RGB colors are unavailable. Managed semantic faces are left
+ * entirely to their paired enter/leave handlers.
  */
 export function applyAutomaticHoverFeedback(
   grid: CellGrid,
@@ -41,13 +42,27 @@ export function applyAutomaticHoverFeedback(
   for (let row = minRow; row < maxRow; row++) {
     for (let col = minCol; col < maxCol; col++) {
       const cell = cells[row]?.[col];
-      if (!cell || cell.opaqueId) continue;
+      if (!cell || cell.opaqueId || cell.char.trim().length === 0) continue;
+      const foreground = cell.style.fgRgb;
+      const background = cell.style.bgRgb;
+      let hoverForeground: { fg: string; fgRgb: [number, number, number] } | undefined;
+      if (foreground && background) {
+        const current = color.rgb(...foreground);
+        const surface = color.rgb(...background);
+        const black = color.rgb(0, 0, 0);
+        const white = color.rgb(255, 255, 255);
+        const target = color.contrastRatio(white, surface) >= color.contrastRatio(black, surface) ? white : black;
+        const candidate = color.mix(current, target, 0.16);
+        if (candidate.rgb && color.contrastRatio(candidate, surface) >= color.contrastRatio(current, surface)) {
+          hoverForeground = { fg: candidate.fg(), fgRgb: candidate.rgb };
+        }
+      }
       cells[row]![col] = {
         ...cell,
         style: {
           ...cell.style,
-          bold: true,
-          ...(region.metadata?.hoverFeedback === 'reverse' ? { reverse: true } : { underline: true }),
+          dim: false,
+          ...(hoverForeground ?? { bold: true }),
         },
       };
     }

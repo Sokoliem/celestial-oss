@@ -119,7 +119,7 @@ export function pagination(config: PaginationConfig): ComponentDescriptor<Pagina
       const dimStyle = style({ dim: true, color: tokens.muted });
       const pageStyle = style({ color: tokens.textSoft });
       const arrowStyle = style({ color: tokens.text });
-      const hoverStyle = style({ color: tokens.active, bold: true, reverse: true });
+      const hoverStyle = style({ color: tokens.active });
       const parts: VNode[] = [
         event(
           `${interactionId}:prev`,
