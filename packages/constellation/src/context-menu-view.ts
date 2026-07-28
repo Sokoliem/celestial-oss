@@ -21,6 +21,7 @@
 import {
   type Color,
   DEFAULT_GLYPH_TOKENS,
+  ensureReadableColor,
   type GlyphLevel,
   resolveElevationBorder,
   resolveGlyph,
@@ -32,7 +33,7 @@ import {
   visualWidth,
 } from '@celestial/corona';
 import { stack } from '@celestial/gravity';
-import { box, overlay, row, text, type ThemeContext, type VNode } from '@celestial/nebula';
+import { box, event, overlay, row, text, type ThemeContext, type VNode } from '@celestial/nebula';
 import { type ContextMenuState, MAX_CONTEXT_MENU_ITEMS, type MenuItem } from './context-menu.js';
 import { nonNegativeInteger, positiveInteger } from './internal.js';
 import { resolveTheme, useTokens } from './theme.js';
@@ -100,6 +101,35 @@ export interface ContextMenuViewOptions<M> extends ContextMenuLayoutOptions<M> {
   visibleHeight?: number;
   /** Terminal glyph capability used for submenu and separator tokens. */
   glyphLevel?: GlyphLevel;
+  /**
+   * Stable interaction namespace. When supplied, enabled menu rows become
+   * framework-owned hover/click regions parsed by
+   * `contextMenuViewActionFromEvent`.
+   */
+  interactionId?: string;
+}
+
+export type ContextMenuViewAction = { type: 'highlight' | 'select'; index: number };
+
+const UNSAFE_INTERACTION_ID = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\uD800-\uDFFF]/u;
+
+function safeInteractionId(value: string): boolean {
+  return value.trim().length > 0 && value.length <= 256 && !UNSAFE_INTERACTION_ID.test(value);
+}
+
+/** Parse row actions emitted by an interactive `contextMenuView`. */
+export function contextMenuViewActionFromEvent(
+  input: { elementId: string; handlerTag: string },
+  interactionId: string,
+): ContextMenuViewAction | null {
+  if (!safeInteractionId(interactionId)) return null;
+  const prefix = `${interactionId}:item:`;
+  if (!input.elementId.startsWith(prefix)) return null;
+  const index = Number(input.elementId.slice(prefix.length));
+  if (!Number.isSafeInteger(index) || index < 0) return null;
+  if (input.handlerTag === `${interactionId}:highlight`) return { type: 'highlight', index };
+  if (input.handlerTag === `${interactionId}:select`) return { type: 'select', index };
+  return null;
 }
 
 function fitCells(value: string, width: number, align: 'left' | 'right' = 'left'): string {
@@ -270,7 +300,18 @@ export function contextMenuView<M>(options: ContextMenuViewOptions<M>): VNode | 
   if (!state.open || state.items.length === 0) return null;
   if (visibleHeight !== undefined && visibleHeight <= 0) return null;
   const resolvedTokens = useTokens(contextMenuViewContract, options, 'ContextMenuView');
-  const tokens: ContextMenuViewTokens = { ...resolvedTokens, ...options.tokens };
+  const suppliedTokens: ContextMenuViewTokens = { ...resolvedTokens, ...options.tokens };
+  // Token overrides remain a supported escape hatch, but they must not be an
+  // escape hatch from the framework's contrast contract.
+  const tokens: ContextMenuViewTokens = {
+    ...suppliedTokens,
+    text: ensureReadableColor(suppliedTokens.text, suppliedTokens.background),
+    textMuted: ensureReadableColor(suppliedTokens.textMuted, suppliedTokens.background),
+    shortcut: ensureReadableColor(suppliedTokens.shortcut, suppliedTokens.background),
+    selectedText: ensureReadableColor(suppliedTokens.selectedText, suppliedTokens.selectedBackground),
+    border: ensureReadableColor(suppliedTokens.border, suppliedTokens.background, { minimum: 3 }),
+    separator: ensureReadableColor(suppliedTokens.separator, suppliedTokens.background, { minimum: 3 }),
+  };
   const theme = resolveTheme(options);
 
   const viewport = normalizedViewport(options.viewport);
@@ -281,6 +322,10 @@ export function contextMenuView<M>(options: ContextMenuViewOptions<M>): VNode | 
   const placement = applyClampBounds(clampPosition(state.x, state.y, width, height, viewport), width, height, viewport, clampBounds);
   const renderedHeight = visibleHeight === undefined ? height : Math.min(nonNegativeInteger(visibleHeight, height), height);
   const zIndex = nonNegativeInteger(options.zIndex, 100);
+  const interactionId = options.interactionId;
+  if (interactionId !== undefined && !safeInteractionId(interactionId)) {
+    throw new RangeError('ContextMenuView interactionId must be a safe, non-empty identifier of at most 256 characters.');
+  }
 
   const rows: VNode[] = window.items.map((item, visibleIndex) => {
     if (item.separator) {
@@ -319,10 +364,28 @@ export function contextMenuView<M>(options: ContextMenuViewOptions<M>): VNode | 
     const labelWidth = Math.max(0, innerWidth - shortcutWidth - hintWidth);
     const labelPadded = fitCells(labelChunk, labelWidth);
     const shortcutPadded = fitCells(shortcut, shortcutWidth, 'right');
-    if (hintWidth === 0) {
-      return row(text(labelPadded, cellStyle), text(shortcutPadded, shortcutStyle));
-    }
-    return row(text(labelPadded, cellStyle), text(fitCells(hint, hintWidth, 'right'), hintStyle), text(shortcutPadded, shortcutStyle));
+    const face =
+      hintWidth === 0
+        ? row(text(labelPadded, cellStyle), text(shortcutPadded, shortcutStyle))
+        : row(text(labelPadded, cellStyle), text(fitCells(hint, hintWidth, 'right'), hintStyle), text(shortcutPadded, shortcutStyle));
+    if (interactionId === undefined || item.disabled) return face;
+    const index = window.firstItemIndex + visibleIndex;
+    return event(
+      `${interactionId}:item:${index}`,
+      face,
+      {
+        onClick: `${interactionId}:select`,
+        onRightClick: `${interactionId}:select`,
+        onMouseEnter: `${interactionId}:highlight`,
+      },
+      {
+        label: item.label,
+        intent: item.submenu?.length ? 'open' : 'select',
+        affordances: ['hover', 'click'],
+        cursor: 'pointer',
+        keyboardHint: item.shortcut,
+      },
+    );
   });
 
   return overlay(

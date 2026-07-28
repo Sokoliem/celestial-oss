@@ -154,6 +154,7 @@ declare module '@celestial/nebula' {
     readonly state?: string;
     readonly intent?: RegionIntent;
     readonly scope?: string;
+    readonly hoverFeedback?: 'reverse' | 'managed';
     readonly extra?: Record<string, unknown>;
   }
 

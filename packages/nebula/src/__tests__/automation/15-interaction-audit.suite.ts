@@ -34,10 +34,35 @@ describe('auditInteractionTree', () => {
         'mouse-regions-have-hit-areas',
         'mouse-regions-have-affordances',
         'mouse-regions-have-cursors',
+        'mouse-actions-have-hover-feedback',
         'disabled-mouse-regions-are-inert',
         'mouse-region-color-contrast',
       ]),
     );
+  });
+
+  it('accepts automatic fallback feedback and rejects incomplete managed feedback', () => {
+    const automatic = event(
+      'automatic',
+      text('Open'),
+      { onClick: 'open' },
+      { label: 'Open', affordances: ['click'], cursor: 'pointer' },
+    );
+    expect(rules(automatic)).not.toContain('mouse-actions-have-hover-feedback');
+
+    const incomplete: EventNode = {
+      kind: 'event',
+      id: 'incomplete',
+      child: text('Open'),
+      handlers: { onClick: 'open', onMouseEnter: 'enter' },
+      metadata: {
+        label: 'Open',
+        affordances: ['hover', 'click'],
+        cursor: 'pointer',
+        hoverFeedback: 'managed',
+      },
+    };
+    expect(rules(incomplete)).toContain('mouse-actions-have-hover-feedback');
   });
 
   it('rejects unsafe IDs, empty handler tags, missing labels, affordances, and cursors', () => {

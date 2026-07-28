@@ -13,6 +13,9 @@ export function cellToShaderCell(cell: Cell, cache: ParseCache): ShaderCell {
     italic: cell.style.italic ?? false,
     underline: cell.style.underline ?? false,
     strikethrough: cell.style.strikethrough ?? false,
+    blink: cell.style.blink ?? false,
+    reverse: cell.style.reverse ?? false,
+    hidden: cell.style.hidden ?? false,
     tint: cache.get(cell.style.effects?.tint),
     style: cell.style,
   };
@@ -33,6 +36,9 @@ export function applyShaderOutput(original: Cell, output: ShaderOutput): Cell {
   if ('italic' in output) newStyle.italic = output.italic;
   if ('underline' in output) newStyle.underline = output.underline;
   if ('strikethrough' in output) newStyle.strikethrough = output.strikethrough;
+  if ('blink' in output) newStyle.blink = output.blink;
+  if ('reverse' in output) newStyle.reverse = output.reverse;
+  if ('hidden' in output) newStyle.hidden = output.hidden;
 
   return {
     char: output.char ?? original.char,

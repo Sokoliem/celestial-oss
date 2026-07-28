@@ -100,6 +100,7 @@ export type A11yRuleName =
   | 'mouse-regions-have-hit-areas'
   | 'mouse-regions-have-affordances'
   | 'mouse-regions-have-cursors'
+  | 'mouse-actions-have-hover-feedback'
   | 'disabled-mouse-regions-are-inert'
   | 'mouse-region-color-contrast';
 

@@ -197,6 +197,7 @@ export {
 export { glassShader } from './glass-shader.js';
 export type { HitRegionInfo } from './hit-regions.js';
 export { collectHitRegions } from './hit-regions.js';
+export { applyAutomaticHoverFeedback, usesAutomaticHoverFeedback } from './interaction-feedback.js';
 export { buildMigrate, type HotPlugin, type HotPluginOptions, hotPlugin, isProperCmd, wrapRawConfig } from './hot.js';
 export type {
   Keybinding,

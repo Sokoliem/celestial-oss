@@ -1,6 +1,20 @@
-import { getVNodeMeta } from '@celestial/core/nebula';
+import { getVNodeMeta, type ElementMouseEvent, type Sub } from '@celestial/core/nebula';
 import { describe, expect, it, vi } from 'vitest';
 import { getScrollbarMetrics, scrollbar } from '../scrollbar.js';
+
+function elementMouseMapper<M>(subscription: Sub<M>): (event: ElementMouseEvent) => M {
+  if (subscription._kind.kind === 'elementMouse') return subscription._kind.toMsg;
+  if (subscription._kind.kind === 'batch') {
+    for (const child of subscription._kind.subs) {
+      try {
+        return elementMouseMapper(child);
+      } catch {
+        // Continue until the element-scoped pointer subscription is found.
+      }
+    }
+  }
+  throw new Error('Expected element mouse subscription');
+}
 
 describe('scrollbar metrics', () => {
   it('uses viewport-to-total geometry rather than track length as the viewport', () => {
@@ -40,6 +54,20 @@ describe('scrollbar metrics', () => {
       viewport: 100_000,
       trackLength: 100_000,
       scroll: 0,
+    });
+  });
+
+  it('reserves thumb travel for near-fitting scrollable content', () => {
+    expect(getScrollbarMetrics(100, 99, 10, 1)).toMatchObject({
+      needsScroll: true,
+      maxOffset: 1,
+      thumbSize: 9,
+      thumbOffset: 1,
+    });
+    expect(getScrollbarMetrics(2, 1, 1, 1)).toMatchObject({
+      needsScroll: true,
+      thumbSize: 1,
+      thumbOffset: 0,
     });
   });
 });
@@ -141,6 +169,34 @@ describe('scrollbar interactions', () => {
       onScroll: 'audit-scroll:scroll',
     });
     expect(thumb.metadata?.cursor).toBe('grab');
+  });
+
+  it('ignores secondary and middle presses before they can page or drag', () => {
+    const component = scrollbar({ id: 'button-scroll', total: 100, viewport: 20, trackLength: 5 });
+    const [model] = component.init();
+    const subscription = component.subscriptions!(model) as Sub<unknown>;
+    const toMsg = elementMouseMapper(subscription);
+    const event = (button: ElementMouseEvent['button']): ElementMouseEvent => ({
+      handlerTag: 'button-scroll:press',
+      elementId: 'button-scroll:cell:4',
+      phase: 'target',
+      targetId: 'button-scroll:cell:4',
+      currentTargetId: 'button-scroll:cell:4',
+      path: ['button-scroll:cell:4'],
+      type: 'press',
+      x: 4,
+      y: 0,
+      button,
+      ctrl: false,
+      alt: false,
+      shift: false,
+      stopPropagation: () => undefined,
+      isPropagationStopped: () => false,
+    });
+
+    expect(toMsg(event(1))).toEqual({ type: 'noop' });
+    expect(toMsg(event(2))).toEqual({ type: 'noop' });
+    expect(toMsg(event(0))).toMatchObject({ type: 'sb-press', cell: 4 });
   });
 
   it('exposes orientation-correct keyboard parity only while focused', () => {

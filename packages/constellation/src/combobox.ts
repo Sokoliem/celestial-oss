@@ -18,6 +18,8 @@ export interface ComboboxTokens {
   border: Color;
   borderActive: Color;
   muted: Color;
+  hoverText: Color;
+  hoverBackground: Color;
   labelStyle: TypographyToken;
   placeholderStyle: TypographyToken;
 }
@@ -29,6 +31,8 @@ export const comboboxContract: TokenContract<ComboboxTokens> = {
   border: (t: SemanticTheme) => t.colors.border,
   borderActive: (t: SemanticTheme) => t.colors.borderActive,
   muted: (t: SemanticTheme) => t.colors.muted,
+  hoverText: (t: SemanticTheme) => t.states.hover.fg,
+  hoverBackground: (t: SemanticTheme) => t.states.hover.bg ?? t.colors.surfaceRaised,
   labelStyle: (t: SemanticTheme) => t.typography.body,
   placeholderStyle: (t: SemanticTheme) => t.typography.caption,
 };
@@ -60,6 +64,7 @@ export interface ComboboxModel {
   filteredIndices: number[];
   focused: boolean;
   hoveredIndex?: number | null;
+  hoveredInput?: boolean;
 }
 
 export type ComboboxMsg =
@@ -78,6 +83,8 @@ export type ComboboxMsg =
   | Msg<'select-at', { index: number }>
   | Msg<'hover-at', { index: number }>
   | Msg<'leave'>
+  | Msg<'hover-input'>
+  | Msg<'leave-input'>
   | Msg<'submit'>
   | Msg<'close'>
   | Msg<'focus'>
@@ -109,6 +116,8 @@ export function combobox(config: ComboboxConfig): ComponentDescriptor<ComboboxMo
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
   const scrollTag = `${interactionId}:scroll`;
+  const hoverInputTag = `${interactionId}:hover-input`;
+  const leaveInputTag = `${interactionId}:leave-input`;
 
   function normalizeFiltered(indices: readonly number[]): number[] {
     const result: number[] = [];
@@ -148,6 +157,7 @@ export function combobox(config: ComboboxConfig): ComponentDescriptor<ComboboxMo
           highlighted: 0,
           filteredIndices: filtered,
           focused: false,
+          hoveredInput: false,
         },
         Cmd.none(),
       ];
@@ -237,6 +247,10 @@ export function combobox(config: ComboboxConfig): ComponentDescriptor<ComboboxMo
             : [normalizedModel, Cmd.none()];
         case 'leave':
           return [{ ...normalizedModel, hoveredIndex: null }, Cmd.none()];
+        case 'hover-input':
+          return [normalizedModel.hoveredInput ? normalizedModel : { ...normalizedModel, hoveredInput: true }, Cmd.none()];
+        case 'leave-input':
+          return [normalizedModel.hoveredInput ? { ...normalizedModel, hoveredInput: false } : normalizedModel, Cmd.none()];
         case 'submit': {
           if (!allowCustom) {
             const match = options.find((o) => o.label === model.inputBuffer || o.value === model.inputBuffer);
@@ -260,21 +274,27 @@ export function combobox(config: ComboboxConfig): ComponentDescriptor<ComboboxMo
       const tokens = useTokens(comboboxContract, config, 'Combobox');
       const dimStyle = applyTypography(tokens.placeholderStyle, { color: tokens.placeholder, dim: true });
       const hlStyle = style({ color: tokens.highlight, bold: true });
+      const hoverStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true });
+      const hoverCursorStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true, reverse: true });
 
       // Build input display
       let inputDisplay: VNode;
       if (model.inputBuffer.length === 0 && !model.focused) {
-        inputDisplay = text(placeholder, dimStyle);
+        inputDisplay = text(placeholder, model.hoveredInput ? hoverStyle : dimStyle);
       } else if (model.inputBuffer.length === 0 && model.focused) {
-        inputDisplay = row(text(' ', style({ reverse: true })));
+        inputDisplay = row(text(' ', model.hoveredInput ? hoverCursorStyle : style({ reverse: true })));
       } else if (model.focused) {
         const parts = graphemes(model.inputBuffer);
         const beforeStr = parts.slice(0, model.cursor).join('');
         const ch = model.cursor < parts.length ? parts[model.cursor]! : ' ';
         const afterStr = parts.slice(model.cursor + 1).join('');
-        inputDisplay = row(text(beforeStr), text(ch, style({ reverse: true })), text(afterStr));
+        inputDisplay = row(
+          text(beforeStr, model.hoveredInput ? hoverStyle : undefined),
+          text(ch, model.hoveredInput ? hoverCursorStyle : style({ reverse: true })),
+          text(afterStr, model.hoveredInput ? hoverStyle : undefined),
+        );
       } else {
-        inputDisplay = text(model.inputBuffer, applyTypography(tokens.labelStyle));
+        inputDisplay = text(model.inputBuffer, model.hoveredInput ? hoverStyle : applyTypography(tokens.labelStyle));
       }
 
       const filteredIndices = normalizeFiltered(model.filteredIndices);
@@ -282,8 +302,8 @@ export function combobox(config: ComboboxConfig): ComponentDescriptor<ComboboxMo
       const inputTarget = event(
         `${interactionId}:input`,
         inputDisplay,
-        { onClick: focusTag },
-        { label: placeholder, intent: 'edit', affordances: ['click'], cursor: 'text' },
+        { onClick: focusTag, onMouseEnter: hoverInputTag, onMouseLeave: leaveInputTag },
+        { label: placeholder, intent: 'edit', affordances: ['hover', 'click'], cursor: 'text' },
       );
       if (!model.open || filteredIndices.length === 0) return inputTarget;
 
@@ -312,6 +332,8 @@ export function combobox(config: ComboboxConfig): ComponentDescriptor<ComboboxMo
           return direction < 0 ? { type: 'up' } : direction > 0 ? { type: 'down' } : { type: 'noop' };
         }
         if (mouseEvent.elementId === `${interactionId}:input` && mouseEvent.handlerTag === focusTag) return { type: 'focus' };
+        if (mouseEvent.elementId === `${interactionId}:input` && mouseEvent.handlerTag === hoverInputTag) return { type: 'hover-input' };
+        if (mouseEvent.elementId === `${interactionId}:input` && mouseEvent.handlerTag === leaveInputTag) return { type: 'leave-input' };
         if (!mouseEvent.elementId.startsWith(`${interactionId}:option:`)) return { type: 'noop' };
         const index = Number(mouseEvent.elementId.slice(`${interactionId}:option:`.length));
         if (mouseEvent.handlerTag === selectTag) return { type: 'select-at', index };

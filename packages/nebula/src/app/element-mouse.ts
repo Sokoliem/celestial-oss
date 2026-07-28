@@ -1,4 +1,5 @@
 import type { HitRegionInfo } from '../hit-regions.js';
+import { usesAutomaticHoverFeedback } from '../interaction-feedback.js';
 import { resolveMouseHandler } from '../mouse.js';
 import type { ElementMouseEvent, MouseEventData, Sub } from '../types.js';
 import type { RuntimeContext } from './runtime-context.js';
@@ -101,6 +102,7 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
   ctx.dispatchAutoElementMouse = (sub: Sub<M>, mouseEv: MouseEventData): void => {
     if (ctx.currentHitRegions.length === 0) {
       if (ctx.lastHoveredId !== null && ctx.lastHoveredRegion) {
+        const needsFeedbackRender = usesAutomaticHoverFeedback(ctx.lastHoveredRegion);
         if (ctx.lastHoveredRegion.handlers.onMouseLeave) {
           fireElementEvent(
             sub,
@@ -115,6 +117,7 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
         }
         ctx.lastHoveredId = null;
         ctx.lastHoveredRegion = null;
+        if (needsFeedbackRender) ctx.scheduleRender();
       }
       return;
     }
@@ -123,6 +126,8 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
     const currentId = hit?.id ?? null;
 
     if (currentId !== ctx.lastHoveredId) {
+      const needsFeedbackRender =
+        usesAutomaticHoverFeedback(ctx.lastHoveredRegion) || usesAutomaticHoverFeedback(hit);
       if (ctx.lastHoveredId !== null && ctx.lastHoveredRegion?.handlers.onMouseLeave) {
         fireElementEvent(
           sub,
@@ -140,6 +145,7 @@ export function installElementMouse<Model, M>(ctx: RuntimeContext<Model, M>): vo
       }
       ctx.lastHoveredId = currentId;
       ctx.lastHoveredRegion = hit ?? null;
+      if (needsFeedbackRender) ctx.scheduleRender();
     }
 
     if (!hit) return;

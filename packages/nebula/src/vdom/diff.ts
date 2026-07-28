@@ -69,6 +69,9 @@ function styleEqual(a: StyleAttrs, b: StyleAttrs): boolean {
     (a.dim ?? false) === (b.dim ?? false) &&
     (a.italic ?? false) === (b.italic ?? false) &&
     (a.underline ?? false) === (b.underline ?? false) &&
+    (a.blink ?? false) === (b.blink ?? false) &&
+    (a.reverse ?? false) === (b.reverse ?? false) &&
+    (a.hidden ?? false) === (b.hidden ?? false) &&
     (a.strikethrough ?? false) === (b.strikethrough ?? false)
   );
 }
@@ -142,6 +145,9 @@ function styleToAnsi(style: ResolvedStyleAttrs): string {
   if (style.dim) result += '\x1b[2m';
   if (style.italic) result += '\x1b[3m';
   if (style.underline) result += '\x1b[4m';
+  if (style.blink) result += '\x1b[5m';
+  if (style.reverse) result += '\x1b[7m';
+  if (style.hidden) result += '\x1b[8m';
   if (style.strikethrough) result += '\x1b[9m';
   return result;
 }

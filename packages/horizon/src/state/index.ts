@@ -189,10 +189,14 @@ export {
 export {
   type WindowShelfAction,
   type WindowShelfConfig,
+  type WindowShelfMeasureOptions,
+  type WindowShelfStatusBarConfig,
   type WindowShelfTokens,
   windowShelf,
   windowShelfActionFromEvent,
   windowShelfContract,
+  windowShelfReservedRows,
+  windowShelfStatusBar,
 } from '../window-shelf.js';
 export {
   createWindowManager,

@@ -1,3 +1,4 @@
+import { event } from '@celestial/nebula';
 import { resolveRuntimeMeasurementContext } from './runtime.js';
 import type { SplitterController, SplitterPaneSnapshot, SplitterSnapshot } from './splitter-controller-types.js';
 import type { SplitterPersistence } from './splitter-persistence.js';
@@ -526,12 +527,11 @@ function buildHandleRegion(
           children: [],
         };
 
-  return {
-    kind: 'event',
-    id: `${idPrefix}:${leadingPaneId}:handle`,
+  return event(
+    `${idPrefix}:${leadingPaneId}:handle`,
     child,
-    handlers: { onMouseDown: `${idPrefix}:${leadingPaneId}:resize-start` },
-    metadata: {
+    { onMouseDown: `${idPrefix}:${leadingPaneId}:resize-start` },
+    {
       intent: 'drag',
       affordances: ['drag', 'resize'],
       cursor,
@@ -546,5 +546,5 @@ function buildHandleRegion(
         handleSize,
       },
     },
-  };
+  );
 }

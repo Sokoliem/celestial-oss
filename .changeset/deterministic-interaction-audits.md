@@ -3,7 +3,6 @@
 '@celestial/core': minor
 '@celestial/test': patch
 '@celestial/ui': patch
-'@celestial/telescope': patch
 '@celestial/horizon': patch
 ---
 

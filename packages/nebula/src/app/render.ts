@@ -1,6 +1,7 @@
 import { buildAutomationSnapshot } from '../automation.js';
 import { applyFocusToTree, collectFocusNodes } from '../focus.js';
 import { collectHitRegions } from '../hit-regions.js';
+import { applyAutomaticHoverFeedback } from '../interaction-feedback.js';
 import { createRenderCauseBuilder, type RenderCauseBuilder } from '../message-priority.js';
 import { applyShaders, shaders } from '../shader.js';
 import { ansi } from '../terminal.js';
@@ -93,6 +94,7 @@ export function installRender<Model, M>(ctx: RuntimeContext<Model, M>): void {
       }
 
       const targetPlan = traced('layout', () => withVNodeStateFrame(ctx.vnodeStateScope, () => planLayout(vnode, cols, rows)));
+      const targetHitRegions = collectHitRegions(targetPlan);
       layoutStats = targetPlan.stats;
       const visualPlan = ctx.compositor ? ctx.compositor.update(targetPlan, Date.now()) : targetPlan;
       const plan = ctx.compositor ? snapLayoutPlanToGrid(visualPlan) : visualPlan;
@@ -126,6 +128,9 @@ export function installRender<Model, M>(ctx: RuntimeContext<Model, M>): void {
           }),
         );
       }
+      shadedGrid = traced('interactionFeedback', () =>
+        applyAutomaticHoverFeedback(shadedGrid, targetHitRegions, ctx.lastHoveredId),
+      );
 
       if (isStaleRender()) {
         interruptRender();
@@ -165,7 +170,7 @@ export function installRender<Model, M>(ctx: RuntimeContext<Model, M>): void {
 
       ctx.prevGrid = shadedGrid;
       renderCommitted = true;
-      ctx.currentHitRegions = collectHitRegions(targetPlan);
+      ctx.currentHitRegions = targetHitRegions;
 
       if (ctx.lensBridge) {
         ctx.latestAutomationSnapshot = buildAutomationSnapshot(vnode, shadedGrid, cols, rows, targetPlan);

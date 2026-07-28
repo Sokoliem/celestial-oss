@@ -36,6 +36,7 @@ export type ContextMenuMsg<M = unknown> =
   | { type: 'ctx-close' }
   | { type: 'ctx-up' }
   | { type: 'ctx-down' }
+  | { type: 'ctx-highlight'; index: number }
   | { type: 'ctx-select' }
   | { type: 'ctx-enter-submenu' }
   | { type: 'ctx-exit-submenu' };
@@ -127,6 +128,14 @@ export function contextMenuUpdate<M>(msg: ContextMenuMsg<M>, state: ContextMenuS
       const activeItems = getActiveItems(state);
       const newIndex = findNextNonSeparator(activeItems, state.selectedIndex, -1);
       return { ...state, selectedIndex: newIndex };
+    }
+
+    case 'ctx-highlight': {
+      if (!state.open || !Number.isInteger(msg.index)) return state;
+      const activeItems = getActiveItems(state);
+      const item = activeItems[msg.index];
+      if (!item || item.separator || item.disabled || msg.index === state.selectedIndex) return state;
+      return { ...state, selectedIndex: msg.index };
     }
 
     case 'ctx-select':

@@ -41,6 +41,7 @@ import type {
   PaginationModel,
   PaginationMsg,
   PopoverModel,
+  PopoverGroupModel,
   PopoverMsg,
   RadioGroupModel,
   RadioGroupMsg,
@@ -100,7 +101,7 @@ export interface ShowcaseGalleryModels {
   virtualList: VirtualListModel<ShowcaseVirtualReceipt>;
   cardGrid: CardGridModel;
   popover: PopoverModel;
-  popoverGroup: { activeIndex: number };
+  popoverGroup: PopoverGroupModel;
   hovercard: HovercardModel;
 }
 

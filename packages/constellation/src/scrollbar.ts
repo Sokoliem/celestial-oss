@@ -134,7 +134,11 @@ export function getScrollbarMetrics(
   }
 
   const ratio = safeTotal === 0 ? 1 : Math.min(1, safeViewport / safeTotal);
-  const thumbSize = Math.max(1, Math.min(safeTrackLength, Math.round(ratio * safeTrackLength)));
+  // A scrollable track with at least two cells must retain one cell of travel.
+  // Otherwise near-fitting content can round the thumb to the full track and
+  // make both paging and dragging unable to reach the final offset.
+  const maximumThumbSize = safeTrackLength > 1 ? safeTrackLength - 1 : safeTrackLength;
+  const thumbSize = Math.max(1, Math.min(maximumThumbSize, Math.round(ratio * safeTrackLength)));
   const thumbTravel = Math.max(0, safeTrackLength - thumbSize);
   const thumbOffset = thumbTravel === 0 ? 0 : Math.round((safeScroll / maxOffset) * thumbTravel);
 
@@ -345,6 +349,7 @@ export function scrollbar(config: ScrollbarConfig): ComponentDescriptor<Scrollba
         if (mouseEvent.handlerTag === hoverTag) return { type: 'sb-hover', cell };
         if (mouseEvent.handlerTag === leaveTag) return { type: 'sb-leave', cell };
         if (mouseEvent.handlerTag === pressTag) {
+          if (mouseEvent.button !== 0) return { type: 'noop' };
           return { type: 'sb-press', cell, pointer: orientation === 'vertical' ? mouseEvent.y : mouseEvent.x };
         }
         if (mouseEvent.handlerTag === scrollTag) {

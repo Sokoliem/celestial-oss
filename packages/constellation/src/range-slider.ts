@@ -24,6 +24,8 @@ export interface RangeSliderTokens {
   text: Color;
   borderHover: Color;
   borderActive: Color;
+  hoverText: Color;
+  hoverBackground: Color;
   labelStyle: TypographyToken;
 }
 
@@ -34,6 +36,8 @@ export const rangeSliderContract: TokenContract<RangeSliderTokens> = {
   text: (t: SemanticTheme) => t.colors.text,
   borderHover: (t: SemanticTheme) => t.colors.borderHover,
   borderActive: (t: SemanticTheme) => t.colors.borderActive,
+  hoverText: (t: SemanticTheme) => t.states.hover.fg,
+  hoverBackground: (t: SemanticTheme) => t.states.hover.bg ?? t.colors.surfaceRaised,
   labelStyle: (t: SemanticTheme) => t.typography.label,
 };
 
@@ -69,6 +73,8 @@ export interface RangeSliderModel {
   focused: boolean;
   /** Pointer is currently dragging the active handle. */
   dragging?: boolean;
+  /** Track cell currently under the pointer. */
+  hoveredIndex?: number | null;
 }
 
 /** Messages the range slider can handle. */
@@ -84,6 +90,8 @@ export type RangeSliderMsg =
   | Msg<'set-at', { index: number }>
   | Msg<'drag-at', { index: number }>
   | Msg<'drag-end'>
+  | Msg<'hover-at', { index: number }>
+  | Msg<'leave-at', { index: number }>
   | Msg<'switch-handle'>
   | Msg<'focus'>
   | Msg<'blur'>
@@ -160,6 +168,8 @@ export function rangeSlider(config: RangeSliderConfig): ComponentDescriptor<Rang
   const interactionId = generateFocusGroupId('range-slider');
   const setTag = `${interactionId}:set`;
   const dragTag = `${interactionId}:drag`;
+  const hoverTag = `${interactionId}:hover`;
+  const leaveTag = `${interactionId}:leave`;
   const hitConfig = { min, max, step, width };
 
   function normalizedValues(model: Pick<RangeSliderModel, 'low' | 'high'>): { low: number; high: number } {
@@ -171,7 +181,7 @@ export function rangeSlider(config: RangeSliderConfig): ComponentDescriptor<Rang
     init(): [RangeSliderModel, Cmd<RangeSliderMsg>] {
       const low = config.low !== undefined ? clampToStep(config.low, min, max, step) : min;
       const high = config.high !== undefined ? clampToStep(config.high, min, max, step) : max;
-      return [{ low, high: Math.max(low, high), activeHandle: 'low', focused: false }, Cmd.none()];
+      return [{ low, high: Math.max(low, high), activeHandle: 'low', focused: false, hoveredIndex: null }, Cmd.none()];
     },
 
     update(msg: RangeSliderMsg, model: RangeSliderModel): [RangeSliderModel, Cmd<RangeSliderMsg>] {
@@ -223,12 +233,23 @@ export function rangeSlider(config: RangeSliderConfig): ComponentDescriptor<Rang
         }
         case 'drag-end':
           return [{ ...normalizedModel, dragging: false }, Cmd.none()];
+        case 'hover-at': {
+          const hoveredIndex = boundedInteger(msg.index, 0, 0, width - 1);
+          return [normalizedModel.hoveredIndex === hoveredIndex ? normalizedModel : { ...normalizedModel, hoveredIndex }, Cmd.none()];
+        }
+        case 'leave-at':
+          return [
+            normalizedModel.hoveredIndex === boundedInteger(msg.index, 0, 0, width - 1)
+              ? { ...normalizedModel, hoveredIndex: null }
+              : normalizedModel,
+            Cmd.none(),
+          ];
         case 'switch-handle':
           return [{ ...normalizedModel, activeHandle: activeHandle === 'low' ? 'high' : 'low' }, Cmd.none()];
         case 'focus':
           return [{ ...normalizedModel, focused: true }, Cmd.none()];
         case 'blur':
-          return [{ ...normalizedModel, focused: false, dragging: false }, Cmd.none()];
+          return [{ ...normalizedModel, focused: false, dragging: false, hoveredIndex: null }, Cmd.none()];
         case 'noop':
           return [normalizedModel, Cmd.none()];
       }
@@ -245,12 +266,16 @@ export function rangeSlider(config: RangeSliderConfig): ComponentDescriptor<Rang
 
       for (let index = 0; index < width; index++) {
         const filled = index >= lowPos && index < highPos;
+        const hovered = model.hoveredIndex === index;
         parts.push(
           event(
             `${interactionId}:cell:${index}`,
-            text(filled ? '█' : '░', filled ? filledStyle : emptyStyle),
-            { onMouseDown: setTag, onMouseMove: dragTag },
-            { label: `Range ${index + 1} of ${width}`, intent: 'edit', affordances: ['click', 'drag'], cursor: 'ew-resize' },
+            text(
+              hovered ? '◆' : filled ? '█' : '░',
+              hovered ? style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true }) : filled ? filledStyle : emptyStyle,
+            ),
+            { onMouseDown: setTag, onMouseMove: dragTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
+            { label: `Range ${index + 1} of ${width}`, intent: 'edit', affordances: ['hover', 'click', 'drag'], cursor: 'ew-resize' },
           ),
         );
       }
@@ -273,6 +298,8 @@ export function rangeSlider(config: RangeSliderConfig): ComponentDescriptor<Rang
         const index = Number(mouseEvent.elementId.slice(`${interactionId}:cell:`.length));
         if (mouseEvent.handlerTag === setTag) return { type: 'set-at', index };
         if (mouseEvent.handlerTag === dragTag) return { type: 'drag-at', index };
+        if (mouseEvent.handlerTag === hoverTag) return { type: 'hover-at', index };
+        if (mouseEvent.handlerTag === leaveTag) return { type: 'leave-at', index };
         return { type: 'noop' };
       });
       const release = model.dragging

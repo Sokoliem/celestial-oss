@@ -57,7 +57,11 @@ function interactionViolations(handle: TestAppHandle<CelestialShowcaseModel, Cel
   return handle
     .snapshot()
     .audit.violations.filter(
-      (violation) => violation.rule.startsWith('mouse-region') || violation.rule.startsWith('mouse-regions') || violation.rule === 'disabled-mouse-regions-are-inert',
+      (violation) =>
+        violation.rule.startsWith('mouse-region') ||
+        violation.rule.startsWith('mouse-regions') ||
+        violation.rule === 'mouse-actions-have-hover-feedback' ||
+        violation.rule === 'disabled-mouse-regions-are-inert',
     );
 }
 
@@ -128,9 +132,42 @@ describe('Celestial Flight Deck', () => {
       for (const width of [SHOWCASE_MIN_COLS, 140]) {
         const renderedPages: string[] = [];
         for (let componentPage = 0; componentPage < GALLERY_PAGE_COUNT; componentPage += 1) {
+          const galleryModels =
+            componentPage === 1
+              ? {
+                  ...componentModels.galleryModels,
+                  autocomplete: { ...componentModels.galleryModels.autocomplete, hoveredInput: true },
+                  combobox: { ...componentModels.galleryModels.combobox, hoveredInput: true },
+                  multiSelect: { ...componentModels.galleryModels.multiSelect, hoveredTrigger: true },
+                }
+              : componentPage === 2
+                ? {
+                    ...componentModels.galleryModels,
+                    rangeSlider: { ...componentModels.galleryModels.rangeSlider, hoveredIndex: 4 },
+                  }
+                : componentPage === 4
+              ? {
+                  ...componentModels.galleryModels,
+                  virtualList: {
+                    ...componentModels.galleryModels.virtualList,
+                    hoveredKey: 'receipt-2',
+                    focusedKey: 'receipt-2',
+                    selectedKey: 'receipt-2',
+                  },
+                }
+                  : componentPage === 7
+                    ? {
+                        ...componentModels.galleryModels,
+                        popover: { ...componentModels.galleryModels.popover, hoveredTrigger: true },
+                        popoverGroup: { ...componentModels.galleryModels.popoverGroup, hoveredIndex: 0 },
+                        hovercard: { ...componentModels.galleryModels.hovercard, state: 'pending-show' as const },
+                      }
+                    : componentModels.galleryModels;
           const model = {
             ...seed,
             ...componentModels,
+            ...(componentPage === 6 ? { tooltip: { ...componentModels.tooltip, triggered: true } } : {}),
+            galleryModels,
             galleryContextMenu: { ...componentModels.galleryContextMenu, open: false },
             cols: width,
             rows: 48,
@@ -1174,6 +1211,9 @@ describe('Celestial Flight Deck', () => {
 
     const virtualRow = handle.snapshot().elements.find((element) => element.testId === 'showcase-virtual-list:row:receipt-0');
     expect(virtualRow).toBeDefined();
+    fireMouse(handle.terminal, { type: 'move', col: virtualRow!.col + 2, row: virtualRow!.row });
+    expect(handle.model.galleryModels.virtualList.hoveredKey).toBe('receipt-0');
+    expect(interactionViolations(handle), 'hovered virtual-list row').toEqual([]);
     handle.click(virtualRow!.col + 2, virtualRow!.row);
     expect(handle.model.galleryModels.virtualList.selectedKey).toBe('receipt-0');
     fireMouse(handle.terminal, { type: 'scroll', direction: 'down', col: virtualRow!.col + 2, row: virtualRow!.row });

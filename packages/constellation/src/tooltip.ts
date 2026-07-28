@@ -17,6 +17,8 @@ export interface TooltipTokens {
   text: Color;
   bg: Color;
   border: Color;
+  hoverText: Color;
+  hoverBackground: Color;
   captionStyle: TypographyToken;
 }
 
@@ -24,6 +26,8 @@ export const tooltipContract: TokenContract<TooltipTokens> = {
   text: (t: SemanticTheme) => t.colors.text,
   bg: (t: SemanticTheme) => t.elevation.floating.surface ?? t.colors.surfaceRaised,
   border: (t: SemanticTheme) => t.elevation.floating.border ?? t.colors.borderHover,
+  hoverText: (t: SemanticTheme) => t.states.hover.fg,
+  hoverBackground: (t: SemanticTheme) => t.states.hover.bg ?? t.colors.surfaceRaised,
   captionStyle: (t: SemanticTheme) => t.typography.caption,
 };
 
@@ -201,15 +205,27 @@ export function tooltip(config: TooltipConfig): ComponentDescriptor<TooltipModel
           : position === 'bottom'
             ? column(text(arrow, borderStyle), tooltipBox)
             : row(text(arrow, borderStyle), tooltipBox);
+      const triggerFace = model.triggered
+        ? box(
+            triggerNode,
+            style({
+              color: tokens.hoverText,
+              background: tokens.hoverBackground,
+              bold: true,
+              underline: theme.states.hover.underline,
+            }),
+            { fit: 'content' },
+          )
+        : triggerNode;
       const positioned = !model.visible
-        ? triggerNode
+        ? triggerFace
         : position === 'top'
-          ? column(bubble, triggerNode)
+          ? column(bubble, triggerFace)
           : position === 'bottom'
-            ? column(triggerNode, bubble)
+            ? column(triggerFace, bubble)
             : position === 'left'
-              ? row(bubble, triggerNode)
-              : row(triggerNode, bubble);
+              ? row(bubble, triggerFace)
+              : row(triggerFace, bubble);
       const interactive = event(
         triggerId,
         positioned,

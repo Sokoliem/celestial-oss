@@ -36,8 +36,9 @@ import {
   windowManagerMsgFromWindowEvent,
   windowManagerUpdate,
   windowManagerUpdateResult,
-  windowShelf,
   windowShelfActionFromEvent,
+  windowShelfReservedRows,
+  windowShelfStatusBar,
   withFloatingWindows,
   withPip,
   workspaceUpdate,
@@ -49,10 +50,10 @@ import {
   button,
   contextMenuUpdate,
   contextMenuView,
+  contextMenuViewActionFromEvent,
   createContextMenuState,
   getSelectedItem,
   interactiveRow,
-  measureContextMenuLayout,
   progressBar,
   themedRoot,
 } from '@celestial/ui';
@@ -173,7 +174,7 @@ function windowBounds(manager: WindowManager, size: { cols: number; rows: number
     cols: size.cols,
     rows: size.rows,
     topInset: SHOWCASE_TOP_INSET,
-    bottomInset: SHOWCASE_STATUS_INSET + (getMinimizedWindows(manager, { allWorkspaces: true }).length > 0 ? 1 : 0),
+    bottomInset: SHOWCASE_STATUS_INSET + windowShelfReservedRows(manager, { allWorkspaces: true }),
   };
 }
 
@@ -398,13 +399,6 @@ function openContextMenu(model: CelestialShowcaseModel, target: string, x: numbe
   const cancelled = cancelActiveInteractions(model, true);
   const contextMenu = contextMenuUpdate({ type: 'ctx-open', x, y, items: contextItemsForTarget(cancelled, target) }, cancelled.contextMenu);
   return mark({ ...cancelled, contextMenu, contextMenuSource: target }, 'context-menu', `Opened ${trigger} context menu for ${target}.`);
-}
-
-function contextMenuRowAt(model: CelestialShowcaseModel, x: number, y: number): number | null {
-  const layout = measureContextMenuLayout({ state: model.contextMenu, viewport: { cols: model.cols, rows: model.rows } });
-  if (!layout || x <= layout.x || x >= layout.x + layout.width - 1 || y <= layout.y || y >= layout.y + layout.height - 1) return null;
-  const rowIndex = layout.firstItemIndex + y - layout.y - 1;
-  return rowIndex >= layout.firstItemIndex && rowIndex < layout.firstItemIndex + layout.rowCount ? rowIndex : null;
 }
 
 function recordDemoDrop(model: CelestialShowcaseModel): CelestialShowcaseModel {
@@ -738,6 +732,7 @@ function composeSurfaces(
 
   const menu = contextMenuView({
     state: model.contextMenu,
+    interactionId: 'showcase-context-menu-row',
     theme,
     viewport: { cols: model.cols, rows: model.rows },
     zIndex: 120,
@@ -757,12 +752,9 @@ function composeSurfaces(
     'showcase-context-menu-surface',
     menu.child,
     {
-      onClick: 'showcase-context-menu:activate',
-      onRightClick: 'showcase-context-menu:activate',
-      onMouseMove: 'showcase-context-menu:hover',
       onScroll: 'showcase-context-menu:scroll',
     },
-    { label: 'Flight Deck context menu', intent: 'select', affordances: ['hover', 'click', 'scroll'], cursor: 'pointer' },
+    { label: 'Flight Deck context menu', intent: 'select', affordances: ['scroll'], cursor: 'pointer', presentation: 'spatial' },
   );
   runtime.setVNodeMeta(interactiveMenu, { a11y: { role: 'menu', label: 'Flight Deck context menu' } });
   return runtime.layerStack(shielded, { ...menu, child: interactiveMenu });
@@ -1609,6 +1601,18 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         }
         case 'element-mouse': {
           const { handlerTag, x, y, type } = message.event;
+          const contextRowAction = contextMenuViewActionFromEvent(message.event, 'showcase-context-menu-row');
+          if (contextRowAction) {
+            message.event.stopPropagation();
+            const highlighted = contextMenuUpdate(
+              { type: 'ctx-highlight', index: contextRowAction.index },
+              model.contextMenu,
+            );
+            const next = { ...model, contextMenu: highlighted };
+            return contextRowAction.type === 'select'
+              ? this.update({ type: 'context-menu-activate' }, next)
+              : [next, Cmd.none()];
+          }
           if (handlerTag.startsWith('showcase-context-menu:')) {
             message.event.stopPropagation();
             const phase = handlerTag.slice('showcase-context-menu:'.length);
@@ -1616,12 +1620,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             if (phase === 'scroll') {
               return this.update({ type: 'context-menu', msg: { type: (message.event.deltaY ?? 0) > 0 ? 'ctx-down' : 'ctx-up' } }, model);
             }
-            const index = contextMenuRowAt(model, x, y);
-            if (index === null) return [model, Cmd.none()];
-            const hovered = model.contextMenu.items[index];
-            const contextMenu = hovered?.separator ? model.contextMenu : { ...model.contextMenu, selectedIndex: index };
-            const next = { ...model, contextMenu };
-            return phase === 'activate' ? this.update({ type: 'context-menu-activate' }, next) : [next, Cmd.none()];
+            return [model, Cmd.none()];
           }
           if (handlerTag.startsWith('showcase-context:')) {
             message.event.stopPropagation();
@@ -1891,20 +1890,14 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         text(`  ${model.cols}x${model.rows} | ${model.completed.size}/${SMOKE_STEPS.length} receipts | `, mutedStyle),
         runtime.flex(text(model.lastAction, mutedStyle, { wrap: true }), { flex: 1, minWidth: 1 }),
       );
-      const minimized = getMinimizedWindows(model.windows, { allWorkspaces: true });
-      const statusBar =
-        minimized.length > 0
-          ? column(
-              windowShelf({
-                manager: model.windows,
-                width: model.cols,
-                allWorkspaces: true,
-                hoveredWindowId: model.shelfHoveredWindowId ?? undefined,
-                themeCtx,
-              }),
-              status,
-            )
-          : status;
+      const statusBar = windowShelfStatusBar({
+        manager: model.windows,
+        width: model.cols,
+        allWorkspaces: true,
+        hoveredWindowId: model.shelfHoveredWindowId ?? undefined,
+        themeCtx,
+        statusBar: status,
+      });
       let base: VNode = shellLayout({
         header: column(title, labStrip),
         sidebar: tier === 'wide' ? panel({ title: 'Mission', content: missionRail(model), fill: true, themeCtx }) : undefined,

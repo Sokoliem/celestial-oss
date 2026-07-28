@@ -19,6 +19,8 @@ export interface AutocompleteTokens {
   borderActive: Color;
   muted: Color;
   placeholder: Color;
+  hoverText: Color;
+  hoverBackground: Color;
   labelStyle: TypographyToken;
   placeholderStyle: TypographyToken;
 }
@@ -31,6 +33,8 @@ export const autocompleteContract: TokenContract<AutocompleteTokens> = {
   borderActive: (t: SemanticTheme) => t.colors.borderActive,
   muted: (t: SemanticTheme) => t.colors.muted,
   placeholder: (t: SemanticTheme) => t.colors.muted,
+  hoverText: (t: SemanticTheme) => t.states.hover.fg,
+  hoverBackground: (t: SemanticTheme) => t.states.hover.bg ?? t.colors.surfaceRaised,
   labelStyle: (t: SemanticTheme) => t.typography.body,
   placeholderStyle: (t: SemanticTheme) => t.typography.caption,
 };
@@ -50,6 +54,7 @@ export interface AutocompleteModel {
   open: boolean;
   focused?: boolean;
   hoveredIndex?: number | null;
+  hoveredInput?: boolean;
 }
 export type AutocompleteMsg =
   | Msg<'key', { event: KeyEvent }>
@@ -62,6 +67,8 @@ export type AutocompleteMsg =
   | Msg<'select-at', { index: number }>
   | Msg<'hover-at', { index: number }>
   | Msg<'leave'>
+  | Msg<'hover-input'>
+  | Msg<'leave-input'>
   | Msg<'focus'>
   | Msg<'blur'>
   | Msg<'close'>
@@ -76,6 +83,8 @@ export function autocomplete(config: AutocompleteConfig): ComponentDescriptor<Au
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
   const scrollTag = `${interactionId}:scroll`;
+  const hoverInputTag = `${interactionId}:hover-input`;
+  const leaveInputTag = `${interactionId}:leave-input`;
 
   const suggestionsFor = (query: string): string[] => {
     const result = config.source(query);
@@ -89,7 +98,7 @@ export function autocomplete(config: AutocompleteConfig): ComponentDescriptor<Au
   };
   return {
     init(): [AutocompleteModel, Cmd<AutocompleteMsg>] {
-      return [{ query: '', suggestions: [], highlighted: 0, open: false, focused: false, hoveredIndex: null }, Cmd.none()];
+      return [{ query: '', suggestions: [], highlighted: 0, open: false, focused: false, hoveredIndex: null, hoveredInput: false }, Cmd.none()];
     },
     update(msg: AutocompleteMsg, model: AutocompleteModel): [AutocompleteModel, Cmd<AutocompleteMsg>] {
       model = normalizeModel(model);
@@ -140,6 +149,10 @@ export function autocomplete(config: AutocompleteConfig): ComponentDescriptor<Au
             : [model, Cmd.none()];
         case 'leave':
           return [{ ...model, hoveredIndex: null }, Cmd.none()];
+        case 'hover-input':
+          return [model.hoveredInput ? model : { ...model, hoveredInput: true }, Cmd.none()];
+        case 'leave-input':
+          return [model.hoveredInput ? { ...model, hoveredInput: false } : model, Cmd.none()];
         case 'focus':
           return [{ ...model, focused: true }, Cmd.none()];
         case 'blur':
@@ -155,12 +168,17 @@ export function autocomplete(config: AutocompleteConfig): ComponentDescriptor<Au
       const tokens = useTokens(autocompleteContract, config, 'Autocomplete');
       const dimStyle = applyTypography(tokens.placeholderStyle, { color: tokens.placeholder, dim: true });
       const hlStyle = style({ color: tokens.highlight, bold: true });
-      const display = model.query.length > 0 ? row(text(model.query), text(' ', style({ reverse: true }))) : text(placeholder, dimStyle);
+      const hoverStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true });
+      const hoverCursorStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground, bold: true, reverse: true });
+      const display =
+        model.query.length > 0
+          ? row(text(model.query, model.hoveredInput ? hoverStyle : undefined), text(' ', model.hoveredInput ? hoverCursorStyle : style({ reverse: true })))
+          : text(placeholder, model.hoveredInput ? hoverStyle : dimStyle);
       const inputTarget = event(
         `${interactionId}:input`,
         display,
-        { onClick: focusTag },
-        { label: placeholder || 'Autocomplete', intent: 'edit', affordances: ['click'], cursor: 'text' },
+        { onClick: focusTag, onMouseEnter: hoverInputTag, onMouseLeave: leaveInputTag },
+        { label: placeholder || 'Autocomplete', intent: 'edit', affordances: ['hover', 'click'], cursor: 'text' },
       );
       if (!model.open || model.suggestions.length === 0) return inputTarget;
       const start = model.highlighted >= maxSuggestions ? model.highlighted - maxSuggestions + 1 : 0;
@@ -183,6 +201,8 @@ export function autocomplete(config: AutocompleteConfig): ComponentDescriptor<Au
           return direction < 0 ? { type: 'up' } : direction > 0 ? { type: 'down' } : { type: 'noop' };
         }
         if (mouseEvent.elementId === `${interactionId}:input` && mouseEvent.handlerTag === focusTag) return { type: 'focus' };
+        if (mouseEvent.elementId === `${interactionId}:input` && mouseEvent.handlerTag === hoverInputTag) return { type: 'hover-input' };
+        if (mouseEvent.elementId === `${interactionId}:input` && mouseEvent.handlerTag === leaveInputTag) return { type: 'leave-input' };
         if (!mouseEvent.elementId.startsWith(`${interactionId}:suggestion:`)) return { type: 'noop' };
         const index = Number(mouseEvent.elementId.slice(`${interactionId}:suggestion:`.length));
         if (mouseEvent.handlerTag === selectTag) return { type: 'select-at', index };

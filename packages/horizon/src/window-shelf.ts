@@ -1,5 +1,5 @@
 import { type Color, createTheme, resolveComponentTokens, style, type ThemeInput, type TokenContract, truncate, visualWidth } from '@celestial/core/corona';
-import { box, empty, event, focus, row, type ThemeContext, text, type VNode } from '@celestial/core/nebula';
+import { box, column, empty, event, focus, row, type ThemeContext, text, type VNode } from '@celestial/core/nebula';
 import { isSafeRecordKey, positiveInteger } from './internal.js';
 import { encodeWindowEventId, getMinimizedWindows, type ManagedWindow, type WindowManager } from './windows.js';
 
@@ -45,12 +45,27 @@ export interface WindowShelfConfig {
   theme?: ThemeInput;
 }
 
+export interface WindowShelfStatusBarConfig extends WindowShelfConfig {
+  /** The application's permanent status row or status surface. */
+  statusBar: VNode;
+}
+
+export interface WindowShelfMeasureOptions {
+  /** Include minimized windows from inactive workspaces. Default false. */
+  allWorkspaces?: boolean;
+}
+
 export type WindowShelfAction =
   | { type: 'activate'; id: string }
   | { type: 'context'; id: string }
   | { type: 'hover'; id: string }
   | { type: 'leave'; id: string }
   | { type: 'overflow' };
+
+/** Rows the conditional shelf currently needs in its host shell. */
+export function windowShelfReservedRows(manager: WindowManager, options: WindowShelfMeasureOptions = {}): 0 | 1 {
+  return getMinimizedWindows(manager, { allWorkspaces: options.allWorkspaces }).length > 0 ? 1 : 0;
+}
 
 interface ShelfItem {
   window: ManagedWindow;
@@ -192,4 +207,16 @@ export function windowShelf(config: WindowShelfConfig): VNode {
   }
 
   return box(row(...children), style({ background: tokens.background }), { width, height: 1, overflow: 'hidden' });
+}
+
+/**
+ * Compose the permanent status surface with a shelf row only when minimized
+ * windows exist. Used as `shellLayout.statusBar`, this makes the shell measure
+ * and reserve the extra row instead of allowing a floating shelf to cover
+ * application information.
+ */
+export function windowShelfStatusBar(config: WindowShelfStatusBarConfig): VNode {
+  const { statusBar, ...shelfConfig } = config;
+  const shelf = windowShelf(shelfConfig);
+  return shelf.kind === 'empty' ? statusBar : column(shelf, statusBar);
 }

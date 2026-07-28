@@ -30,6 +30,8 @@ export interface HovercardTokens {
   readonly textSoft: Color;
   readonly border: Color;
   readonly background: Color;
+  readonly hoverText: Color;
+  readonly hoverBackground: Color;
   readonly captionStyle: TypographyToken;
 }
 
@@ -38,6 +40,8 @@ export const hovercardContract: TokenContract<HovercardTokens> = {
   textSoft: (theme: SemanticTheme) => theme.colors.textSoft,
   border: (theme: SemanticTheme) => theme.elevation.floating.border ?? theme.colors.borderHover,
   background: (theme: SemanticTheme) => theme.elevation.floating.surface ?? theme.colors.surfaceRaised,
+  hoverText: (theme: SemanticTheme) => theme.states.hover.fg,
+  hoverBackground: (theme: SemanticTheme) => theme.states.hover.bg ?? theme.colors.surfaceRaised,
   captionStyle: (theme: SemanticTheme) => theme.typography.caption,
 };
 
@@ -126,15 +130,27 @@ export function hovercard(config: HovercardConfig): ComponentDescriptor<Hovercar
       }
     },
     view(model: HovercardModel): VNode {
+      const tokens = useTokens(hovercardContract, config, 'Hovercard');
+      const theme = resolveTheme(config);
+      const triggerHovered = model.state !== 'idle';
       const trigger = event(
         triggerId,
-        triggerNode,
+        triggerHovered
+          ? box(
+              triggerNode,
+              style({
+                color: tokens.hoverText,
+                background: tokens.hoverBackground,
+                bold: true,
+                underline: theme.states.hover.underline,
+              }),
+              { fit: 'content' },
+            )
+          : triggerNode,
         { onMouseEnter: enterTag, onMouseLeave: leaveTag },
         { label: 'Hovercard trigger', intent: 'inspect', affordances: ['hover'], cursor: 'pointer' },
       );
       if (model.state !== 'open') return trigger;
-      const tokens = useTokens(hovercardContract, config, 'Hovercard');
-      const theme = resolveTheme(config);
       const preferredWidth = Math.max(12, positiveInteger(config.width, 36));
       const viewportCols = model.viewportCols === undefined ? preferredWidth : positiveInteger(model.viewportCols, preferredWidth);
       const width = Math.max(1, Math.min(preferredWidth, Math.max(1, viewportCols - 2)));
@@ -143,8 +159,8 @@ export function hovercard(config: HovercardConfig): ComponentDescriptor<Hovercar
         text(
           '[x] close',
           applyTypography(tokens.captionStyle, {
-            color: model.hoveredClose ? tokens.text : tokens.textSoft,
-            background: model.hoveredClose ? tokens.border : undefined,
+            color: model.hoveredClose ? tokens.hoverText : tokens.textSoft,
+            background: model.hoveredClose ? tokens.hoverBackground : undefined,
             bold: model.hoveredClose,
           }),
         ),

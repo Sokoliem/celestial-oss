@@ -49,7 +49,9 @@ let stackedLayerId = 0;
 type RegionAffordance = NonNullable<RegionMetadata['affordances']>[number];
 
 function inferRegionMetadata(handlers: EventHandlers, metadata?: RegionMetadata): RegionMetadata | undefined {
-  const hasHover = handlers.onMouseEnter !== undefined || handlers.onMouseLeave !== undefined;
+  const hasMouseEnter = handlers.onMouseEnter !== undefined;
+  const hasMouseLeave = handlers.onMouseLeave !== undefined;
+  const hasHover = hasMouseEnter || hasMouseLeave;
   const hasClick =
     handlers.onClick !== undefined ||
     handlers.onClickCapture !== undefined ||
@@ -59,21 +61,35 @@ function inferRegionMetadata(handlers: EventHandlers, metadata?: RegionMetadata)
   const hasPointerMove = handlers.onMouseMove !== undefined || handlers.onMouseMoveCapture !== undefined;
   const hasDrag = hasPointerDown && hasPointerMove;
   const hasScroll = handlers.onScroll !== undefined || handlers.onScrollCapture !== undefined;
+  const actionable = hasHover || hasClick || hasPointerDown || hasPointerMove;
+  const hoverFeedback =
+    metadata?.hoverFeedback ??
+    (metadata?.presentation === 'spatial'
+      ? undefined
+      : hasMouseEnter && hasMouseLeave
+        ? 'managed'
+        : actionable
+          ? 'reverse'
+          : undefined);
 
   const inferredAffordances: RegionAffordance[] = [];
-  if (hasHover) inferredAffordances.push('hover');
+  if (hasHover || hoverFeedback !== undefined) inferredAffordances.push('hover');
   if (hasClick) inferredAffordances.push('click');
   if (hasDrag) inferredAffordances.push('drag');
   if (hasScroll) inferredAffordances.push('scroll');
 
   const inferredCursor = hasDrag ? 'grab' : hasClick ? 'pointer' : undefined;
-  if (metadata === undefined && inferredAffordances.length === 0 && inferredCursor === undefined) return undefined;
-  if (metadata?.affordances !== undefined && (metadata.cursor !== undefined || inferredCursor === undefined)) return metadata;
+  const affordances =
+    inferredAffordances.length > 0
+      ? Object.freeze([...new Set([...(metadata?.affordances ?? []), ...inferredAffordances])])
+      : metadata?.affordances;
+  if (metadata === undefined && inferredAffordances.length === 0 && inferredCursor === undefined && hoverFeedback === undefined) return undefined;
 
   return {
     ...metadata,
-    ...(metadata?.affordances === undefined && inferredAffordances.length > 0 ? { affordances: Object.freeze(inferredAffordances) } : {}),
+    ...(affordances !== undefined ? { affordances } : {}),
     ...(metadata?.cursor === undefined && inferredCursor !== undefined ? { cursor: inferredCursor } : {}),
+    ...(metadata?.hoverFeedback === undefined && hoverFeedback !== undefined ? { hoverFeedback } : {}),
   };
 }
 
@@ -149,6 +165,9 @@ function toStyleAttrs(s?: Style): StyleAttrs | undefined {
   if (props.italic) attrs.italic = props.italic;
   if (props.underline) attrs.underline = props.underline;
   if (props.strikethrough) attrs.strikethrough = props.strikethrough;
+  if (props.blink) attrs.blink = props.blink;
+  if (props.reverse) attrs.reverse = props.reverse;
+  if (props.hidden) attrs.hidden = props.hidden;
   if (props.effects) {
     attrs.effects = mapResponsiveEffects(props.effects);
   }

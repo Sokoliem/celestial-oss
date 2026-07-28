@@ -22,8 +22,11 @@ export interface VirtualListTokens {
   text: Color;
   muted: Color;
   disabled: Color;
+  hoverText: Color;
   hoverBg: Color;
+  focusText: Color;
   focusBg: Color;
+  selectedText: Color;
   selectedBg: Color;
   focusRail: Color;
   error: Color;
@@ -35,9 +38,12 @@ export const virtualListContract: TokenContract<VirtualListTokens> = {
   text: (theme: SemanticTheme) => theme.colors.text,
   muted: (theme: SemanticTheme) => theme.colors.textSoft,
   disabled: (theme: SemanticTheme) => theme.colors.muted,
-  hoverBg: (theme: SemanticTheme) => theme.colors.surfaceRaised,
-  focusBg: (theme: SemanticTheme) => theme.colors.surfaceAlt,
-  selectedBg: (theme: SemanticTheme) => theme.colors.highlight,
+  hoverText: (theme: SemanticTheme) => theme.states.hover.fg,
+  hoverBg: (theme: SemanticTheme) => theme.states.hover.bg ?? theme.colors.surfaceRaised,
+  focusText: (theme: SemanticTheme) => theme.states.focus.fg,
+  focusBg: (theme: SemanticTheme) => theme.states.focus.bg ?? theme.colors.surfaceAlt,
+  selectedText: (theme: SemanticTheme) => theme.states.selected.fg,
+  selectedBg: (theme: SemanticTheme) => theme.states.selected.bg ?? theme.colors.surfaceAlt,
   focusRail: (theme: SemanticTheme) => theme.colors.tones.accent,
   error: (theme: SemanticTheme) => theme.colors.tones.danger,
   pipBg: (theme: SemanticTheme) => theme.colors.surfaceRaised,
@@ -493,11 +499,19 @@ export function virtualList<T>(config: VirtualListConfig<T>): ComponentDescripto
         } catch {
           content = text('[row render failed]', style({ color: tokens.error, bold: true }));
         }
-        const background = selected ? tokens.selectedBg : hovered ? tokens.hoverBg : focused ? tokens.focusBg : undefined;
+        // Pointer feedback is always the top visual state. Selection remains
+        // visible through the row glyph supplied to renderItem, while the
+        // semantic hover pair guarantees a readable pointer receipt.
+        const foreground = hovered ? tokens.hoverText : selected ? tokens.selectedText : focused ? tokens.focusText : tokens.text;
+        const background = hovered ? tokens.hoverBg : selected ? tokens.selectedBg : focused ? tokens.focusBg : undefined;
         const rail = text(focused ? '▌' : ' ', style({ color: tokens.focusRail, dim: !focused }));
         const body = box(
           row(rail, content),
-          background === undefined ? undefined : style({ background }),
+          style({
+            color: foreground,
+            ...(background === undefined ? {} : { background }),
+            bold: hovered || selected || focused,
+          }),
           {
             height: 1,
             overflow: 'hidden',

@@ -13,6 +13,9 @@ export interface ShaderCell {
   readonly italic: boolean;
   readonly underline: boolean;
   readonly strikethrough: boolean;
+  readonly blink?: boolean;
+  readonly reverse?: boolean;
+  readonly hidden?: boolean;
   /** Pre-parsed tint color if applicable */
   readonly tint: RGB | null;
   /** Raw style attributes for effect-driven shaders */
@@ -29,6 +32,9 @@ export interface ShaderOutput {
   italic?: boolean;
   underline?: boolean;
   strikethrough?: boolean;
+  blink?: boolean;
+  reverse?: boolean;
+  hidden?: boolean;
 }
 
 /** Uniforms available to all shaders */

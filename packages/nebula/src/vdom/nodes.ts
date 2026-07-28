@@ -260,6 +260,14 @@ export interface RegionMetadata {
   readonly cursor?: PointerCursor;
   readonly scope?: string;
   readonly presentation?: 'inline' | 'outline' | 'spatial';
+  /**
+   * How the region exposes pointer hover feedback.
+   *
+   * `reverse` is supplied by Nebula as the deterministic fallback for an
+   * otherwise click-only control. `managed` means the component owns a richer
+   * state face and exposes paired enter/leave handlers.
+   */
+  readonly hoverFeedback?: 'reverse' | 'managed';
   readonly handlerRegionId?: string;
   /**
    * Standard semantic intent of this region (e.g. 'close', 'submit', 'scroll').

@@ -149,10 +149,17 @@ export type {
   ContextMenuLayout,
   ContextMenuLayoutOptions,
   ContextMenuViewOptions,
+  ContextMenuViewAction,
   ContextMenuViewTokens,
   MeasureContextMenuItemWidthOptions,
 } from './context-menu-view.js';
-export { contextMenuView, contextMenuViewContract, measureContextMenuItemWidth, measureContextMenuLayout } from './context-menu-view.js';
+export {
+  contextMenuView,
+  contextMenuViewActionFromEvent,
+  contextMenuViewContract,
+  measureContextMenuItemWidth,
+  measureContextMenuLayout,
+} from './context-menu-view.js';
 // Data and display
 export type { DataColumn, DataTableColumnResize, DataTableConfig, DataTableModel, DataTableMsg, DataTableTokens, SortState } from './data-table.js';
 export { dataTable, dataTableContract } from './data-table.js';
@@ -215,7 +222,7 @@ export { filterByFuzzy, filterByLabel, optionListContract, optionListView } from
 export type { PaginationConfig, PaginationModel, PaginationMsg, PaginationTokens } from './pagination.js';
 export { pagination, paginationContract } from './pagination.js';
 export type { Command } from './palette.js';
-export type { PopoverConfig, PopoverGroupConfig, PopoverModel, PopoverMsg, PopoverPosition, PopoverTokens, PopoverVariant } from './popover.js';
+export type { PopoverConfig, PopoverGroupConfig, PopoverGroupModel, PopoverModel, PopoverMsg, PopoverPosition, PopoverTokens, PopoverVariant } from './popover.js';
 export { popover, popoverContract, popoverGroup } from './popover.js';
 export type {
   IndeterminateProgressConfig,

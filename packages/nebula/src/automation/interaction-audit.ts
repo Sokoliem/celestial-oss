@@ -30,6 +30,7 @@ const INTERACTION_RULES: readonly AutomationInteractionRuleName[] = [
   'mouse-regions-have-hit-areas',
   'mouse-regions-have-affordances',
   'mouse-regions-have-cursors',
+  'mouse-actions-have-hover-feedback',
   'disabled-mouse-regions-are-inert',
   'mouse-region-color-contrast',
 ];
@@ -97,6 +98,7 @@ function interactionContractSignature(handlers: EventHandlers, metadata: RegionM
     cursor: metadata?.cursor,
     keyboardHint: metadata?.keyboardHint,
     presentation: metadata?.presentation,
+    hoverFeedback: metadata?.hoverFeedback,
   });
 }
 
@@ -282,6 +284,38 @@ export function auditInteractionTree(root: VNode, options: AutomationInteraction
         'Actionable mouse regions must declare a deterministic pointer cursor.',
       );
       failed.add('mouse-regions-have-cursors');
+    }
+
+    const requiresHoverFeedback =
+      hitRegion.metadata?.presentation !== 'spatial' &&
+      (hasHandler(hitRegion.handlers, [
+        'onMouseEnter',
+        'onMouseLeave',
+        'onClick',
+        'onClickCapture',
+        'onRightClick',
+        'onRightClickCapture',
+        'onMouseDown',
+        'onMouseDownCapture',
+        'onMouseUp',
+        'onMouseUpCapture',
+        'onMouseMove',
+        'onMouseMoveCapture',
+      ]) ||
+        declared.some((affordance) => ['click', 'drag', 'resize', 'edit'].includes(affordance)));
+    const hasPairedHoverHandlers =
+      hasHandler(hitRegion.handlers, ['onMouseEnter']) && hasHandler(hitRegion.handlers, ['onMouseLeave']);
+    const hasDeterministicHoverFeedback =
+      hitRegion.metadata?.hoverFeedback === 'reverse' ||
+      (hitRegion.metadata?.hoverFeedback === 'managed' && hasPairedHoverHandlers);
+    if (!eventRegion.disabled && requiresHoverFeedback && (!hasDeterministicHoverFeedback || !declared.includes('hover'))) {
+      pushViolation(
+        violations,
+        'mouse-actions-have-hover-feedback',
+        eventRegion,
+        'Actionable mouse regions must use runtime reverse feedback or managed paired enter/leave feedback and expose a hover affordance.',
+      );
+      failed.add('mouse-actions-have-hover-feedback');
     }
 
     if (eventRegion.disabled) {
