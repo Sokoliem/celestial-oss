@@ -1,4 +1,4 @@
-import { collectHitRegions, planLayout, type VNode } from '@celestial/core/nebula';
+import { collectFocusNodes, collectHitRegions, planLayout, type VNode } from '@celestial/core/nebula';
 import { describe, expect, it } from 'vitest';
 import {
   createFloatingWindow,
@@ -17,6 +17,10 @@ import {
 
 function textNode(content: string): VNode {
   return { kind: 'text', content };
+}
+
+function focusNode(id: string): VNode {
+  return { kind: 'focus', id, focused: false, child: textNode(id) };
 }
 
 function resolve(node: VNode): VNode {
@@ -156,6 +160,35 @@ describe('horizon compatibility API', () => {
     const overlays = collectOverlays(rendered);
     expect(overlays).toHaveLength(1);
     expect(overlays[0]?.zIndex).toBe(1);
+  });
+
+  it('withFloatingWindows exposes focus targets from only the focused layer', () => {
+    const manager = createWindowManager([
+      { id: 'front', content: focusNode('front-action'), x: 1, y: 1, width: 20, height: 6, zIndex: 20 },
+      { id: 'selected', content: focusNode('selected-action'), x: 0, y: 0, width: 20, height: 6, zIndex: 10, focused: true },
+    ]);
+
+    expect(manager.windows.find((window) => window.id === 'selected')?.focused).toBe(true);
+    expect(collectFocusNodes(withFloatingWindows(focusNode('workspace-action'), manager)).map((node) => node.id)).toEqual(['selected-action']);
+  });
+
+  it('withFloatingWindows gives raw arrays a frontmost focus fallback', () => {
+    const rendered = withFloatingWindows(focusNode('workspace-action'), [
+      { id: 'back', content: focusNode('back-action'), x: 0, y: 0, width: 20, height: 6, zIndex: 5 },
+      { id: 'front', content: focusNode('front-action'), x: 1, y: 1, width: 20, height: 6, zIndex: 10 },
+    ]);
+
+    expect(collectFocusNodes(rendered).map((node) => node.id)).toEqual(['front-action']);
+  });
+
+  it('withFloatingWindows blocks background focus behind a non-focusable modal', () => {
+    const manager = createWindowManager([
+      { id: 'main', content: focusNode('main-action'), x: 0, y: 0, width: 20, height: 6, focused: true },
+      { id: 'shield', role: 'modal', focusable: false, content: focusNode('shield-action'), x: 1, y: 1, width: 20, height: 6 },
+    ]);
+
+    expect(manager.windows.every((window) => window.focused === false)).toBe(true);
+    expect(collectFocusNodes(withFloatingWindows(focusNode('workspace-action'), manager))).toEqual([]);
   });
 
   it('supports workspace manager helpers', () => {

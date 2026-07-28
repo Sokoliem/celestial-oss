@@ -25,7 +25,7 @@ Four private workspaces demonstrate the supported packages without widening the 
 - `examples/task-console` uses `@celestial/core` and `@celestial/ui` with bundled Node worker fixtures.
 - `examples/api-inspector` uses `@celestial/core` and `@celestial/ui` with an ephemeral loopback HTTP server.
 - `examples/horizon-workbench` adds the `@celestial/horizon` beta surface for window and workspace management.
-- `examples/celestial-showcase` combines the entire focused preview into an adaptive, mouse-first Flight Deck with nine labs, five of them paged, a machine-checked 18-package/49-builder ledger, deterministic painted interaction audits, Compass navigation, explicit Nebula config-loading and diagnostic receipts, Rosetta locale and bidi receipts, deep Orbit and rich-rendering instruments, target-specific right-click menus, and Horizon windows, shelf, snap, tile, and session behavior.
+- `examples/celestial-showcase` combines the entire focused preview into an adaptive, mouse-first Flight Deck with nine labs, five of them paged, a machine-checked 18-package/49-builder ledger, deterministic painted interaction audits, Compass navigation, explicit Nebula config-loading and diagnostic receipts, Rosetta locale and bidi receipts, deep Orbit and rich-rendering instruments, target-specific right-click menus, and Horizon windows with deterministic layer focus, shelf, snap, tile, and session behavior.
 
 The boundary checker validates both their manifests and source imports. `@celestial/test` and `@celestial/test/pty` are permitted only in test files. Other applications and examples are outside this repository's scope.
 

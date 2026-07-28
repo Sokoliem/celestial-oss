@@ -339,6 +339,7 @@ export function overlay(
     height?: number;
     zIndex?: number;
     transparent?: boolean;
+    focusMode?: OverlayNode['focusMode'];
     layoutId?: string;
   },
 ): OverlayNode {
@@ -351,6 +352,7 @@ export function overlay(
     height: options.height,
     zIndex: options.zIndex,
     transparent: options.transparent,
+    focusMode: options.focusMode,
     layoutId: options.layoutId,
   };
 }
@@ -381,11 +383,13 @@ export function suspense(child: VNode, fallback: VNode, resolved: boolean): Susp
 export interface PortalOptions {
   /** Preserve target cells where the portal child does not explicitly paint. */
   readonly transparent?: boolean;
+  /** Explicit keyboard-focus ownership for the portal layer. */
+  readonly focusMode?: PortalNode['focusMode'];
 }
 
 /** Create a portal — renders child at a named target location. */
 export function portal(target: string, child: VNode, options: PortalOptions = {}): PortalNode {
-  return { kind: 'portal', child, target, transparent: options.transparent };
+  return { kind: 'portal', child, target, transparent: options.transparent, focusMode: options.focusMode };
 }
 
 /**

@@ -187,7 +187,7 @@ function normalizeWindows(
   const visibleModal = [...visible].filter((window) => window.modal || window.role === 'modal').sort((a, b) => b.zIndex - a.zIndex)[0];
   const requestedFocus = [...visible].filter((window) => window.focused && window.focusable !== false).sort((a, b) => b.zIndex - a.zIndex)[0];
   const fallbackFocus = [...visible].filter((window) => window.focusable !== false).sort((a, b) => b.zIndex - a.zIndex)[0];
-  const focusedId = visibleModal && visibleModal.focusable !== false ? visibleModal.id : (requestedFocus?.id ?? fallbackFocus?.id);
+  const focusedId = visibleModal ? (visibleModal.focusable === false ? undefined : visibleModal.id) : (requestedFocus?.id ?? fallbackFocus?.id);
   return ordered.map((window) => ({ ...window, focused: focusedId !== undefined && window.id === focusedId }));
 }
 

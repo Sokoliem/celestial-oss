@@ -5,7 +5,7 @@ import { createSessionStore, saveSession } from '@celestial/horizon';
 import { createScreen, createTestApp, fireMouse, renderToLines, type TestAppHandle } from '@celestial/test';
 import * as ui from '@celestial/ui';
 import { applyVariant, defaultTheme, validateThemeContrast } from '@celestial/core/corona';
-import { auditInteractionTree, createThemeContext } from '@celestial/core/nebula';
+import { auditInteractionTree, collectFocusNodes, createThemeContext } from '@celestial/core/nebula';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
 import {
@@ -1480,6 +1480,23 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.completed.has('window')).toBe(false);
     handle.dispatch({ type: 'window-action', id: 'telemetry', action: 'maximize' });
     expect(handle.model.completed.has('window')).toBe(true);
+  });
+
+  it('keeps keyboard focus inside the active window and above it in a modal', async () => {
+    const handle = flightDeck(140, 48);
+    const app = createCelestialShowcaseApp({ initialSize: { cols: 140, rows: 48 }, fast: true });
+    handle.pressKey('7');
+    await handle.waitForUpdate();
+
+    const windowTargets = collectFocusNodes(app.view(handle.model)).map((node) => node.id);
+    expect(windowTargets).toEqual(['showcase-window:telemetry:content']);
+    expect(handle.lastFrame()).toContain('keyboard layer');
+    expect(handle.lastFrame()).toContain('Telemetry instrument');
+
+    handle.dispatch({ type: 'open-surface', surface: 'modal' });
+    const modalTargets = collectFocusNodes(app.view(handle.model)).map((node) => node.id);
+    expect(modalTargets.length).toBeGreaterThan(0);
+    expect(modalTargets).not.toContain('showcase-window:telemetry:content');
   });
 
   // Every paged instrument wraps with `(page + delta + count) % count`. The `+ count`

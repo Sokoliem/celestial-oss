@@ -144,8 +144,9 @@ describe('contextMenuView', () => {
       viewport: { cols: 30, rows: 8 },
     });
     expect(node).not.toBeNull();
-    const overlayNode = node as { kind: string; x: number; y: number; width: number; height: number };
+    const overlayNode = node as { kind: string; x: number; y: number; width: number; height: number; focusMode?: string };
     expect(overlayNode.kind).toBe('overlay');
+    expect(overlayNode.focusMode).toBe('modal');
     // Menu is wider than 30 - 500 → must snap to 0 rather than produce negative x.
     expect(overlayNode.x).toBeGreaterThanOrEqual(0);
     expect(overlayNode.x + overlayNode.width).toBeLessThanOrEqual(30);

@@ -557,6 +557,7 @@ function layerPip(
       height: surfaceHeight,
       zIndex,
       surfaceId,
+      focusMode: surfaceId === 'tooltip' ? 'passive' : 'modal',
       onClickAway: clickAway ? `showcase-click-away:${surfaceId}` : undefined,
     }),
     {
@@ -686,7 +687,16 @@ function composeSurfaces(
       layered,
       runtime.overlay(
         components.helpDrawers[model.activeLab].view({ open: true, width: helpWidth, height: Math.max(12, model.rows - 2), focusTrapActive: true }),
-        { x: 0, y: 0, width: model.cols, height: model.rows, zIndex: 72, transparent: true, layoutId: `showcase-help:${model.activeLab}` },
+        {
+          x: 0,
+          y: 0,
+          width: model.cols,
+          height: model.rows,
+          zIndex: 72,
+          transparent: true,
+          focusMode: 'modal',
+          layoutId: `showcase-help:${model.activeLab}`,
+        },
       ),
     );
   }
@@ -701,6 +711,7 @@ function composeSurfaces(
         height: model.rows,
         zIndex: 75,
         transparent: true,
+        focusMode: 'modal',
         layoutId: 'showcase-drawer',
       }),
     );
@@ -757,7 +768,7 @@ function composeSurfaces(
     { label: 'Flight Deck context menu', intent: 'select', affordances: ['scroll'], cursor: 'pointer', presentation: 'spatial' },
   );
   runtime.setVNodeMeta(interactiveMenu, { a11y: { role: 'menu', label: 'Flight Deck context menu' } });
-  return runtime.layerStack(shielded, { ...menu, child: interactiveMenu });
+  return runtime.layerStack(shielded, { ...menu, child: interactiveMenu, focusMode: 'modal' });
 }
 
 function renderActiveLab(
@@ -808,11 +819,14 @@ function dynamicWindows(model: CelestialShowcaseModel, themeCtx: ReturnType<type
     windows: model.windows.windows.map((window) => ({
       ...window,
       chrome: { ...window.chrome, themeCtx },
-      content: event(
-        `showcase-context-window-${window.id}`,
-        renderWindowContent(model, window.id),
-        { onRightClick: `showcase-context:window:${window.id}` },
-        { label: `${window.title} context menu`, intent: 'menu', affordances: ['click'], cursor: 'pointer' },
+      content: runtime.focus(
+        `showcase-window:${window.id}:content`,
+        event(
+          `showcase-context-window-${window.id}`,
+          renderWindowContent(model, window.id),
+          { onRightClick: `showcase-context:window:${window.id}` },
+          { label: `${window.title} context menu`, intent: 'menu', affordances: ['click'], cursor: 'pointer' },
+        ),
       ),
     })),
   };

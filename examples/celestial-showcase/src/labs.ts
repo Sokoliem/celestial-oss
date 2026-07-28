@@ -967,15 +967,29 @@ function renderWindowManagerLab(model: CelestialShowcaseModel): VNode {
     action(model, 'reopen-events', openLabel('events', 'events'), 'success'),
   );
   const tier = viewportTier(model.cols);
+  const focusedWindow = model.windows.windows.find(
+    (window) =>
+      window.focused &&
+      window.mode !== 'minimized' &&
+      window.mode !== 'hidden' &&
+      window.mode !== 'closed' &&
+      (window.workspaceId === undefined || window.workspaceId === model.windows.activeWorkspaceId),
+  );
 
   return column(
     row(text('HORIZON WINDOW DECK', headingStyle), text('  beta', warningStyle), text(`  ${tier} representation`, mutedStyle)),
     workspaceBar,
     text(active?.summary ?? '', mutedStyle, { wrap: true }),
+    capabilityStatus('keyboard layer', focusedWindow?.title ?? 'none', focusedWindow !== undefined),
     text(''),
     panel({
       title: 'Window manager state',
-      content: column(controls, text('Open/Bring places the instrument in this workspace.', mutedStyle), text(''), ...managerRows),
+      content: column(
+        controls,
+        text('Open/Bring places the instrument in this workspace.', mutedStyle),
+        text(''),
+        ...managerRows,
+      ),
       focused: true,
     }),
     text(''),

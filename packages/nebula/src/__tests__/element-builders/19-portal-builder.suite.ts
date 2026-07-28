@@ -14,8 +14,9 @@ describe('portal() builder', () => {
   });
 
   it('should expose transparent composition as an explicit option', () => {
-    const node = portal('modal-root', text('teleported'), { transparent: true });
+    const node = portal('modal-root', text('teleported'), { transparent: true, focusMode: 'modal' });
 
     expect(node.transparent).toBe(true);
+    expect(node.focusMode).toBe('modal');
   });
 });

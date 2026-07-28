@@ -6,7 +6,7 @@
  * and focus groups (traps) for modal-style navigation.
  */
 
-import { type EchoHint, resolveMemo, type VNode } from './vdom.js';
+import { type EchoHint, type LayerFocusMode, resolveMemo, type VNode } from './vdom.js';
 
 // --- Focus State ---
 
@@ -47,16 +47,59 @@ export function createFocusState(): FocusState {
  */
 export function collectFocusNodes(root: VNode): FocusNodeInfo[] {
   const nodes: FocusNodeInfo[] = [];
-  walkTree(root, nodes);
+  const layers: FocusLayer[] = [];
+  const order = { value: 0 };
+  walkTree(root, nodes, layers, order, 0);
+
+  const owner = layers
+    .filter((layer) => layer.mode !== 'passive')
+    .sort((a, b) => b.priority - a.priority || b.zIndex - a.zIndex || b.order - a.order)[0];
+  const navigable = owner ? owner.nodes : nodes;
 
   // Stable sort: tabIndex ascending, document order preserved for ties.
   // Nodes without tabIndex default to 0.
-  nodes.sort((a, b) => a.tabIndex - b.tabIndex);
+  navigable.sort((a, b) => a.tabIndex - b.tabIndex);
 
-  return nodes;
+  return navigable;
 }
 
-function walkTree(node: VNode, acc: FocusNodeInfo[]): void {
+interface FocusLayer {
+  mode: LayerFocusMode;
+  priority: number;
+  zIndex: number;
+  order: number;
+  nodes: FocusNodeInfo[];
+}
+
+function focusLayerRank(mode: LayerFocusMode): number {
+  if (mode === 'modal' || mode === 'blocked') return 2;
+  if (mode === 'active') return 1;
+  return 0;
+}
+
+function walkLayer(
+  child: VNode,
+  mode: LayerFocusMode,
+  zIndex: number,
+  layers: FocusLayer[],
+  order: { value: number },
+  parentPriority: number,
+): void {
+  const priority = Math.max(parentPriority, focusLayerRank(mode));
+  const layer: FocusLayer = {
+    mode,
+    priority,
+    zIndex: Number.isFinite(zIndex) ? zIndex : 0,
+    order: order.value++,
+    nodes: [],
+  };
+  layers.push(layer);
+  if (mode !== 'blocked') {
+    walkTree(child, mode === 'passive' ? [] : layer.nodes, layers, order, priority);
+  }
+}
+
+function walkTree(node: VNode, acc: FocusNodeInfo[], layers: FocusLayer[], order: { value: number }, priority: number): void {
   switch (node.kind) {
     case 'focus':
       acc.push({
@@ -67,56 +110,66 @@ function walkTree(node: VNode, acc: FocusNodeInfo[]): void {
         ...(node.echoHint ? { echoHint: node.echoHint } : {}),
       });
       // Also walk the child — it might contain nested focus nodes
-      walkTree(node.child, acc);
+      walkTree(node.child, acc, layers, order, priority);
       break;
     case 'box':
-      for (const child of node.children) walkTree(child, acc);
+      for (const child of node.children) walkTree(child, acc, layers, order, priority);
       break;
     case 'row':
-      for (const child of node.children) walkTree(child, acc);
+      for (const child of node.children) walkTree(child, acc, layers, order, priority);
       break;
     case 'column':
-      for (const child of node.children) walkTree(child, acc);
+      for (const child of node.children) walkTree(child, acc, layers, order, priority);
       break;
     case 'scroll':
-      walkTree(node.child, acc);
+      walkTree(node.child, acc, layers, order, priority);
       break;
     case 'component':
-      walkTree(node.render(), acc);
+      walkTree(node.render(), acc, layers, order, priority);
       break;
     case 'event':
-      walkTree(node.child, acc);
+      walkTree(node.child, acc, layers, order, priority);
       break;
     case 'hover':
-      walkTree(node.child, acc);
+      walkTree(node.child, acc, layers, order, priority);
       break;
     case 'overlay':
-      walkTree(node.child, acc);
+      if (node.focusMode) {
+        walkLayer(node.child, node.focusMode, node.zIndex ?? 0, layers, order, priority);
+      } else {
+        walkTree(node.child, acc, layers, order, priority);
+      }
       break;
     case 'flex':
-      walkTree(node.child, acc);
+      walkTree(node.child, acc, layers, order, priority);
       break;
     case 'memo':
       // Memo nodes resolve lazily; walk the render result
-      walkTree(resolveMemo(node), acc);
+      walkTree(resolveMemo(node), acc, layers, order, priority);
       break;
     case 'suspense':
       // Only walk the active branch
-      walkTree(node.resolved ? node.child : node.fallback, acc);
+      walkTree(node.resolved ? node.child : node.fallback, acc, layers, order, priority);
       break;
     case 'portal':
-      // Walk the portal's child at declaration site for focus collection
-      walkTree(node.child, acc);
+      if (node.focusMode) {
+        // Portals paint after ordinary overlays, so they win equal-priority
+        // focus ownership unless a modal layer is present.
+        walkLayer(node.child, node.focusMode, Number.MAX_SAFE_INTEGER, layers, order, priority);
+      } else {
+        // Walk the portal's child at declaration site for focus collection
+        walkTree(node.child, acc, layers, order, priority);
+      }
       break;
     case 'localState':
       // LocalState resolves dynamically; skip deep walk to avoid side effects
       break;
     case 'lazy':
       // Lazy nodes may not be loaded; walk placeholder
-      walkTree(node.placeholder, acc);
+      walkTree(node.placeholder, acc, layers, order, priority);
       break;
     case 'tabGroup':
-      for (const child of node.children) walkTree(child, acc);
+      for (const child of node.children) walkTree(child, acc, layers, order, priority);
       break;
     case 'text':
     case 'empty':

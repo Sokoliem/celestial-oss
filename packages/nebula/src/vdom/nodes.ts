@@ -313,6 +313,20 @@ export interface ImageNode {
   readonly layoutDirty?: boolean;
 }
 
+/**
+ * Keyboard-focus relationship between a visual layer and the content below it.
+ *
+ * - `passive`: descendants are omitted from keyboard navigation without
+ *   displacing the current owner (tooltips, toasts, unfocused windows).
+ * - `active`: descendants exclusively own keyboard navigation.
+ * - `modal`: descendants exclusively own keyboard navigation and outrank
+ *   active layers regardless of z-index.
+ * - `blocked`: neither this layer nor anything below it is keyboard navigable.
+ *
+ * Omit the mode to preserve normal document-order focus collection.
+ */
+export type LayerFocusMode = 'passive' | 'active' | 'modal' | 'blocked';
+
 export interface OverlayNode {
   readonly kind: 'overlay';
   readonly child: VNode;
@@ -328,6 +342,8 @@ export interface OverlayNode {
   readonly zIndex?: number;
   /** If true, empty cells (char=' ', no bg) show through to content below */
   readonly transparent?: boolean;
+  /** Explicit keyboard-focus ownership for this visual layer. */
+  readonly focusMode?: LayerFocusMode;
   readonly layoutId?: string;
   readonly layoutDirty?: boolean;
 }
@@ -368,6 +384,8 @@ export interface PortalNode {
   readonly target: string;
   /** When true, unpainted cells preserve the target content beneath them. */
   readonly transparent?: boolean;
+  /** Explicit keyboard-focus ownership for this visual layer. */
+  readonly focusMode?: LayerFocusMode;
   readonly layoutId?: string;
   readonly layoutDirty?: boolean;
 }

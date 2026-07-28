@@ -15,10 +15,11 @@ describe('overlay() builder', () => {
   });
 
   it('should accept optional dimensions and zIndex', () => {
-    const node = overlay(text('x'), { x: 0, y: 0, width: 20, height: 10, zIndex: 5, transparent: true });
+    const node = overlay(text('x'), { x: 0, y: 0, width: 20, height: 10, zIndex: 5, transparent: true, focusMode: 'active' });
     expect(node.width).toBe(20);
     expect(node.height).toBe(10);
     expect(node.zIndex).toBe(5);
     expect(node.transparent).toBe(true);
+    expect(node.focusMode).toBe('active');
   });
 });

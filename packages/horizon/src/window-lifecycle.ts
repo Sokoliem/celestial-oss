@@ -159,10 +159,16 @@ function nextZIndex<M>(windows: readonly DesktopWindowState<M>[]): number {
 }
 
 function focusFallback<M>(windows: DesktopWindowState<M>[], preferredId?: string): DesktopWindowState<M>[] {
-  const candidates = windows.filter(
-    (window) => window.focusable !== false && window.mode !== 'closed' && window.mode !== 'hidden' && window.mode !== 'minimized',
-  );
-  const target = preferredId ? candidates.find((window) => window.id === preferredId) : [...candidates].sort((a, b) => b.zIndex - a.zIndex)[0];
+  const visible = windows.filter((window) => window.mode !== 'closed' && window.mode !== 'hidden' && window.mode !== 'minimized');
+  const modal = [...visible].filter((window) => window.modal || window.role === 'modal').sort((a, b) => b.zIndex - a.zIndex)[0];
+  const candidates = visible.filter((window) => window.focusable !== false);
+  const target = modal
+    ? modal.focusable === false
+      ? undefined
+      : modal
+    : preferredId
+      ? candidates.find((window) => window.id === preferredId)
+      : [...candidates].sort((a, b) => b.zIndex - a.zIndex)[0];
   if (!target) {
     return windows.map((window) => ({ ...window, focused: false }));
   }
@@ -347,10 +353,11 @@ export function applyWindowCommand<M = unknown>(
       }
       const next = createDesktopWindow<M>({ ...command.window, zIndex: command.window.zIndex ?? nextZIndex(windows) } as FloatingWindowConfig &
         Partial<DesktopWindowState<M>>);
+      const focused = focusFallback([...windows, next], next.focused ? next.id : undefined);
       return {
-        windows: focusFallback([...windows, next], next.focused ? next.id : undefined),
+        windows: focused,
         accepted: true,
-        focusedWindowId: next.focused ? next.id : undefined,
+        focusedWindowId: focused.find((window) => window.focused)?.id,
       };
     }
     case 'close': {
@@ -446,7 +453,7 @@ export function applyWindowCommand<M = unknown>(
         windows.map((window) => (window.id === command.id ? nextTarget : window)),
         command.id,
       );
-      return { windows: next, accepted: true, focusedWindowId: command.id };
+      return { windows: next, accepted: true, focusedWindowId: next.find((window) => window.focused)?.id };
     }
     case 'fullscreen': {
       if (target!.mode === 'closed') {
@@ -466,7 +473,7 @@ export function applyWindowCommand<M = unknown>(
         windows.map((window) => (window.id === command.id ? nextTarget : window)),
         command.id,
       );
-      return { windows: next, accepted: true, focusedWindowId: command.id };
+      return { windows: next, accepted: true, focusedWindowId: next.find((window) => window.focused)?.id };
     }
     case 'restore': {
       if (target!.mode === 'closed') {
@@ -482,7 +489,7 @@ export function applyWindowCommand<M = unknown>(
         windows.map((window) => (window.id === command.id ? nextTarget : window)),
         command.id,
       );
-      return { windows: next, accepted: true, focusedWindowId: command.id };
+      return { windows: next, accepted: true, focusedWindowId: next.find((window) => window.focused)?.id };
     }
     case 'focus': {
       if (target!.mode === 'closed') {
@@ -496,7 +503,7 @@ export function applyWindowCommand<M = unknown>(
       focusedTarget.zIndex = nextZIndex(windows);
       const replaced = windows.map((window) => (window.id === command.id ? focusedTarget : window));
       const next = focusFallback(replaced, command.id);
-      return { windows: next, accepted: true, focusedWindowId: command.id };
+      return { windows: next, accepted: true, focusedWindowId: next.find((window) => window.focused)?.id };
     }
   }
 }

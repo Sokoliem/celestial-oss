@@ -5,7 +5,7 @@
  * Uses the native nebula overlay element for proper z-index management.
  */
 
-import { type ComponentNode, layerStack, overlay as nebulaOverlay, type VNode } from '@celestial/core/nebula';
+import { type ComponentNode, type LayerFocusMode, layerStack, overlay as nebulaOverlay, type VNode } from '@celestial/core/nebula';
 
 export interface FloatingConfig {
   /** Background content */
@@ -26,6 +26,8 @@ export interface FloatingConfig {
   layoutId?: string;
   /** Preserve base cells not explicitly painted by the floating content. Default true. */
   transparent?: boolean;
+  /** Keyboard-focus ownership for the floating layer. */
+  focusMode?: LayerFocusMode;
 }
 
 /**
@@ -35,7 +37,7 @@ export interface FloatingConfig {
  * layout engine's overlay collector for correct z-index sorting.
  */
 export function floating(config: FloatingConfig): VNode {
-  const { base, overlay, x, y, width, height, zIndex = 10, layoutId, transparent = true } = config;
+  const { base, overlay, x, y, width, height, zIndex = 10, layoutId, transparent = true, focusMode } = config;
 
   return {
     kind: 'component',
@@ -50,6 +52,7 @@ export function floating(config: FloatingConfig): VNode {
           zIndex,
           layoutId,
           transparent,
+          focusMode,
         }),
       ),
   } satisfies ComponentNode;

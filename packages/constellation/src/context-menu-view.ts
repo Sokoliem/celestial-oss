@@ -398,6 +398,6 @@ export function contextMenuView<M>(options: ContextMenuViewOptions<M>): VNode | 
       }),
       { width, height: renderedHeight, overflow: 'hidden' },
     ),
-    { x: placement.x, y: placement.y, width, height: renderedHeight, zIndex },
+    { x: placement.x, y: placement.y, width, height: renderedHeight, zIndex, focusMode: 'modal' },
   );
 }

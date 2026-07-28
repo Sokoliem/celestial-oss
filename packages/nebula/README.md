@@ -304,7 +304,14 @@ Absolute-positioned overlay on top of base content:
 ```typescript
 overlay(text('Tooltip'), { x: 10, y: 5, zIndex: 10 })
 overlay(text('Panel'), { x: 0, y: 0, width: 30, height: 10, transparent: true })
+overlay(dialog, { x: 8, y: 4, zIndex: 100, focusMode: 'modal' })
 ```
+
+`focusMode` aligns keyboard ownership with visual stacking. Use `passive` for
+tooltips and notifications, `active` for the selected non-modal layer,
+`modal` for a focus-owning blocking surface, and `blocked` for a blocking
+surface that must expose no keyboard target. Omit it for legacy document-order
+focus collection. `portal()` accepts the same option.
 
 ### flex(child, opts?)
 

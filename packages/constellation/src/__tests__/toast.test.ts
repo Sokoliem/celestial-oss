@@ -125,6 +125,7 @@ describe('createToastManager', () => {
     expect(toastLayer.y).toBe(1);
     expect(toastLayer.width).toBe(30);
     expect(toastLayer.transparent).toBe(true);
+    expect(toastLayer.focusMode).toBe('passive');
   });
 
   it('layers the newest height-fitting suffix chronologically at 70x32 and narrow bounds', () => {

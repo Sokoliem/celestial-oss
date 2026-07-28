@@ -396,6 +396,7 @@ export type {
   FocusNode,
   HoverNode,
   ImageNode,
+  LayerFocusMode,
   LayoutEntry,
   LayoutPlan,
   LayoutPlanOptions,

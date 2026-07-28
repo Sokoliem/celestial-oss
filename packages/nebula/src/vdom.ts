@@ -27,6 +27,7 @@ export type {
   FocusNode,
   HoverNode,
   ImageNode,
+  LayerFocusMode,
   LazyNode,
   LocalStateNode,
   MemoNode,

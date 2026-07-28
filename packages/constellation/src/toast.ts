@@ -856,6 +856,7 @@ export function createToastManager(config: ToastManagerConfig = {}) {
           height,
           zIndex: layerZIndex,
           transparent: true,
+          focusMode: 'passive',
           layoutId: options.layoutId ?? `toast-layer:${surfaceId}`,
         }),
       );
