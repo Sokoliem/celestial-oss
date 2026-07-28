@@ -61,15 +61,17 @@ export {
   supportsHyperlinks,
   supportsMouseTracking,
 } from './detection.js';
-export type { DragMsg, DragPhase, DragState, DropTarget } from './drag.js';
+export type { DragMsg, DragPhase, DragPreviewConfig, DragPreviewViewport, DragState, DropTarget } from './drag.js';
 // ─── Drag ─────────────────────────────────────────────────────────────────
 export {
   createDragState,
+  dragPreview,
   dragUpdate,
   getDragOffset,
   getDroppedResult,
   isDragging,
   isDropped,
+  resolveDragPreviewRect,
 } from './drag.js';
 export type { DragThresholdConfig } from './drag-threshold.js';
 // ─── Drag Threshold ───────────────────────────────────────────────────────

@@ -89,10 +89,13 @@ describe('applyShaderOutput', () => {
 
   it('changes boolean style attrs', () => {
     const original: Cell = { char: ' ', style: { bold: false, italic: false } };
-    const output: ShaderOutput = { bold: true, underline: true };
+    const output: ShaderOutput = { bold: true, underline: true, blink: true, reverse: true, hidden: true };
     const result = applyShaderOutput(original, output);
     expect(result.style.bold).toBe(true);
     expect(result.style.italic).toBe(false);
     expect(result.style.underline).toBe(true);
+    expect(result.style.blink).toBe(true);
+    expect(result.style.reverse).toBe(true);
+    expect(result.style.hidden).toBe(true);
   });
 });

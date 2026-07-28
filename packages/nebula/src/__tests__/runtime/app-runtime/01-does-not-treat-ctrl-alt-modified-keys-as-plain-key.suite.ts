@@ -355,6 +355,20 @@ describe('app runtime', () => {
 
     expect(
       updateCalls.mock.calls.map(([event]) => ({
+        localX: event.localX,
+        localY: event.localY,
+        currentTargetRect: event.currentTargetRect,
+      })),
+    ).toEqual(
+      Array.from({ length: 5 }, () => ({
+        localX: 0,
+        localY: 0,
+        currentTargetRect: { x: 0, y: 0, width: 1, height: 1 },
+      })),
+    );
+
+    expect(
+      updateCalls.mock.calls.map(([event]) => ({
         handlerTag: event.handlerTag,
         phase: event.phase,
         currentTargetId: event.currentTargetId,
@@ -398,6 +412,51 @@ describe('app runtime', () => {
         path: ['grandparent', 'parent', 'child'],
       },
     ]);
+
+    handle.stop();
+  });
+
+  it('reports unclipped element bounds and local coordinates for a partially visible target', async () => {
+    const { state, app, Cmd, Sub } = await loadRuntime();
+    const updateCalls = vi.fn();
+
+    type Msg = { type: 'element-mouse'; event: import('../../../types.js').ElementMouseEvent };
+
+    const handle = app<number, Msg>({
+      init: () => [0, Cmd.none()],
+      update: (msg, model) => {
+        updateCalls(msg.event);
+        return [model + 1, Cmd.none()];
+      },
+      view: () => ({
+        kind: 'scroll',
+        height: 2,
+        offset: 1,
+        child: {
+          kind: 'event',
+          id: 'partially-visible',
+          handlers: { onClick: 'select' },
+          child: {
+            kind: 'column',
+            children: [
+              { kind: 'text', content: 'first' },
+              { kind: 'text', content: 'second' },
+              { kind: 'text', content: 'third' },
+            ],
+          },
+        },
+      }),
+      subscriptions: () => Sub.elementMouse((event) => ({ type: 'element-mouse', event })),
+    });
+
+    state.inputHandler?.(Buffer.from('\x1b[<0;1;1M', 'utf8'));
+
+    expect(updateCalls).toHaveBeenCalledTimes(1);
+    expect(updateCalls.mock.calls[0]![0]).toMatchObject({
+      localX: 0,
+      localY: 1,
+      currentTargetRect: { x: 0, y: -1, width: 80, height: 3 },
+    });
 
     handle.stop();
   });

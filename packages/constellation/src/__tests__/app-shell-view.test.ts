@@ -56,6 +56,8 @@ describe('AppShell controlled view adapter', () => {
     expect(frame).toContain('[Approve]');
     expect(frame).toContain('[Keep reviewing]');
     expect(frame).toContain('╔');
+    expect(JSON.stringify(layered)).toContain('"focusMode":"modal"');
+    expect(JSON.stringify(layered)).toContain('"focusMode":"passive"');
     expect(getVNodeMeta(base)?.a11y?.hidden).toBe(true);
     expect(auditA11y(layered).violations.filter((violation) => violation.severity === 'error')).toEqual([]);
   });

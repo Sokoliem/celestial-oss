@@ -237,7 +237,7 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
           const s = opt.disabled
             ? disabledStyle
             : isHovered
-              ? style({ color: tokens.borderHover, bold: true, reverse: true })
+              ? style({ color: tokens.borderHover })
               : i === highlighted
                 ? hlStyle
                 : applyTypography(tokens.labelStyle);
@@ -269,7 +269,7 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
 
       // Dropdown mode (default)
       if (!model.open) {
-        const triggerStyle = model.hovered ? style({ color: tokens.borderHover, bold: true, reverse: true }) : hlStyle;
+        const triggerStyle = model.hovered ? style({ color: tokens.borderHover }) : hlStyle;
         const node = event(
           `${interactionId}:trigger`,
           row(
@@ -282,7 +282,7 @@ export function select(config: SelectConfig): ComponentDescriptor<SelectModel, S
         setVNodeMeta(node, meta);
         return node;
       }
-      const triggerStyle = model.hovered ? style({ color: tokens.borderHover, bold: true, reverse: true }) : hlStyle;
+      const triggerStyle = model.hovered ? style({ color: tokens.borderHover }) : hlStyle;
       const trigger = event(
         `${interactionId}:trigger`,
         row(text(tokens.indicatorOpen + ' ', triggerStyle), text(label, model.hovered ? triggerStyle : undefined)),

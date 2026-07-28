@@ -728,8 +728,14 @@ describe('loadConfig', () => {
     }
   });
 
-  it('is reachable from the public package barrel', async () => {
-    const barrel: Record<string, unknown> = await import('../index.js');
-    expect(barrel['loadConfig']).toBe(loadConfig);
-  });
+  it(
+    'is reachable from the public package barrel',
+    async () => {
+      const barrel: Record<string, unknown> = await import('../index.js');
+      expect(barrel['loadConfig']).toBe(loadConfig);
+    },
+    // Importing the complete public barrel is CPU-bound and can exceed the
+    // global 5 s limit when the Windows preview matrix runs packages in parallel.
+    15_000,
+  );
 });

@@ -19,6 +19,8 @@ export interface MultiSelectTokens {
   border: Color;
   borderActive: Color;
   checkmark: Color;
+  hoverText: Color;
+  hoverBackground: Color;
   labelStyle: TypographyToken;
   placeholderStyle: TypographyToken;
 }
@@ -32,6 +34,8 @@ export const multiSelectContract: TokenContract<MultiSelectTokens> = {
   border: (t: SemanticTheme) => t.colors.border,
   borderActive: (t: SemanticTheme) => t.colors.borderActive,
   checkmark: (t: SemanticTheme) => t.colors.highlight,
+  hoverText: (t: SemanticTheme) => t.states.hover.fg,
+  hoverBackground: (t: SemanticTheme) => t.states.hover.bg ?? t.colors.surfaceRaised,
   labelStyle: (t: SemanticTheme) => t.typography.body,
   placeholderStyle: (t: SemanticTheme) => t.typography.caption,
 };
@@ -59,6 +63,7 @@ export interface MultiSelectModel {
   selected: Set<number>;
   focused: boolean;
   hoveredIndex?: number | null;
+  hoveredTrigger?: boolean;
 }
 
 export type MultiSelectMsg =
@@ -69,6 +74,8 @@ export type MultiSelectMsg =
   | Msg<'toggle-at', { index: number }>
   | Msg<'hover-at', { index: number }>
   | Msg<'leave'>
+  | Msg<'hover-trigger'>
+  | Msg<'leave-trigger'>
   | Msg<'close'>
   | Msg<'focus'>
   | Msg<'blur'>
@@ -86,6 +93,8 @@ export function multiSelect(config: MultiSelectConfig): ComponentDescriptor<Mult
   const hoverTag = `${interactionId}:hover`;
   const leaveTag = `${interactionId}:leave`;
   const scrollTag = `${interactionId}:scroll`;
+  const hoverTriggerTag = `${interactionId}:hover-trigger`;
+  const leaveTriggerTag = `${interactionId}:leave-trigger`;
 
   const validIndex = (index: number): number | null => {
     if (!Number.isFinite(index)) return null;
@@ -103,7 +112,7 @@ export function multiSelect(config: MultiSelectConfig): ComponentDescriptor<Mult
   return {
     init(): [MultiSelectModel, Cmd<MultiSelectMsg>] {
       const selected = normalizeSelected(new Set<number>(config.selected ?? []));
-      return [{ open: false, highlighted: 0, selected, focused: false }, Cmd.none()];
+      return [{ open: false, highlighted: 0, selected, focused: false, hoveredTrigger: false }, Cmd.none()];
     },
 
     update(msg: MultiSelectMsg, model: MultiSelectModel): [MultiSelectModel, Cmd<MultiSelectMsg>] {
@@ -135,6 +144,10 @@ export function multiSelect(config: MultiSelectConfig): ComponentDescriptor<Mult
         }
         case 'leave':
           return [{ ...normalizedModel, hoveredIndex: null }, Cmd.none()];
+        case 'hover-trigger':
+          return [normalizedModel.hoveredTrigger ? normalizedModel : { ...normalizedModel, hoveredTrigger: true }, Cmd.none()];
+        case 'leave-trigger':
+          return [normalizedModel.hoveredTrigger ? { ...normalizedModel, hoveredTrigger: false } : normalizedModel, Cmd.none()];
         case 'close':
           return [{ ...normalizedModel, open: false }, Cmd.none()];
         case 'focus':
@@ -154,6 +167,7 @@ export function multiSelect(config: MultiSelectConfig): ComponentDescriptor<Mult
       const placeholderSt = applyTypography(tokens.placeholderStyle, { color: tokens.placeholder });
       const hlStyle = style({ color: tokens.highlight, bold: true });
       const tagStyle = style({ color: tokens.tag, background: tokens.tagBg });
+      const hoverStyle = style({ color: tokens.hoverText, background: tokens.hoverBackground });
       const checkStyle = style({ color: tokens.checkmark });
 
       if (!model.open) {
@@ -161,17 +175,17 @@ export function multiSelect(config: MultiSelectConfig): ComponentDescriptor<Mult
         if (selected.size === 0) {
           return event(
             `${interactionId}:trigger`,
-            row(text(placeholder, placeholderSt)),
-            { onClick: toggleOpenTag },
-            { label: placeholder, intent: 'open', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Enter' },
+            row(text(placeholder, model.hoveredTrigger ? hoverStyle : placeholderSt)),
+            { onClick: toggleOpenTag, onMouseEnter: hoverTriggerTag, onMouseLeave: leaveTriggerTag },
+            { label: placeholder, intent: 'open', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Enter' },
           );
         }
-        const tags = options.filter((_, i) => selected.has(i)).map((o) => text(`[${o.label}]`, tagStyle));
+        const tags = options.filter((_, i) => selected.has(i)).map((o) => text(`[${o.label}]`, model.hoveredTrigger ? hoverStyle : tagStyle));
         return event(
           `${interactionId}:trigger`,
           row(...tags),
-          { onClick: toggleOpenTag },
-          { label: `${selected.size} selected`, intent: 'open', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Enter' },
+          { onClick: toggleOpenTag, onMouseEnter: hoverTriggerTag, onMouseLeave: leaveTriggerTag },
+          { label: `${selected.size} selected`, intent: 'open', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Enter' },
         );
       }
 
@@ -201,6 +215,8 @@ export function multiSelect(config: MultiSelectConfig): ComponentDescriptor<Mult
           return direction < 0 ? { type: 'up' } : direction > 0 ? { type: 'down' } : { type: 'noop' };
         }
         if (mouseEvent.elementId === `${interactionId}:trigger` && mouseEvent.handlerTag === toggleOpenTag) return { type: 'toggle-open' };
+        if (mouseEvent.elementId === `${interactionId}:trigger` && mouseEvent.handlerTag === hoverTriggerTag) return { type: 'hover-trigger' };
+        if (mouseEvent.elementId === `${interactionId}:trigger` && mouseEvent.handlerTag === leaveTriggerTag) return { type: 'leave-trigger' };
         if (!mouseEvent.elementId.startsWith(`${interactionId}:option:`)) return { type: 'noop' };
         const index = Number(mouseEvent.elementId.slice(`${interactionId}:option:`.length));
         if (mouseEvent.handlerTag === toggleItemTag) return { type: 'toggle-at', index };

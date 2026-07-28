@@ -215,7 +215,7 @@ export function tree(config: TreeConfig): ComponentDescriptor<TreeModel, TreeMsg
         const icon = hasCh ? (model.expanded.has(key) ? '▼ ' : '▶ ') : '  ';
         const isHovered = i === model.hoveredIndex;
         const s = isHovered
-          ? style({ color: tokens.expanded, bold: true, reverse: true })
+          ? style({ color: tokens.expanded })
           : i === model.cursor
             ? hlStyle
             : key === model.selected

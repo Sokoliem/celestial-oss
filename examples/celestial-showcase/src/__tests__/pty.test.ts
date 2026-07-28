@@ -179,5 +179,8 @@ describe('Celestial Flight Deck PTY', () => {
     } finally {
       harness.dispose();
     }
-  }, 30_000);
+  // Keep Vitest's outer ceiling above the harness's 25-second receipt timeout.
+  // Otherwise a slower CI host can replace the actionable missing-receipt
+  // failure (including its transcript) with Vitest's generic timeout.
+  }, 45_000);
 });

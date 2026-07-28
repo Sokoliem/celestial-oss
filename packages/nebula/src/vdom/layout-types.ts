@@ -32,6 +32,8 @@ export interface OverlayEntry {
   readonly zIndex: number;
   readonly entry: LayoutEntry;
   readonly transparent: boolean;
+  /** Whether this layer and all promoted descendants participate in pointer routing. */
+  readonly pointerEvents?: 'auto' | 'none';
 }
 
 export interface LayoutTraceEntry {

@@ -21,6 +21,10 @@ view transitions remain experimental and are not part of the beta package.
 - Only windows in `activeWorkspaceId` are visible and hit-testable. Modal
   windows shield other managed windows, and z-order compaction preserves the
   normal, always-on-top, and modal layers.
+- `withFloatingWindows()` projects normalized window focus into Nebula layer
+  focus ownership. Only the focused window participates in Tab navigation;
+  modal, minimized, hidden, closed, and workspace transitions cannot leak
+  keyboard focus into an obscured layer.
 - Persistence normalizes legacy snapshots into the current schema and preserves
   restore mode, frame, workspace, and lifecycle flags.
 

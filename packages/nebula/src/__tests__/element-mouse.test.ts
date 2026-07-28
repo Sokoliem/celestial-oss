@@ -15,6 +15,9 @@ describe('ElementMouseEvent type', () => {
       deltaY: 0,
       x: 5,
       y: 3,
+      localX: 2,
+      localY: 1,
+      currentTargetRect: { x: 3, y: 2, width: 8, height: 2 },
       button: 0,
       ctrl: false,
       alt: false,
@@ -32,6 +35,9 @@ describe('ElementMouseEvent type', () => {
     expect(event.deltaY).toBe(0);
     expect(event.x).toBe(5);
     expect(event.y).toBe(3);
+    expect(event.localX).toBe(2);
+    expect(event.localY).toBe(1);
+    expect(event.currentTargetRect).toEqual({ x: 3, y: 2, width: 8, height: 2 });
     expect(event.button).toBe(0);
     expect(event.ctrl).toBe(false);
     expect(event.alt).toBe(false);

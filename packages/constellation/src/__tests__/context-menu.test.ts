@@ -85,6 +85,20 @@ describe('contextMenuUpdate', () => {
     expect(state.selectedIndex).toBe(1);
   });
 
+  it('ctx-highlight selects only enabled option rows', () => {
+    const items: MenuItem<string>[] = [
+      { label: 'Open', msg: 'open' },
+      { label: 'Disabled', msg: 'disabled', disabled: true },
+      { separator: true, label: '---' },
+      { label: 'Close', msg: 'close' },
+    ];
+    const state = contextMenuUpdate({ type: 'ctx-open', x: 0, y: 0, items }, createContextMenuState<string>());
+    expect(contextMenuUpdate({ type: 'ctx-highlight', index: 3 }, state).selectedIndex).toBe(3);
+    expect(contextMenuUpdate({ type: 'ctx-highlight', index: 1 }, state)).toBe(state);
+    expect(contextMenuUpdate({ type: 'ctx-highlight', index: 2 }, state)).toBe(state);
+    expect(contextMenuUpdate({ type: 'ctx-highlight', index: Number.NaN }, state)).toBe(state);
+  });
+
   it('navigation wraps around (down)', () => {
     let state = createContextMenuState();
     state = contextMenuUpdate({ type: 'ctx-open', x: 0, y: 0, items: sampleItems }, state);

@@ -1,4 +1,4 @@
-import type { BoxNode, ColumnNode, EventNode, RowNode, VNode } from '@celestial/core/nebula';
+import { collectFocusNodes, type BoxNode, type ColumnNode, type EventNode, type RowNode, type VNode } from '@celestial/core/nebula';
 import { describe, expect, it } from 'vitest';
 import {
   applyWindowCommand,
@@ -14,6 +14,7 @@ import {
 } from '../index.js';
 
 const content = (value: string): VNode => ({ kind: 'text', content: value });
+const focusContent = (value: string): VNode => ({ kind: 'focus', id: value, focused: false, child: content(value) });
 
 function textContent(node: VNode): string[] {
   if (node.kind === 'text') return [node.content];
@@ -146,6 +147,98 @@ describe('window manager invariants', () => {
       expect(outcome.model).toEqual(manager);
     }
   });
+
+  it('moves keyboard ownership with focus, minimize, and modal lifecycle', () => {
+    let manager = createWindowManager([
+      { id: 'one', content: focusContent('one-action'), x: 0, y: 0, width: 20, height: 6, focused: true },
+      { id: 'two', content: focusContent('two-action'), x: 1, y: 1, width: 20, height: 6 },
+    ]);
+    const targets = () => collectFocusNodes(withFloatingWindows(focusContent('workspace-action'), manager)).map((node) => node.id);
+
+    expect(targets()).toEqual(['one-action']);
+    manager = windowManagerUpdate({ type: 'focus-window', id: 'two' }, manager);
+    expect(targets()).toEqual(['two-action']);
+    manager = windowManagerUpdate({ type: 'minimize-window', id: 'two' }, manager);
+    expect(targets()).toEqual(['one-action']);
+    manager = windowManagerUpdate(
+      {
+        type: 'create-window',
+        window: { id: 'dialog', role: 'modal', content: focusContent('dialog-action'), x: 2, y: 2, width: 20, height: 6 },
+      },
+      manager,
+    );
+    expect(targets()).toEqual(['dialog-action']);
+    manager = windowManagerUpdate({ type: 'close-window', id: 'dialog' }, manager);
+    expect(targets()).toEqual(['one-action']);
+  });
+
+  it('does not report background focus beneath a non-focusable modal', () => {
+    const manager = createWindowManager([
+      { id: 'main', content: focusContent('main-action'), x: 0, y: 0, width: 20, height: 6, focused: true },
+      { id: 'shield', role: 'modal', focusable: false, content: focusContent('shield-action'), x: 1, y: 1, width: 20, height: 6 },
+    ]);
+
+    expect(manager.windows.every((window) => window.focused === false)).toBe(true);
+    expect(collectFocusNodes(withFloatingWindows(focusContent('workspace-action'), manager))).toEqual([]);
+  });
+
+  it('keeps standalone lifecycle focus behind a non-focusable modal cleared', () => {
+    const windows = [
+      createDesktopWindow({ id: 'main', content: focusContent('main-action'), x: 0, y: 0, width: 20, height: 6, focused: true }),
+      createDesktopWindow({
+        id: 'shield',
+        role: 'modal',
+        focusable: false,
+        content: focusContent('shield-action'),
+        x: 1,
+        y: 1,
+        width: 20,
+        height: 6,
+      }),
+    ];
+
+    const result = applyWindowCommand({ type: 'focus', id: 'main' }, windows);
+    expect(result.accepted).toBe(true);
+    expect(result.focusedWindowId).toBeUndefined();
+    expect(result.windows.every((window) => window.focused === false)).toBe(true);
+  });
+
+  it.each(['focus', 'show', 'maximize', 'fullscreen', 'restore'] as const)(
+    'keeps standalone %s commands visually beneath a visible modal',
+    (type) => {
+      const background = createDesktopWindow({
+        id: 'main',
+        content: focusContent('main-action'),
+        x: 0,
+        y: 0,
+        width: 20,
+        height: 6,
+        zIndex: 1,
+        ...(type === 'show' ? { mode: 'hidden' as const } : {}),
+      });
+      const modal = createDesktopWindow({
+        id: 'dialog',
+        role: 'modal',
+        content: focusContent('dialog-action'),
+        x: 1,
+        y: 1,
+        width: 20,
+        height: 6,
+        zIndex: 2,
+      });
+
+      const result = applyWindowCommand({ type, id: 'main' }, [background, modal], {
+        bounds: { cols: 80, rows: 24 },
+      });
+      const main = result.windows.find((window) => window.id === 'main')!;
+      const dialog = result.windows.find((window) => window.id === 'dialog')!;
+
+      expect(result.accepted).toBe(true);
+      expect(dialog.zIndex).toBeGreaterThan(main.zIndex);
+      expect(dialog.focused).toBe(true);
+      expect(main.focused).toBe(false);
+    },
+  );
 
   it('filters workspace rendering and activate-window restores the target workspace', () => {
     const manager = createWindowManager(

@@ -21,6 +21,12 @@ export interface ElementMouseEvent {
   deltaY?: -1 | 0 | 1;
   x: number;
   y: number;
+  /** Pointer position relative to the current target's top-left cell. */
+  localX?: number;
+  /** Pointer position relative to the current target's top-left cell. */
+  localY?: number;
+  /** Layout bounds of the current target from the frame that routed this event. */
+  currentTargetRect?: import('../vdom.js').LayoutRect;
   button: MouseEventData['button'];
   ctrl: boolean;
   alt: boolean;

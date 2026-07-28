@@ -16,7 +16,7 @@
  */
 
 import type { Color, SemanticTheme, ThemeInput, TokenContract } from '@celestial/corona';
-import { style } from '@celestial/corona';
+import { ensureReadableColor, style } from '@celestial/corona';
 import { Cmd, column, event, type Msg, row, Sub, setVNodeMeta, type ThemeContext, text, type VNode } from '@celestial/nebula';
 import { generateFocusGroupId } from './focus-group.js';
 import { boundedInteger, MAX_RENDER_CELLS, positiveInteger, wheelDirection } from './internal.js';
@@ -29,6 +29,8 @@ export interface OptionListTokens {
   text: Color;
   textSoft: Color;
   highlight: Color;
+  highlightText: Color;
+  highlightMuted: Color;
   selected: Color;
   muted: Color;
   border: Color;
@@ -38,8 +40,11 @@ export interface OptionListTokens {
 export const optionListContract: TokenContract<OptionListTokens> = {
   text: (t: SemanticTheme) => t.colors.text,
   textSoft: (t: SemanticTheme) => t.colors.textSoft,
-  highlight: (t: SemanticTheme) => t.colors.highlight,
-  selected: (t: SemanticTheme) => t.colors.tones.accent,
+  highlight: (t: SemanticTheme) => t.states.selected.bg ?? t.colors.highlight,
+  highlightText: (t: SemanticTheme) => t.states.selected.fg,
+  highlightMuted: (t: SemanticTheme) =>
+    ensureReadableColor(t.colors.muted, t.states.selected.bg ?? t.colors.highlight),
+  selected: (t: SemanticTheme) => ensureReadableColor(t.colors.tones.accent, t.colors.surfaceRaised),
   muted: (t: SemanticTheme) => t.colors.muted,
   border: (t: SemanticTheme) => t.colors.border,
   bg: (t: SemanticTheme) => t.colors.surfaceRaised,
@@ -341,7 +346,15 @@ export function optionListView<T = unknown>(config: OptionListConfig<T>): Compon
         const isHighlighted = i === model.highlightedIndex;
         const isSelected = model.selectedIds.has(id);
         const isDisabled = item.disabled;
-        const labelColor = isDisabled ? tokens.muted : isSelected ? tokens.selected : tokens.text;
+        const labelColor = isHighlighted
+          ? isDisabled
+            ? tokens.highlightMuted
+            : tokens.highlightText
+          : isDisabled
+            ? tokens.muted
+            : isSelected
+              ? tokens.selected
+              : tokens.text;
         const rowStyle = style({
           color: labelColor,
           background: isHighlighted ? tokens.highlight : tokens.bg,

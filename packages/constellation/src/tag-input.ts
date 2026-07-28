@@ -6,14 +6,14 @@
  * highlights the last tag, and a second Backspace removes it.
  */
 
-import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
-import { style, visualWidth } from '@celestial/corona';
+import type { Color, SemanticTheme, StateToken, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
+import { ensureReadableColor, style, visualWidth } from '@celestial/corona';
 import type { KeyEvent, Msg, ThemeContext, VNode } from '@celestial/nebula';
 import { Cmd, event, focus, row, Sub, setVNodeMeta, text } from '@celestial/nebula';
 import { applySingleLineKey, graphemes, insertSingleLinePaste, replaceSelection } from './editable-text.js';
 import { generateFocusGroupId } from './focus-group.js';
 import { nonNegativeInteger } from './internal.js';
-import { useTokens } from './theme.js';
+import { applyState, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
@@ -25,16 +25,18 @@ export interface TagInputTokens {
   inputBorder: Color;
   text: Color;
   placeholder: Color;
+  hoverState: StateToken;
   labelStyle: TypographyToken;
 }
 
 export const tagInputContract: TokenContract<TagInputTokens> = {
   tagBg: (t: SemanticTheme) => t.colors.surfaceRaised,
   tagText: (t: SemanticTheme) => t.colors.text,
-  removeBtn: (t: SemanticTheme) => t.colors.muted,
+  removeBtn: (t: SemanticTheme) => ensureReadableColor(t.colors.muted, t.colors.surfaceRaised),
   inputBorder: (t: SemanticTheme) => t.colors.border,
   text: (t: SemanticTheme) => t.colors.text,
   placeholder: (t: SemanticTheme) => t.colors.muted,
+  hoverState: (t: SemanticTheme) => t.states.hover,
   labelStyle: (t: SemanticTheme) => t.typography.label,
 };
 
@@ -288,9 +290,12 @@ export function tagInput(config: TagInputConfig): ComponentDescriptor<TagInputMo
       for (let i = 0; i < model.tags.length; i++) {
         const isHighlighted = model.highlightedTag === i;
         const isHovered = model.hoveredTag === i;
-        const tagStyle = isHighlighted || isHovered
-          ? style({ color: tokens.tagText, background: tokens.removeBtn, bold: true })
-          : style({ color: tokens.tagText, background: tokens.tagBg });
+        const tagStyle =
+          isHighlighted
+            ? applyState(tokens.hoverState, { bold: true })
+            : isHovered
+              ? applyState(tokens.hoverState)
+              : style({ color: tokens.tagText, background: tokens.tagBg });
         const removeBtnStyle = style({ color: tokens.removeBtn, background: tokens.tagBg });
 
         parts.push(

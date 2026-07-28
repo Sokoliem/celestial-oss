@@ -53,11 +53,13 @@ export interface PopoverModel {
   focusTrapActive: boolean;
   viewportCols?: number;
   hoveredClose?: boolean;
+  hoveredTrigger?: boolean;
 }
 
 export type PopoverMsg =
-  | Msg<'show' | 'hide' | 'toggle' | 'panic' | 'hover-close' | 'leave-close' | 'noop'>
+  | Msg<'show' | 'hide' | 'toggle' | 'panic' | 'hover-close' | 'leave-close' | 'hover-trigger' | 'leave-trigger' | 'noop'>
   | Msg<'toggle-at', { index: number }>
+  | Msg<'hover-trigger-at' | 'leave-trigger-at', { index: number }>
   | Msg<'resize', { cols: number }>;
 
 /**
@@ -97,12 +99,14 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
   const closeTag = `${groupId}:hide`;
   const hoverCloseTag = `${groupId}:hover-close`;
   const leaveCloseTag = `${groupId}:leave-close`;
+  const hoverTriggerTag = `${groupId}:hover-trigger`;
+  const leaveTriggerTag = `${groupId}:leave-trigger`;
   const focusableCount = collectFocusNodes(Array.isArray(contentNodes) ? column(...contentNodes) : contentNodes).length;
   const trapFocus = !persistent && focusableCount > 0;
 
   return {
     init(): [PopoverModel, Cmd<PopoverMsg>] {
-      return [{ visible: false, focusTrapActive: false, hoveredClose: false }, Cmd.none()];
+      return [{ visible: false, focusTrapActive: false, hoveredClose: false, hoveredTrigger: false }, Cmd.none()];
     },
 
     update(msg: PopoverMsg, model: PopoverModel): [PopoverModel, Cmd<PopoverMsg>] {
@@ -112,22 +116,26 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
           return [{ ...model, visible: true, focusTrapActive: trapFocus, hoveredClose: false }, trapFocus ? Cmd.pushFocusGroup(groupId) : Cmd.none()];
         case 'hide':
           if (!model.visible) return [model, Cmd.none()];
-          return [{ ...model, visible: false, focusTrapActive: false, hoveredClose: false }, model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none()];
+          return [{ ...model, visible: false, focusTrapActive: false, hoveredClose: false, hoveredTrigger: false }, model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none()];
         case 'toggle':
           return model.visible
-            ? [{ ...model, visible: false, focusTrapActive: false, hoveredClose: false }, model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none()]
+            ? [{ ...model, visible: false, focusTrapActive: false, hoveredClose: false, hoveredTrigger: false }, model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none()]
             : [{ ...model, visible: true, focusTrapActive: trapFocus, hoveredClose: false }, trapFocus ? Cmd.pushFocusGroup(groupId) : Cmd.none()];
         case 'panic':
           if (!model.visible) return [model, Cmd.none()];
           // Fan out to other registered surfaces before closing self.
           broadcastSurfacePanic();
-          return [{ ...model, visible: false, focusTrapActive: false, hoveredClose: false }, model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none()];
+          return [{ ...model, visible: false, focusTrapActive: false, hoveredClose: false, hoveredTrigger: false }, model.focusTrapActive ? Cmd.popFocusGroup() : Cmd.none()];
         case 'resize':
           return [{ ...model, viewportCols: positiveInteger(msg.cols, 1) }, Cmd.none()];
         case 'hover-close':
           return [{ ...model, hoveredClose: true }, Cmd.none()];
         case 'leave-close':
           return [{ ...model, hoveredClose: false }, Cmd.none()];
+        case 'hover-trigger':
+          return [model.hoveredTrigger ? model : { ...model, hoveredTrigger: true }, Cmd.none()];
+        case 'leave-trigger':
+          return [model.hoveredTrigger ? { ...model, hoveredTrigger: false } : model, Cmd.none()];
         case 'noop':
           return [model, Cmd.none()];
       }
@@ -151,7 +159,6 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
       const closeStyle = applyTypography(tokens.captionStyle, {
         color: model.hoveredClose ? tokens.text : tokens.textSoft,
         background: model.hoveredClose ? theme.states.hover.bg : undefined,
-        bold: model.hoveredClose,
       });
       const panelChildren: VNode[] = [];
       if (title) panelChildren.push(text(title, applyTypography(tokens.titleStyle, { color: variantColor }), { wrap: true }));
@@ -171,11 +178,21 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
       });
       setVNodeMeta(popoverContent, { testId: `${groupId}:panel`, a11y: { role: 'dialog', label: title ?? 'Popover' } });
       const arrow = showArrow ? text(` ${popoverArrow(position)} `, style({ color: variantColor })) : text('');
+      const triggerFace = model.hoveredTrigger
+        ? box(
+            triggerNode,
+            style({
+              color: theme.states.hover.fg,
+              background: theme.states.hover.bg,
+            }),
+            { fit: 'content' },
+          )
+        : triggerNode;
       const trigger = event(
         triggerId,
-        triggerNode,
-        { onClick: toggleTag },
-        { label: title ? `Open ${title}` : 'Toggle popover', intent: 'open', affordances: ['click'], cursor: 'pointer' },
+        triggerFace,
+        { onClick: toggleTag, onMouseEnter: hoverTriggerTag, onMouseLeave: leaveTriggerTag },
+        { label: title ? `Open ${title}` : 'Toggle popover', intent: 'open', affordances: ['hover', 'click'], cursor: 'pointer' },
       );
 
       const positionedPopover = (() => {
@@ -199,6 +216,8 @@ export function popover(config: PopoverConfig): ComponentDescriptor<PopoverModel
     subscriptions(model: PopoverModel): Sub<PopoverMsg> {
       const mouse = Sub.elementMouse<PopoverMsg>((mouseEvent) => {
         if (mouseEvent.elementId === triggerId && mouseEvent.handlerTag === toggleTag) return { type: 'toggle' };
+        if (mouseEvent.elementId === triggerId && mouseEvent.handlerTag === hoverTriggerTag) return { type: 'hover-trigger' };
+        if (mouseEvent.elementId === triggerId && mouseEvent.handlerTag === leaveTriggerTag) return { type: 'leave-trigger' };
         if (mouseEvent.elementId !== closeId) return { type: 'noop' };
         if (mouseEvent.handlerTag === closeTag) return { type: 'hide' };
         if (mouseEvent.handlerTag === hoverCloseTag) return { type: 'hover-close' };
@@ -231,7 +250,13 @@ export interface PopoverGroupConfig {
   theme?: ThemeInput;
 }
 
-export function popoverGroup(config: PopoverGroupConfig): ComponentDescriptor<{ activeIndex: number }, PopoverMsg> {
+export interface PopoverGroupModel {
+  activeIndex: number;
+  hoveredIndex: number;
+  hoveredClose: boolean;
+}
+
+export function popoverGroup(config: PopoverGroupConfig): ComponentDescriptor<PopoverGroupModel, PopoverMsg> {
   const popovers: Array<{ trigger: string; content: string; position: PopoverPosition; variant: PopoverVariant }> = config.popovers
     .slice(0, MAX_RENDER_CELLS)
     .map((item) => ({
@@ -243,47 +268,77 @@ export function popoverGroup(config: PopoverGroupConfig): ComponentDescriptor<{ 
   const groupId = generateFocusGroupId('popover-group');
   const triggerTag = `${groupId}:toggle`;
   const closeTag = `${groupId}:close`;
+  const hoverTriggerTag = `${groupId}:hover-trigger`;
+  const leaveTriggerTag = `${groupId}:leave-trigger`;
+  const hoverCloseTag = `${groupId}:hover-close`;
+  const leaveCloseTag = `${groupId}:leave-close`;
   const validActiveIndex = (index: number): number => (Number.isInteger(index) && index >= 0 && index < popovers.length ? index : -1);
 
   return {
-    init(): [{ activeIndex: number }, Cmd<PopoverMsg>] {
-      return [{ activeIndex: -1 }, Cmd.none()];
+    init(): [PopoverGroupModel, Cmd<PopoverMsg>] {
+      return [{ activeIndex: -1, hoveredIndex: -1, hoveredClose: false }, Cmd.none()];
     },
-    update(msg: PopoverMsg, model: { activeIndex: number }): [{ activeIndex: number }, Cmd<PopoverMsg>] {
+    update(msg: PopoverMsg, model: PopoverGroupModel): [PopoverGroupModel, Cmd<PopoverMsg>] {
       if (msg.type === 'toggle') {
         const newIndex = validActiveIndex(model.activeIndex) === -1 && popovers.length > 0 ? 0 : -1;
-        return [{ activeIndex: newIndex }, Cmd.none()];
+        return [{ ...model, activeIndex: newIndex, hoveredClose: false }, Cmd.none()];
       }
       if (msg.type === 'toggle-at') {
         if (!Number.isInteger(msg.index) || !popovers[msg.index]) return [model, Cmd.none()];
-        return [{ activeIndex: validActiveIndex(model.activeIndex) === msg.index ? -1 : msg.index }, Cmd.none()];
+        return [{ ...model, activeIndex: validActiveIndex(model.activeIndex) === msg.index ? -1 : msg.index, hoveredClose: false }, Cmd.none()];
+      }
+      if (msg.type === 'hover-trigger-at') {
+        const index = validActiveIndex(msg.index);
+        return [index === -1 || model.hoveredIndex === index ? model : { ...model, hoveredIndex: index }, Cmd.none()];
+      }
+      if (msg.type === 'leave-trigger-at') {
+        return [model.hoveredIndex === msg.index ? { ...model, hoveredIndex: -1 } : model, Cmd.none()];
+      }
+      if (msg.type === 'hover-close') {
+        return [model.hoveredClose ? model : { ...model, hoveredClose: true }, Cmd.none()];
+      }
+      if (msg.type === 'leave-close') {
+        return [model.hoveredClose ? { ...model, hoveredClose: false } : model, Cmd.none()];
       }
       if (msg.type === 'hide' || msg.type === 'panic') {
         if (msg.type === 'panic' && validActiveIndex(model.activeIndex) !== -1) broadcastSurfacePanic();
-        return [{ activeIndex: -1 }, Cmd.none()];
+        return [{ ...model, activeIndex: -1, hoveredClose: false }, Cmd.none()];
       }
       return [model, Cmd.none()];
     },
-    view(model: { activeIndex: number }): VNode {
+    view(model: PopoverGroupModel): VNode {
       const activeIndex = validActiveIndex(model.activeIndex);
       const tokens = useTokens(popoverContract, config, 'PopoverGroup');
       const theme = resolveTheme(config);
       const nodes = popovers.map((popoverItem, index) => {
         const isActive = activeIndex === index;
+        const isHovered = model.hoveredIndex === index;
+        const triggerStyle = isHovered
+          ? style({
+              color: theme.states.hover.fg,
+              background: theme.states.hover.bg,
+            })
+          : style({ color: isActive ? theme.colors.highlight : theme.colors.text });
         const trigger = event(
           `${groupId}:trigger:${index}`,
-          text(popoverItem.trigger, style({ color: isActive ? theme.colors.highlight : theme.colors.text })),
-          { onClick: triggerTag },
-          { label: `Toggle ${popoverItem.trigger}`, intent: 'open', affordances: ['click'], cursor: 'pointer' },
+          text(popoverItem.trigger, triggerStyle),
+          { onClick: triggerTag, onMouseEnter: hoverTriggerTag, onMouseLeave: leaveTriggerTag },
+          { label: `Toggle ${popoverItem.trigger}`, intent: 'open', affordances: ['hover', 'click'], cursor: 'pointer' },
         );
         if (!isActive) return trigger;
 
         const variantColor = theme.colors.tones[VARIANT_TONE[popoverItem.variant]];
         const close = event(
           `${groupId}:close`,
-          text('[x] close', applyTypography(tokens.captionStyle, { color: tokens.textSoft })),
-          { onClick: closeTag },
-          { label: 'Close popover', intent: 'close', affordances: ['click'], cursor: 'pointer', keyboardHint: 'Escape' },
+          text(
+            '[x] close',
+            applyTypography(tokens.captionStyle, {
+              color: model.hoveredClose ? theme.states.hover.fg : tokens.textSoft,
+              background: model.hoveredClose ? theme.states.hover.bg : undefined,
+            }),
+          ),
+          { onClick: closeTag, onMouseEnter: hoverCloseTag, onMouseLeave: leaveCloseTag },
+          { label: 'Close popover', intent: 'close', affordances: ['hover', 'click'], cursor: 'pointer', keyboardHint: 'Escape' },
         );
         const panel = box(
           column(enablePopoverTextWrapping(text(popoverItem.content)), close),
@@ -307,11 +362,17 @@ export function popoverGroup(config: PopoverGroupConfig): ComponentDescriptor<{ 
       });
       return row(...nodes);
     },
-    subscriptions(model: { activeIndex: number }): Sub<PopoverMsg> {
+    subscriptions(model: PopoverGroupModel): Sub<PopoverMsg> {
       const mouse = Sub.elementMouse<PopoverMsg>((mouseEvent) => {
         if (mouseEvent.elementId === `${groupId}:close` && mouseEvent.handlerTag === closeTag) return { type: 'hide' };
-        if (mouseEvent.handlerTag !== triggerTag || !mouseEvent.elementId.startsWith(`${groupId}:trigger:`)) return { type: 'noop' };
-        return { type: 'toggle-at', index: Number(mouseEvent.elementId.slice(`${groupId}:trigger:`.length)) };
+        if (mouseEvent.elementId === `${groupId}:close` && mouseEvent.handlerTag === hoverCloseTag) return { type: 'hover-close' };
+        if (mouseEvent.elementId === `${groupId}:close` && mouseEvent.handlerTag === leaveCloseTag) return { type: 'leave-close' };
+        if (!mouseEvent.elementId.startsWith(`${groupId}:trigger:`)) return { type: 'noop' };
+        const index = Number(mouseEvent.elementId.slice(`${groupId}:trigger:`.length));
+        if (mouseEvent.handlerTag === triggerTag) return { type: 'toggle-at', index };
+        if (mouseEvent.handlerTag === hoverTriggerTag) return { type: 'hover-trigger-at', index };
+        if (mouseEvent.handlerTag === leaveTriggerTag) return { type: 'leave-trigger-at', index };
+        return { type: 'noop' };
       });
       if (validActiveIndex(model.activeIndex) === -1) return mouse;
       return Sub.batch(mouse, Sub.key('escape', { type: 'hide' }), surfaceContractSubs<PopoverMsg>({ id: groupId, onPanic: { type: 'panic' } }));

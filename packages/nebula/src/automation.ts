@@ -1,10 +1,13 @@
 export { auditA11yTree } from './automation/a11y-audit.js';
+export { auditInteractionTree } from './automation/interaction-audit.js';
 export type {
   AutomationA11yAuditResult,
   AutomationA11yRuleName,
   AutomationA11yViolation,
   AutomationActionSnapshot,
   AutomationElementSnapshot,
+  AutomationInteractionAuditOptions,
+  AutomationInteractionRuleName,
   AutomationSnapshot,
   AutomationTextRun,
 } from './automation/contracts.js';

@@ -73,6 +73,8 @@ export type {
   AutomationA11yViolation,
   AutomationActionSnapshot,
   AutomationElementSnapshot,
+  AutomationInteractionAuditOptions,
+  AutomationInteractionRuleName,
   AutomationSnapshot,
   AutomationTextRun,
   LensBridgeClient,
@@ -81,6 +83,7 @@ export type {
 } from './automation.js';
 export {
   auditA11yTree,
+  auditInteractionTree,
   buildAutomationSnapshot,
   createLensBridgeClientFromEnv,
   extractAutomationTextRuns,
@@ -194,6 +197,7 @@ export {
 export { glassShader } from './glass-shader.js';
 export type { HitRegionInfo } from './hit-regions.js';
 export { collectHitRegions } from './hit-regions.js';
+export { applyAutomaticHoverFeedback, usesAutomaticHoverFeedback } from './interaction-feedback.js';
 export { buildMigrate, type HotPlugin, type HotPluginOptions, hotPlugin, isProperCmd, wrapRawConfig } from './hot.js';
 export type {
   Keybinding,
@@ -392,6 +396,7 @@ export type {
   FocusNode,
   HoverNode,
   ImageNode,
+  LayerFocusMode,
   LayoutEntry,
   LayoutPlan,
   LayoutPlanOptions,

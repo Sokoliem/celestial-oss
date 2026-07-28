@@ -99,6 +99,9 @@ function styleToAnsi(style: SnapshotCell['style'] | undefined): string {
   if (style.dim) ansi += '\x1b[2m';
   if (style.italic) ansi += '\x1b[3m';
   if (style.underline) ansi += '\x1b[4m';
+  if (style.blink) ansi += '\x1b[5m';
+  if (style.reverse) ansi += '\x1b[7m';
+  if (style.hidden) ansi += '\x1b[8m';
   if (style.strikethrough) ansi += '\x1b[9m';
   return ansi;
 }

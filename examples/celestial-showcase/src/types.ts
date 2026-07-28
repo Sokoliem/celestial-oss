@@ -1,4 +1,4 @@
-import type { DragState, MouseEventData } from '@celestial/core';
+import type { DragState, LayoutRect, MouseEventData } from '@celestial/core';
 import type { WindowManager, WindowManagerPointerState, WorkspaceModel } from '@celestial/horizon';
 import type { SchemaFormModel, SchemaFormMsg, WizardModel, WizardMsg } from '@celestial/orbit';
 import type {
@@ -41,6 +41,7 @@ import type {
   PaginationModel,
   PaginationMsg,
   PopoverModel,
+  PopoverGroupModel,
   PopoverMsg,
   RadioGroupModel,
   RadioGroupMsg,
@@ -54,6 +55,8 @@ import type {
   SelectMsg,
   SliderModel,
   SliderMsg,
+  ScrollbarModel,
+  ScrollbarMsg,
   TabsModel,
   TabsMsg,
   TagInputModel,
@@ -72,6 +75,8 @@ import type {
   TooltipMsg,
   TreeModel,
   TreeMsg,
+  VirtualListModel,
+  VirtualListMsg,
 } from '@celestial/ui';
 import type {
   AppShellLabModel,
@@ -92,10 +97,18 @@ export interface ShowcaseGalleryModels {
   tagInput: TagInputModel;
   colorPicker: ColorPickerModel;
   optionList: OptionListModel<string>;
+  scrollbar: ScrollbarModel;
+  virtualList: VirtualListModel<ShowcaseVirtualReceipt>;
   cardGrid: CardGridModel;
   popover: PopoverModel;
-  popoverGroup: { activeIndex: number };
+  popoverGroup: PopoverGroupModel;
   hovercard: HovercardModel;
+}
+
+export interface ShowcaseVirtualReceipt {
+  id: string;
+  label: string;
+  disabled?: boolean;
 }
 
 export type ShowcaseGalleryComponentMsg =
@@ -112,6 +125,8 @@ export type ShowcaseGalleryComponentMsg =
   | { id: 'tagInput'; msg: TagInputMsg }
   | { id: 'colorPicker'; msg: ColorPickerMsg }
   | { id: 'optionList'; msg: OptionListMsg }
+  | { id: 'scrollbar'; msg: ScrollbarMsg }
+  | { id: 'virtualList'; msg: VirtualListMsg<ShowcaseVirtualReceipt> }
   | { id: 'cardGrid'; msg: CardGridMsg }
   | { id: 'popover'; msg: PopoverMsg }
   | { id: 'popoverGroup'; msg: PopoverMsg }
@@ -198,6 +213,7 @@ export interface ElementMouseReceipt {
   y: number;
   type?: MouseEventData['type'];
   deltaY?: number;
+  currentTargetRect?: LayoutRect;
   stopPropagation(): void;
 }
 

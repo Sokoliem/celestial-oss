@@ -23,6 +23,9 @@ export interface StyleAttrs {
   italic?: Responsive<boolean>;
   underline?: Responsive<boolean>;
   strikethrough?: Responsive<boolean>;
+  blink?: Responsive<boolean>;
+  reverse?: Responsive<boolean>;
+  hidden?: Responsive<boolean>;
   /** Modern visual effects passed to the shader pipeline */
   effects?: Responsive<ResolvedStyleEffects>;
   /** Z-axis elevation (0-24) for shadow generation */
@@ -51,6 +54,9 @@ export interface ResolvedStyleAttrs {
   italic?: boolean;
   underline?: boolean;
   strikethrough?: boolean;
+  blink?: boolean;
+  reverse?: boolean;
+  hidden?: boolean;
   effects?: ResolvedStyleEffects;
   elevation?: number;
   icon?: string;

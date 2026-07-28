@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { createDragState, type DragMsg, type DragState, type DropTarget, dragUpdate, getDragOffset, getDroppedResult, isDragging, isDropped } from '../drag.js';
+import { collectHitRegions, event, planLayout, type RowNode, text } from '@celestial/nebula';
+import {
+  createDragState,
+  type DragMsg,
+  dragPreview,
+  type DragState,
+  type DropTarget,
+  dragUpdate,
+  getDragOffset,
+  getDroppedResult,
+  isDragging,
+  isDropped,
+  resolveDragPreviewRect,
+} from '../drag.js';
 
 function makeTargets(ids: string[], canDrop = true): DropTarget<string>[] {
   return ids.map((id) => ({ id, canDrop: () => canDrop }));
@@ -61,6 +74,26 @@ describe('drag', () => {
       };
       const next = dragUpdate(msg, state, []);
       expect(next).toBe(state);
+    });
+
+    it('captures source bounds from the routed input frame', () => {
+      const next = dragUpdate(
+        {
+          type: 'drag-start',
+          sourceId: 'item-1',
+          data: 'hello',
+          x: 12,
+          y: 7,
+          sourceRect: { x: 10, y: 5, width: 18, height: 6 },
+        },
+        createDragState<string>(),
+        [],
+      );
+
+      expect(next).toMatchObject({
+        phase: 'dragging',
+        sourceRect: { x: 10, y: 5, width: 18, height: 6 },
+      });
     });
   });
 
@@ -262,6 +295,111 @@ describe('drag', () => {
     it('returns null for idle and dragging', () => {
       expect(getDroppedResult(createDragState<string>())).toBeNull();
       expect(getDroppedResult(makeDraggingState())).toBeNull();
+    });
+  });
+
+  describe('drag preview', () => {
+    it('translates from the captured source frame without changing its footprint', () => {
+      const state = makeDraggingState({
+        startX: 12,
+        startY: 7,
+        currentX: 18,
+        currentY: 10,
+        sourceRect: { x: 10, y: 5, width: 18, height: 6 },
+      });
+
+      expect(resolveDragPreviewRect(state, { cols: 80, rows: 24 })).toEqual({
+        x: 16,
+        y: 8,
+        width: 18,
+        height: 6,
+      });
+    });
+
+    it('clamps hostile offsets and insets while preserving oversized preview dimensions', () => {
+      const state = makeDraggingState({
+        startX: 0,
+        startY: 0,
+        currentX: Number.POSITIVE_INFINITY,
+        currentY: -100,
+        sourceRect: { x: 8, y: 4, width: 30, height: 12 },
+      });
+
+      expect(
+        resolveDragPreviewRect(state, {
+          cols: 20,
+          rows: 10,
+          leftInset: 3,
+          rightInset: 99,
+          topInset: 2,
+          bottomInset: 99,
+        }),
+      ).toEqual({ x: 3, y: 2, width: 30, height: 12 });
+    });
+
+    it('preserves the flow slot and emits a passive pointer-transparent overlay', () => {
+      const source = event('source', text('source'), { onMouseDown: 'start' });
+      const preview = event('preview', text('preview'), { onMouseMove: 'move' });
+      const rendered = dragPreview({
+        state: makeDraggingState({
+          sourceId: 'receipt',
+          startX: 4,
+          startY: 3,
+          currentX: 9,
+          currentY: 5,
+          sourceRect: { x: 2, y: 1, width: 8, height: 3 },
+        }),
+        sourceId: 'receipt',
+        source,
+        preview,
+        viewport: { cols: 40, rows: 12 },
+      });
+
+      expect(rendered.kind).toBe('row');
+      const rowNode = rendered as RowNode;
+      expect(rowNode.children[0]).toMatchObject({ kind: 'empty', width: 8, height: 3 });
+      expect(rowNode.children[1]).toMatchObject({
+        kind: 'overlay',
+        x: 7,
+        y: 3,
+        width: 8,
+        height: 3,
+        zIndex: 1_000,
+        pointerEvents: 'none',
+        focusMode: 'passive',
+      });
+
+      const plan = planLayout(rendered, 40, 12);
+      expect(plan.overlays[0]?.entry.rect).toEqual({ x: 7, y: 3, width: 8, height: 3 });
+      expect(collectHitRegions(plan)).toEqual([]);
+    });
+
+    it('leaves the source untouched outside a matching drag with captured bounds', () => {
+      const source = text('source');
+      expect(
+        dragPreview({
+          state: createDragState(),
+          sourceId: 'receipt',
+          source,
+          viewport: { cols: 40, rows: 12 },
+        }),
+      ).toBe(source);
+      expect(
+        dragPreview({
+          state: makeDraggingState({ sourceId: 'other' }),
+          sourceId: 'receipt',
+          source,
+          viewport: { cols: 40, rows: 12 },
+        }),
+      ).toBe(source);
+      expect(
+        dragPreview({
+          state: makeDraggingState({ sourceId: 'receipt' }),
+          sourceId: 'receipt',
+          source,
+          viewport: { cols: 40, rows: 12 },
+        }),
+      ).toBe(source);
     });
   });
 });

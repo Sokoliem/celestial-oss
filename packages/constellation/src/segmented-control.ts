@@ -190,9 +190,9 @@ export function segmentedControl(config: SegmentedControlConfig): ComponentDescr
         const isHovered = safeModel.hovered === i;
 
         const optStyle = isSelected
-          ? style({ color: tokens.activeText, background: tokens.activeBg, bold: true, underline: isHovered })
+          ? style({ color: tokens.activeText, background: tokens.activeBg, bold: true })
           : isHovered
-            ? style({ color: tokens.border, background: tokens.activeBg, bold: true })
+            ? style({ color: tokens.border, background: tokens.activeBg })
             : isHighlighted
               ? style({ color: tokens.border, underline: true })
               : style({ color: tokens.text, background: tokens.bg });

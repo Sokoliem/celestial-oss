@@ -32,7 +32,10 @@ export function planOverlay(
 ): LayoutEntry {
   // Collect overlay for later processing — returns zero-size entry for flow
   if (overlays) {
-    overlays.entries.push({ node });
+    overlays.entries.push({
+      node,
+      pointerEvents: overlays.pointerEvents === 'none' || node.pointerEvents === 'none' ? 'none' : 'auto',
+    });
   }
   const id = getNodeId(node, nextId);
   const entry: LayoutEntry = {
@@ -133,10 +136,10 @@ export function planSuspense(
   return entry;
 }
 
-export function planPortal(node: PortalNode, x: number, y: number, index: Map<string, LayoutEntry>, nextId: IdGen, _overlays?: OverlayCollector): LayoutEntry {
+export function planPortal(node: PortalNode, x: number, y: number, index: Map<string, LayoutEntry>, nextId: IdGen, overlays?: OverlayCollector): LayoutEntry {
   const activePortalCollector = getActivePortalCollector();
   if (activePortalCollector) {
-    activePortalCollector.entries.push({ node, child: node.child });
+    activePortalCollector.entries.push({ node, child: node.child, pointerEvents: overlays?.pointerEvents });
   }
   const id = getNodeId(node, nextId);
   const entry: LayoutEntry = { id, node, rect: { x, y, width: 0, height: 0 }, children: [] };

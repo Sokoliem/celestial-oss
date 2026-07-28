@@ -1,7 +1,13 @@
 import { color } from '@celestial/corona';
+import { collectHitRegions, planLayout, rasterize } from '@celestial/nebula';
 import { describe, expect, it } from 'vitest';
 import type { ContextMenuState, MenuItem } from '../context-menu.js';
-import { type ContextMenuViewTokens, contextMenuView, measureContextMenuItemWidth } from '../context-menu-view.js';
+import {
+  type ContextMenuViewTokens,
+  contextMenuView,
+  contextMenuViewActionFromEvent,
+  measureContextMenuItemWidth,
+} from '../context-menu-view.js';
 
 const palette = color.rgb(26, 26, 26);
 const tokens: ContextMenuViewTokens = {
@@ -85,6 +91,52 @@ describe('contextMenuView', () => {
     expect(text).toContain('Paste');
   });
 
+  it('repairs unsafe token overrides for selected and idle menu text', () => {
+    const node = contextMenuView({
+      state: stateOf({
+        items: [
+          { label: 'Selected', msg: 'selected' },
+          { label: 'Idle', msg: 'idle', shortcut: 'I' },
+        ],
+      }),
+      tokens,
+      width: 18,
+    });
+    expect(node).not.toBeNull();
+    const grid = rasterize(planLayout(node!, 20, 6));
+    const ratios = grid.cells
+      .flat()
+      .filter((cell) => /[\p{L}\p{N}]/u.test(cell.char) && cell.style.fgRgb && cell.style.bgRgb)
+      .map((cell) => color.contrastRatio(color.rgb(...cell.style.fgRgb!), color.rgb(...cell.style.bgRgb!)));
+    expect(ratios.length).toBeGreaterThan(0);
+    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('projects enabled options as exact row hover and click regions', () => {
+    const node = contextMenuView({
+      state: stateOf({
+        items: [
+          { label: 'Open', msg: 'open' },
+          { label: 'Disabled', msg: 'disabled', disabled: true },
+        ],
+      }),
+      tokens,
+      interactionId: 'menu',
+    });
+    const regions = collectHitRegions(planLayout(node!, 20, 6));
+    const open = regions.find((region) => region.id === 'menu:item:0');
+    expect(open?.metadata).toMatchObject({ hoverFeedback: 'subtle', affordances: ['hover', 'click'] });
+    expect(regions.some((region) => region.id === 'menu:item:1')).toBe(false);
+    expect(contextMenuViewActionFromEvent({ elementId: 'menu:item:0', handlerTag: 'menu:highlight' }, 'menu')).toEqual({
+      type: 'highlight',
+      index: 0,
+    });
+    expect(contextMenuViewActionFromEvent({ elementId: 'menu:item:0', handlerTag: 'menu:select' }, 'menu')).toEqual({
+      type: 'select',
+      index: 0,
+    });
+  });
+
   it('returns an overlay whose declared position is clamped inside the viewport', () => {
     const node = contextMenuView({
       state: stateOf({ x: 500, y: 500, items: [{ label: 'Only', msg: 'only' }] }),
@@ -92,8 +144,9 @@ describe('contextMenuView', () => {
       viewport: { cols: 30, rows: 8 },
     });
     expect(node).not.toBeNull();
-    const overlayNode = node as { kind: string; x: number; y: number; width: number; height: number };
+    const overlayNode = node as { kind: string; x: number; y: number; width: number; height: number; focusMode?: string };
     expect(overlayNode.kind).toBe('overlay');
+    expect(overlayNode.focusMode).toBe('modal');
     // Menu is wider than 30 - 500 → must snap to 0 rather than produce negative x.
     expect(overlayNode.x).toBeGreaterThanOrEqual(0);
     expect(overlayNode.x + overlayNode.width).toBeLessThanOrEqual(30);

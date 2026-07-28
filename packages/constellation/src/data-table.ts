@@ -1,6 +1,14 @@
 import { selectListRange } from '@celestial/core';
 import type { Color, SemanticTheme, StateToken, TableTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { alignmentForType, autoSizeColumns, border, formatCell as coronaFormatCell, detectColumnType, style } from '@celestial/core/corona';
+import {
+  alignmentForType,
+  autoSizeColumns,
+  border,
+  detectColumnType,
+  ensureReadableColor,
+  formatCell as coronaFormatCell,
+  style,
+} from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { box, Cmd, column, event, row, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { padCellText } from '@celestial/rosetta';
@@ -33,7 +41,8 @@ export const dataTableContract: TokenContract<DataTableTokens> = {
   altRow: (t: SemanticTheme) => t.colors.textSoft,
   altBg: (t: SemanticTheme) => t.colors.surfaceAlt,
   border: (t: SemanticTheme) => t.colors.border,
-  divider: (t: SemanticTheme) => t.colors.divider,
+  divider: (t: SemanticTheme) =>
+    ensureReadableColor(t.colors.divider, [t.colors.surface, t.colors.surfaceAlt, t.colors.surfaceRaised], { minimum: 3 }),
   selected: (t: SemanticTheme) => t.colors.highlight,
   sortIndicator: (t: SemanticTheme) => t.colors.highlight,
   headerStyle: (t: SemanticTheme) => t.typography.label,
@@ -677,7 +686,7 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
       const dividerStyle = style({ color: tokens.divider });
       const textSoftStyle = applyTypography(tokens.captionStyle, { color: tokens.altRow, dim: false });
       const cursorStyle = style({ bold: true, color: tokens.selected });
-      const hoverStyle = applyState(tokens.hoverState, { bold: true });
+      const hoverStyle = applyState(tokens.hoverState);
       const selectedRowStyle = applyState(tokens.selectedState);
       const rangeRowStyle = applyState(tokens.rangeState, { bold: true });
       const selectedStyle = style({ color: tokens.selected });
@@ -747,7 +756,7 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
           {
             label: col.header,
             intent: col.sortable === false ? 'observe' : 'select',
-            affordances: col.sortable === false ? [] : ['click'],
+            affordances: col.sortable === false ? [] : ['hover', 'click'],
             cursor: col.sortable === false ? undefined : 'pointer',
             keyboardHint: col.sortable === false ? undefined : 'Enter or S',
           },
@@ -811,7 +820,7 @@ export function dataTable<T>(config: DataTableConfig<T>): ComponentDescriptor<Da
         const isHovered = model.hoveredRow === i;
         const interactionStyle = isHovered ? hoverStyle : isRangeSelected ? rangeRowStyle : isSelected ? selectedRowStyle : undefined;
         const interactionDividerStyle = isHovered
-          ? applyState(tokens.hoverState, { color: tokens.divider, bold: true })
+          ? applyState(tokens.hoverState, { color: tokens.divider })
           : isRangeSelected
             ? applyState(tokens.rangeState, { color: tokens.divider, bold: true })
             : isSelected

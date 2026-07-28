@@ -2,9 +2,9 @@ import {
   type AtlasCapabilities,
   column,
   computed,
+  dragPreview,
   easing,
   event,
-  getDragOffset,
   interaction,
   layout,
   row,
@@ -127,7 +127,7 @@ function action(
 ): VNode {
   const region = `action:${id}`;
   return button({
-    id: `showcase-action:${id}`,
+    id: `showcase-lab-action:${id}`,
     label,
     onClick: `showcase-action:${id}`,
     onRightClick: `showcase-context:action:${id}`,
@@ -813,26 +813,26 @@ export function renderMouseLab(model: CelestialShowcaseModel, theme: SemanticThe
     ),
   });
 
-  const dragOffset = getDragOffset(model.dragDemo);
-  const dragging = model.dragDemo.phase === 'dragging';
   const overDropBay = model.dragDemo.phase === 'dragging' && model.dragDemo.hoveredTargetId === 'verification-bay';
   const sourceHovered = model.hoveredRegion === 'drag-source';
   const targetHovered = model.hoveredRegion === 'drag-target';
-  const source = event(
-    'showcase-drag-source',
+  const sourceSurface = (active: boolean) =>
     surfaceFrame({
       content: column(
         text('DRAG SOURCE', headingStyle),
-        text('verification receipt', dragging ? successStyle : titleStyle),
-        text(dragOffset ? `offset ${dragOffset.dx}, ${dragOffset.dy}` : 'hold and drag the full card', mutedStyle),
+        text('verification receipt', active ? successStyle : titleStyle),
+        text(active ? 'release in the drop bay now' : 'hold and drag the full card', mutedStyle),
       ),
       elevation: 'raised',
-      focused: dragging,
-      hovered: sourceHovered,
+      focused: active,
+      hovered: active || sourceHovered,
       padding: 1,
       height: 7,
       theme,
-    }),
+    });
+  const source = event(
+    'showcase-drag-source',
+    sourceSurface(false),
     {
       onMouseDown: 'showcase-drag:start',
       onMouseEnter: 'showcase-drag:source-enter',
@@ -841,6 +841,13 @@ export function renderMouseLab(model: CelestialShowcaseModel, theme: SemanticThe
     { label: 'Verification receipt drag source', intent: 'drag', affordances: ['hover', 'drag'], cursor: 'grab' },
   );
   runtime.setVNodeMeta(source, { a11y: { role: 'button', label: 'Verification receipt drag source' } });
+  const draggableSource = dragPreview({
+    state: model.dragDemo,
+    sourceId: 'verification-receipt',
+    source,
+    preview: sourceSurface(true),
+    viewport: { cols: model.cols, rows: model.rows, bottomInset: 1 },
+  });
 
   const dropBay = event(
     'showcase-drag-target',
@@ -867,7 +874,9 @@ export function renderMouseLab(model: CelestialShowcaseModel, theme: SemanticThe
   runtime.setVNodeMeta(dropBay, { a11y: { role: 'button', label: 'Verification receipt drop bay' } });
 
   const dragBoard =
-    model.cols >= 80 ? splitPane({ direction: 'horizontal', ratio: 0.46, first: source, second: dropBay, minSize: 22 }) : column(source, dropBay);
+    model.cols >= 80
+      ? splitPane({ direction: 'horizontal', ratio: 0.46, first: draggableSource, second: dropBay, minSize: 22 })
+      : column(draggableSource, dropBay);
 
   return column(
     row(text('MOUSE + NEXUS', headingStyle), text('  mouse-first, keyboard-backed', mutedStyle)),
@@ -967,15 +976,29 @@ function renderWindowManagerLab(model: CelestialShowcaseModel): VNode {
     action(model, 'reopen-events', openLabel('events', 'events'), 'success'),
   );
   const tier = viewportTier(model.cols);
+  const focusedWindow = model.windows.windows.find(
+    (window) =>
+      window.focused &&
+      window.mode !== 'minimized' &&
+      window.mode !== 'hidden' &&
+      window.mode !== 'closed' &&
+      (window.workspaceId === undefined || window.workspaceId === model.windows.activeWorkspaceId),
+  );
 
   return column(
     row(text('HORIZON WINDOW DECK', headingStyle), text('  beta', warningStyle), text(`  ${tier} representation`, mutedStyle)),
     workspaceBar,
     text(active?.summary ?? '', mutedStyle, { wrap: true }),
+    capabilityStatus('keyboard layer', focusedWindow?.title ?? 'none', focusedWindow !== undefined),
     text(''),
     panel({
       title: 'Window manager state',
-      content: column(controls, text('Open/Bring places the instrument in this workspace.', mutedStyle), text(''), ...managerRows),
+      content: column(
+        controls,
+        text('Open/Bring places the instrument in this workspace.', mutedStyle),
+        text(''),
+        ...managerRows,
+      ),
       focused: true,
     }),
     text(''),

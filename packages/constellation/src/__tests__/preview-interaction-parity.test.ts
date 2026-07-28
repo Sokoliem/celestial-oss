@@ -15,6 +15,7 @@ import { type TabsModel, type TabsMsg, tabs } from '../tabs.js';
 import { createToastManager, type ToastModel, type ToastMsg } from '../toast.js';
 import { type TreeModel, type TreeMsg, tree } from '../tree.js';
 import type { ComponentDescriptor } from '../types.js';
+import { type VirtualListModel, type VirtualListMsg, virtualList } from '../virtual-list.js';
 
 function asApp<Model, M>(descriptor: ComponentDescriptor<Model, M>, initialize?: (model: Model) => Model): AppConfig<Model, M> {
   return {
@@ -117,6 +118,42 @@ describe('preview interaction parity', () => {
           byMouse: (app) => clickText(app, 'Root'),
           byKey: (app) => app.pressKey('enter'),
           predicate: (model) => model.selected === 'root',
+        },
+      ]),
+    ).not.toThrow();
+  });
+
+  it('virtual lists select a pointed keyed row or the keyboard-focused row', () => {
+    const source = [
+      { id: 'alpha', label: 'Alpha' },
+      { id: 'beta', label: 'Beta' },
+      { id: 'gamma', label: 'Gamma' },
+    ];
+    const build = (): TestAppHandle<VirtualListModel<(typeof source)[number]>, VirtualListMsg<(typeof source)[number]>> =>
+      createTestApp(
+        asApp(
+          virtualList({
+            id: 'parity-list',
+            items: source,
+            viewportRows: 2,
+            selection: 'single',
+            focused: true,
+            activateOnClick: false,
+            getKey: (item) => item.id,
+            renderItem: (item) => text(item.label),
+          }),
+        ),
+      );
+    expect(() =>
+      assertMouseKeyboardParity(build, [
+        {
+          name: 'select the second virtual row',
+          byMouse: (app) => clickText(app, 'Beta'),
+          byKey: (app) => {
+            app.pressKey('down');
+            app.pressKey('space');
+          },
+          predicate: (model) => model.selectedKey === 'beta',
         },
       ]),
     ).not.toThrow();

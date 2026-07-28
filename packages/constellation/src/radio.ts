@@ -124,7 +124,7 @@ export function radioGroup(config: RadioGroupConfig): ComponentDescriptor<RadioG
         const isHighlighted = i === safeModel.highlighted;
         const prefix = isHovered || isHighlighted ? '▸ ' : '  ';
         const s = isHovered
-          ? style({ color: tokens.borderHover, bold: true, reverse: true })
+          ? style({ color: tokens.borderHover })
           : isHighlighted
             ? hlStyle
             : i === safeModel.selected

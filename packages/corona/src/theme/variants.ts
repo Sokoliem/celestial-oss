@@ -39,7 +39,6 @@ export const darkVariant: ThemeVariant = defineThemeVariant('dark', {
     code: { bold: true },
   },
   states: {
-    hover: { bold: true },
     selected: { bold: true },
   },
 });

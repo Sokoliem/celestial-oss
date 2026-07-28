@@ -119,7 +119,7 @@ export function pagination(config: PaginationConfig): ComponentDescriptor<Pagina
       const dimStyle = style({ dim: true, color: tokens.muted });
       const pageStyle = style({ color: tokens.textSoft });
       const arrowStyle = style({ color: tokens.text });
-      const hoverStyle = style({ color: tokens.active, bold: true, reverse: true });
+      const hoverStyle = style({ color: tokens.active });
       const parts: VNode[] = [
         event(
           `${interactionId}:prev`,
@@ -128,7 +128,7 @@ export function pagination(config: PaginationConfig): ComponentDescriptor<Pagina
           {
             label: 'Previous page',
             intent: 'navigate',
-            affordances: current > 1 ? ['click'] : [],
+            affordances: current > 1 ? ['hover', 'click'] : [],
             cursor: current > 1 ? 'pointer' : undefined,
             keyboardHint: 'Left',
           },
@@ -147,7 +147,7 @@ export function pagination(config: PaginationConfig): ComponentDescriptor<Pagina
             {
               label: `Page ${page}`,
               intent: 'navigate',
-              affordances: page === current ? [] : ['click'],
+              affordances: page === current ? [] : ['hover', 'click'],
               cursor: page === current ? undefined : 'pointer',
             },
           ),
@@ -161,7 +161,7 @@ export function pagination(config: PaginationConfig): ComponentDescriptor<Pagina
           {
             label: 'Next page',
             intent: 'navigate',
-            affordances: current < totalPages ? ['click'] : [],
+            affordances: current < totalPages ? ['hover', 'click'] : [],
             cursor: current < totalPages ? 'pointer' : undefined,
             keyboardHint: 'Right',
           },

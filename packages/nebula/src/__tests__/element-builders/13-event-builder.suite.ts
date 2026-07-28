@@ -15,7 +15,7 @@ describe('event() builder', () => {
     expect(node.id).toBe('btn-1');
     expect(node.child).toBe(child);
     expect(node.handlers).toBe(handlers);
-    expect(node.metadata).toEqual({ affordances: ['click'], cursor: 'pointer' });
+    expect(node.metadata).toEqual({ affordances: ['hover', 'click'], cursor: 'pointer', hoverFeedback: 'subtle' });
   });
 
   it('should create a measurable node', () => {
@@ -51,10 +51,11 @@ describe('event() builder', () => {
     expect(node.metadata).toEqual({
       affordances: ['hover', 'click', 'drag', 'scroll'],
       cursor: 'grab',
+      hoverFeedback: 'managed',
     });
   });
 
-  it('preserves explicit metadata while filling only omitted interaction defaults', () => {
+  it('preserves descriptive metadata while enforcing handler-derived interaction defaults', () => {
     const explicit = event(
       'explicit',
       { kind: 'text', content: 'x' },
@@ -63,15 +64,17 @@ describe('event() builder', () => {
     );
     expect(explicit.metadata).toEqual({
       label: 'Explicit',
-      affordances: [],
+      affordances: ['hover', 'click', 'scroll'],
       cursor: 'default',
+      hoverFeedback: 'subtle',
     });
 
     const partial = event('partial', { kind: 'text', content: 'x' }, { onClick: 'click' }, { label: 'Partial' });
     expect(partial.metadata).toEqual({
       label: 'Partial',
-      affordances: ['click'],
+      affordances: ['hover', 'click'],
       cursor: 'pointer',
+      hoverFeedback: 'subtle',
     });
   });
 });

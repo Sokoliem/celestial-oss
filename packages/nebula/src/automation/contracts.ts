@@ -1,12 +1,25 @@
+import type { Color } from '@celestial/corona';
 import type { AriaAttrs, AriaRole } from '../a11y.js';
-import type { StyleAttrs, VNode } from '../vdom.js';
+import type { CellGrid, LayoutPlan, StyleAttrs, VNode } from '../vdom.js';
+
+export type AutomationInteractionRuleName =
+  | 'mouse-regions-have-valid-ids'
+  | 'mouse-regions-have-valid-handlers'
+  | 'mouse-regions-have-labels'
+  | 'mouse-regions-have-hit-areas'
+  | 'mouse-regions-have-affordances'
+  | 'mouse-regions-have-cursors'
+  | 'mouse-actions-have-hover-feedback'
+  | 'disabled-mouse-regions-are-inert'
+  | 'mouse-region-color-contrast';
 
 export type AutomationA11yRuleName =
   | 'interactive-elements-have-labels'
   | 'focus-visible'
   | 'live-regions-have-politeness'
   | 'heading-levels-sequential'
-  | 'color-contrast';
+  | 'color-contrast'
+  | AutomationInteractionRuleName;
 
 export interface AutomationA11yViolation {
   rule: AutomationA11yRuleName;
@@ -18,6 +31,25 @@ export interface AutomationA11yViolation {
 export interface AutomationA11yAuditResult {
   violations: AutomationA11yViolation[];
   passes: AutomationA11yRuleName[];
+}
+
+export interface AutomationInteractionAuditOptions {
+  /** Terminal width used when no precomputed layout plan is supplied. */
+  width: number;
+  /** Terminal height used when no precomputed layout plan is supplied. */
+  height: number;
+  /** Reuse the exact runtime layout plan when available. */
+  layoutPlan?: LayoutPlan;
+  /** Reuse the exact painted runtime grid when available. */
+  grid?: CellGrid;
+  /** Fallback foreground for terminal-default cells. Defaults to white. */
+  defaultForeground?: Color;
+  /** Fallback background for terminal-default cells. Defaults to black. */
+  defaultBackground?: Color;
+  /** WCAG threshold for cells containing letters or numbers. Defaults to 4.5. */
+  minimumTextContrast?: number;
+  /** WCAG non-text threshold for graphical control glyphs. Defaults to 3. */
+  minimumGraphicalContrast?: number;
 }
 
 export interface AutomationTextRun {

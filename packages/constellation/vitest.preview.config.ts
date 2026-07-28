@@ -20,6 +20,8 @@ export default defineConfig({
       'src/__tests__/number-input.test.ts',
       'src/__tests__/option-list-view.test.ts',
       'src/__tests__/virtual-scroll.test.ts',
+      'src/__tests__/virtual-list.test.ts',
+      'src/__tests__/scrollbar.test.ts',
       'src/__tests__/range-slider.test.ts',
       'src/__tests__/rating.test.ts',
       'src/__tests__/segmented-control.test.ts',

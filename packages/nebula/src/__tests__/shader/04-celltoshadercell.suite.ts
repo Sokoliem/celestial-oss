@@ -53,6 +53,9 @@ describe('cellToShaderCell', () => {
         italic: true,
         underline: false,
         strikethrough: false,
+        blink: true,
+        reverse: true,
+        hidden: true,
       },
     };
     const cache = createParseCache();
@@ -66,6 +69,9 @@ describe('cellToShaderCell', () => {
     expect(sc.dim).toBe(false);
     expect(sc.underline).toBe(false);
     expect(sc.strikethrough).toBe(false);
+    expect(sc.blink).toBe(true);
+    expect(sc.reverse).toBe(true);
+    expect(sc.hidden).toBe(true);
   });
 
   it('converts a Cell with no colors to ShaderCell with null fg/bg', () => {

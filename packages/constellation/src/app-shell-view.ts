@@ -423,6 +423,7 @@ function placeBlockingSurface(
       width: bounds.cols,
       height: bounds.rows,
       zIndex: zIndex - 1,
+      focusMode: 'passive',
       layoutId: `${id}:backdrop`,
     }),
     overlay(shield, {
@@ -431,6 +432,7 @@ function placeBlockingSurface(
       width,
       height,
       zIndex,
+      focusMode: 'modal',
       layoutId: `${id}:surface`,
     }),
   );
@@ -457,6 +459,7 @@ function placeFloatingSurface(
       height,
       zIndex,
       transparent: true,
+      focusMode: 'passive',
       layoutId: id,
     }),
   );

@@ -45,6 +45,13 @@ describe('new element builders', () => {
     expect(node.style?.bold).toBe(true);
   });
 
+  it('preserves terminal-native visibility effects from Corona styles', () => {
+    const node = text('state', style({ blink: true, reverse: true, hidden: true }));
+    expect(node.style).toMatchObject({ blink: true, reverse: true, hidden: true });
+    const cell = rasterize(planLayout(node, 5, 1)).cells[0]![0]!;
+    expect(cell.style).toMatchObject({ blink: true, reverse: true, hidden: true });
+  });
+
   it('truncatedText clamps long content with an ellipsis', () => {
     const node = truncatedText('Celestial Nebula', 8);
     expect(node.kind).toBe('text');

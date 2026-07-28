@@ -1,4 +1,4 @@
-import { box, event, text, type VNode } from '@celestial/core/nebula';
+import { box, event, text, type LayerFocusMode, type VNode } from '@celestial/core/nebula';
 import { finiteCell, MAX_SPLIT_PANES, nonNegativeInteger } from './internal.js';
 import { CURRENT_LAYOUT_VERSION, type HorizonLayoutState } from './persistence.js';
 import { createSessionStore, loadSession, type SessionStore, saveSession } from './session.js';
@@ -111,21 +111,21 @@ function buildTabNode(tab: TabConfig, index: number, context: TabNodeContext): V
   const id = tab.id ?? tab.label;
   const labelNode: VNode = { kind: 'text', content: renderTabLabel(tab) };
   const eventNode: VNode = context.onSelect
-    ? {
-        kind: 'event',
-        id: `tab:${id}`,
-        child: labelNode,
-        handlers: { onClick: toHandlerId(context.onSelect(id), `select:${id}`) },
-      }
+    ? event(
+        `tab:${id}`,
+        labelNode,
+        { onClick: toHandlerId(context.onSelect(id), `select:${id}`) },
+        { label: tab.label, intent: 'select', affordances: ['click'], cursor: 'pointer' },
+      )
     : labelNode;
   const closeNode =
     tab.closable && context.onClose
-      ? {
-          kind: 'event' as const,
-          id: `tab-close:${id}`,
-          child: { kind: 'text' as const, content: 'x' },
-          handlers: { onClick: toHandlerId(context.onClose(id), `close:${id}`) },
-        }
+      ? event(
+          `tab-close:${id}`,
+          text('x'),
+          { onClick: toHandlerId(context.onClose(id), `close:${id}`) },
+          { label: `Close ${tab.label}`, intent: 'close', affordances: ['click'], cursor: 'pointer' },
+        )
       : null;
 
   return {
@@ -232,11 +232,23 @@ function renderFloatingWindow(window: FloatingWindowConfig): VNode {
 
 export function withFloatingWindows(base: VNode, windows: FloatingWindowConfig[] | WindowManager): VNode {
   const list = Array.isArray(windows) ? windows : getVisibleWindows(windows);
-  return [...list]
+  const visible = [...list]
     .slice(0, MAX_SPLIT_PANES)
     .filter(
       (window) => !window.minimized && !window.hidden && !window.closed && window.mode !== 'minimized' && window.mode !== 'hidden' && window.mode !== 'closed',
-    )
+    );
+  const modal = [...visible]
+    .filter((window) => window.modal || window.role === 'modal')
+    .sort((a, b) => finiteCell(b.zIndex, 10) - finiteCell(a.zIndex, 10))[0];
+  const focused = [...visible]
+    .filter((window) => window.focused && window.focusable !== false)
+    .sort((a, b) => finiteCell(b.zIndex, 10) - finiteCell(a.zIndex, 10))[0];
+  const fallback = [...visible]
+    .filter((window) => window.focusable !== false)
+    .sort((a, b) => finiteCell(b.zIndex, 10) - finiteCell(a.zIndex, 10))[0];
+  const focusOwnerId = modal?.focusable === false ? undefined : (modal?.id ?? focused?.id ?? fallback?.id);
+
+  return visible
     .sort((a, b) => finiteCell(a.zIndex, 10) - finiteCell(b.zIndex, 10))
     .reduce(
       (current, window) =>
@@ -249,6 +261,14 @@ export function withFloatingWindows(base: VNode, windows: FloatingWindowConfig[]
           height: nonNegativeInteger(window.height),
           zIndex: finiteCell(window.zIndex, 10),
           layoutId: window.layoutId ?? `floating-window:${window.id}`,
+          focusMode:
+            window.id === focusOwnerId
+              ? window.modal || window.role === 'modal'
+                ? 'modal'
+                : 'active'
+              : window.modal || window.role === 'modal'
+                ? 'blocked'
+                : 'passive',
         }),
       base,
     );
@@ -325,6 +345,8 @@ export interface PipConfig {
   height: number;
   cornerRadius?: number;
   zIndex?: number;
+  /** Keyboard-focus ownership for the PiP surface. */
+  focusMode?: LayerFocusMode;
   /** Stable semantic id used by hit testing and layout diagnostics. */
   surfaceId?: string;
   /**
@@ -376,6 +398,7 @@ export function withPip(base: VNode, pip: PipConfig, bounds: { cols: number; row
       height: rows,
       zIndex: zIndex - 1,
       layoutId: `pip-backdrop:${surfaceId}`,
+      focusMode: 'passive',
     });
   }
 
@@ -394,5 +417,6 @@ export function withPip(base: VNode, pip: PipConfig, bounds: { cols: number; row
     height,
     zIndex,
     layoutId: `pip-surface:${surfaceId}`,
+    focusMode: pip.focusMode,
   });
 }

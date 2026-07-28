@@ -139,7 +139,7 @@ export function textarea(config: TextareaConfig): ComponentDescriptor<TextareaMo
 
   function interactiveSurface(content: VNode, model: TextareaModel, tokens: TextareaTokens): VNode {
     const visual =
-      model.hovered && !model.focused ? box(content, style({ color: tokens.borderHover, bold: true, reverse: true }), { fit: 'content' }) : content;
+      model.hovered && !model.focused ? box(content, style({ color: tokens.borderHover }), { fit: 'content' }) : content;
     const surface = event(
       surfaceId,
       visual,

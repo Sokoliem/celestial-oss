@@ -1,6 +1,6 @@
-import type { BoxNode, EventNode, FocusNode, RowNode, TextNode, VNode } from '@celestial/core/nebula';
+import { planLayout, text as textNode, type BoxNode, type ColumnNode, type EventNode, type FocusNode, type RowNode, type TextNode, type VNode } from '@celestial/core/nebula';
 import { describe, expect, it } from 'vitest';
-import { createWindowManager, windowShelf, windowShelfActionFromEvent } from '../index.js';
+import { createWindowManager, shellLayout, windowShelf, windowShelfActionFromEvent, windowShelfReservedRows, windowShelfStatusBar } from '../index.js';
 
 const content = (value: string): VNode => ({ kind: 'text', content: value });
 
@@ -8,6 +8,22 @@ describe('windowShelf', () => {
   it('is absent until a window is minimized', () => {
     const manager = createWindowManager([{ id: 'one', content: content('one'), x: 0, y: 0, width: 20, height: 8 }]);
     expect(windowShelf({ manager, width: 40 }).kind).toBe('empty');
+    expect(windowShelfReservedRows(manager)).toBe(0);
+    expect(windowShelfStatusBar({ manager, width: 40, statusBar: textNode('status') }).kind).toBe('text');
+  });
+
+  it('dynamically reserves a shelf row without obscuring content or status', () => {
+    const manager = createWindowManager([
+      { id: 'one', title: 'Logs', content: content('one'), x: 0, y: 0, width: 20, height: 8, minimized: true },
+    ]);
+    const statusBar = windowShelfStatusBar({ manager, width: 40, statusBar: textNode('status') }) as ColumnNode;
+    const shell = shellLayout({ content: textNode('content'), statusBar });
+    const plan = planLayout(shell, 40, 8);
+
+    expect(windowShelfReservedRows(manager)).toBe(1);
+    expect(statusBar.children).toHaveLength(2);
+    expect(plan.root.children[0]!.rect.height).toBe(6);
+    expect(plan.root.children[1]!.rect).toEqual({ x: 0, y: 6, width: 40, height: 2 });
   });
 
   it('renders active-workspace windows as mouse and keyboard targets', () => {

@@ -1,10 +1,10 @@
-import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
-import { style } from '@celestial/core/corona';
+import type { Color, SemanticTheme, StateToken, ThemeInput, TokenContract, TypographyToken } from '@celestial/core/corona';
+import { ensureReadableColor, style } from '@celestial/core/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/core/nebula';
 import { Cmd, column, event, Sub, setVNodeMeta, text } from '@celestial/core/nebula';
 import { generateFocusGroupId } from './focus-group.js';
 import { boundedInteger, MAX_RENDER_CELLS } from './internal.js';
-import { applyTypography, useTokens } from './theme.js';
+import { applyState, applyTypography, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
@@ -17,17 +17,22 @@ export interface CheckboxTokens {
   border: Color;
   borderHover: Color;
   borderActive: Color;
+  hoverState: StateToken;
+  activeState: StateToken;
   labelStyle: TypographyToken;
 }
 
 export const checkboxContract: TokenContract<CheckboxTokens> = {
   text: (t: SemanticTheme) => t.colors.text,
-  checked: (t: SemanticTheme) => t.colors.tones.success,
+  checked: (t: SemanticTheme) =>
+    ensureReadableColor(t.colors.tones.success, [t.colors.surface, t.colors.surfaceAlt, t.colors.surfaceRaised]),
   unchecked: (t: SemanticTheme) => t.colors.muted,
   highlight: (t: SemanticTheme) => t.colors.highlight,
   border: (t: SemanticTheme) => t.colors.border,
   borderHover: (t: SemanticTheme) => t.colors.borderHover,
   borderActive: (t: SemanticTheme) => t.colors.borderActive,
+  hoverState: (t: SemanticTheme) => t.states.hover,
+  activeState: (t: SemanticTheme) => t.states.active,
   labelStyle: (t: SemanticTheme) => t.typography.body,
 };
 
@@ -70,12 +75,12 @@ export function checkbox(config: CheckboxConfig): ComponentDescriptor<CheckboxMo
     view(model: CheckboxModel): VNode {
       const tokens = useTokens(checkboxContract, config, 'Checkbox');
       const ind = model.checked ? '[✓]' : '[ ]';
-      const checkboxStyle = model.checked
-        ? style({ color: tokens.checked })
-        : model.hovered
-          ? style({ color: tokens.borderHover, bold: true, reverse: true })
-          : model.focused
-            ? style({ color: tokens.borderActive })
+      const checkboxStyle = model.hovered
+        ? applyState(tokens.hoverState)
+        : model.focused
+          ? applyState(tokens.activeState, { bold: true })
+          : model.checked
+            ? style({ color: tokens.checked })
             : applyTypography(tokens.labelStyle);
       const node = text(`${ind} ${config.label}`, checkboxStyle);
       setVNodeMeta(node, {

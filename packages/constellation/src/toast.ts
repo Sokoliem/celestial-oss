@@ -620,7 +620,7 @@ export function createToastManager(config: ToastManagerConfig = {}) {
           closeId,
           focus(
             `${focusPrefix}${entry.id}`,
-            text('[x]', style({ color: hovered ? tokens.text : tokens.textSoft, background: hovered ? tokens.hoverBg : undefined, bold: hovered })),
+            text('[x]', style({ color: hovered ? tokens.text : tokens.textSoft, background: hovered ? tokens.hoverBg : undefined })),
           ),
           { onClick: dismissTag, onMouseEnter: hoverTag, onMouseLeave: leaveTag },
           {
@@ -856,6 +856,7 @@ export function createToastManager(config: ToastManagerConfig = {}) {
           height,
           zIndex: layerZIndex,
           transparent: true,
+          focusMode: 'passive',
           layoutId: options.layoutId ?? `toast-layer:${surfaceId}`,
         }),
       );

@@ -5,7 +5,7 @@ import { createSessionStore, saveSession } from '@celestial/horizon';
 import { createScreen, createTestApp, fireMouse, renderToLines, type TestAppHandle } from '@celestial/test';
 import * as ui from '@celestial/ui';
 import { applyVariant, defaultTheme, validateThemeContrast } from '@celestial/core/corona';
-import { createThemeContext } from '@celestial/core/nebula';
+import { auditInteractionTree, collectFocusNodes, createThemeContext } from '@celestial/core/nebula';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCelestialShowcaseApp, SHOWCASE_MIN_COLS, SHOWCASE_MIN_ROWS } from '../app.js';
 import {
@@ -51,6 +51,18 @@ function findLastText(frame: string, needle: string): { col: number; row: number
   }
   if (row < 0) throw new Error(`Could not find ${needle} in frame:\n${frame}`);
   return { row, col: lines[row]!.indexOf(needle) };
+}
+
+function interactionViolations(handle: TestAppHandle<CelestialShowcaseModel, CelestialShowcaseMsg>) {
+  return handle
+    .snapshot()
+    .audit.violations.filter(
+      (violation) =>
+        violation.rule.startsWith('mouse-region') ||
+        violation.rule.startsWith('mouse-regions') ||
+        violation.rule === 'mouse-actions-have-hover-feedback' ||
+        violation.rule === 'disabled-mouse-regions-are-inert',
+    );
 }
 
 function timerIntervals(subscription: unknown): number[] {
@@ -102,31 +114,80 @@ describe('Celestial Flight Deck', () => {
       await handle.waitForUpdate();
       expect(handle.lastFrame()).toContain(`${entry.label} theme`);
       expect(handle.snapshot().audit.violations.filter((violation) => violation.rule === 'color-contrast'), entry.label).toEqual([]);
+      expect(interactionViolations(handle), `${entry.label} app interaction audit`).toEqual([]);
     }
   });
 
   it('renders every curated builder through every Flight Deck theme at compact and wide widths', () => {
     const seed = flightDeck(140, 48).model;
+    const interactionFindings: string[] = [];
 
     for (const [, entry] of Object.entries(SHOWCASE_LAB_THEMES)) {
       const themeCtx = createThemeContext();
       themeCtx.setVariant(entry.variant);
+      const theme = applyVariant(defaultTheme, entry.variant);
       const components = createShowcaseComponents(themeCtx);
       const componentModels = initialComponentModels(components);
 
       for (const width of [SHOWCASE_MIN_COLS, 140]) {
         const renderedPages: string[] = [];
         for (let componentPage = 0; componentPage < GALLERY_PAGE_COUNT; componentPage += 1) {
+          const galleryModels =
+            componentPage === 1
+              ? {
+                  ...componentModels.galleryModels,
+                  autocomplete: { ...componentModels.galleryModels.autocomplete, hoveredInput: true },
+                  combobox: { ...componentModels.galleryModels.combobox, hoveredInput: true },
+                  multiSelect: { ...componentModels.galleryModels.multiSelect, hoveredTrigger: true },
+                }
+              : componentPage === 2
+                ? {
+                    ...componentModels.galleryModels,
+                    rangeSlider: { ...componentModels.galleryModels.rangeSlider, hoveredIndex: 4 },
+                  }
+                : componentPage === 4
+              ? {
+                  ...componentModels.galleryModels,
+                  virtualList: {
+                    ...componentModels.galleryModels.virtualList,
+                    hoveredKey: 'receipt-2',
+                    focusedKey: 'receipt-2',
+                    selectedKey: 'receipt-2',
+                  },
+                }
+                  : componentPage === 7
+                    ? {
+                        ...componentModels.galleryModels,
+                        popover: { ...componentModels.galleryModels.popover, hoveredTrigger: true },
+                        popoverGroup: { ...componentModels.galleryModels.popoverGroup, hoveredIndex: 0 },
+                        hovercard: { ...componentModels.galleryModels.hovercard, state: 'pending-show' as const },
+                      }
+                    : componentModels.galleryModels;
           const model = {
             ...seed,
             ...componentModels,
+            ...(componentPage === 6 ? { tooltip: { ...componentModels.tooltip, triggered: true } } : {}),
+            galleryModels,
             galleryContextMenu: { ...componentModels.galleryContextMenu, open: false },
             cols: width,
             rows: 48,
             componentPage,
           };
-          const frame = renderToLines(renderComponentGallery(components, model), { width, height: 48 }).join('\n');
+          const gallery = renderComponentGallery(components, model);
+          const frame = renderToLines(gallery, { width, height: 48 }).join('\n');
           expect(frame.length, `${entry.label} page ${componentPage + 1} at ${width} columns`).toBeGreaterThan(0);
+          const audit = auditInteractionTree(gallery, {
+            width,
+            height: 48,
+            defaultForeground: theme.colors.text,
+            defaultBackground: theme.colors.surface,
+          });
+          interactionFindings.push(
+            ...audit.violations.map(
+              (violation) =>
+                `${entry.label} page ${componentPage + 1} at ${width} columns: ${violation.rule}: ${violation.element}: ${violation.message}`,
+            ),
+          );
           renderedPages.push(frame);
         }
 
@@ -136,6 +197,8 @@ describe('Celestial Flight Deck', () => {
         }
       }
     }
+
+    expect(interactionFindings).toEqual([]);
   });
 
   it('loads the deterministic app-shell config with an explicit source receipt', async () => {
@@ -285,6 +348,7 @@ describe('Celestial Flight Deck', () => {
       expect(frame).toContain('Gravity + Nexus');
       expect(frame).toContain('9 App shell');
       expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
+      expect(interactionViolations(handle), `shell at ${size.cols}x${size.rows}`).toEqual([]);
       expect(handle.snapshot().audit.violations.filter((violation) => violation.rule === 'color-contrast')).toEqual([]);
     });
   }
@@ -335,6 +399,7 @@ describe('Celestial Flight Deck', () => {
     const expectReachable = (needle: string) => {
       expect(handle.lastFrame()).toContain(needle);
       expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
+      expect(interactionViolations(handle), `minimum viewport instrument containing ${needle}`).toEqual([]);
     };
 
     handle.dispatch({ type: 'core-page', page: 'locale' });
@@ -991,8 +1056,8 @@ describe('Celestial Flight Deck', () => {
     handle.pressKey('2');
     await handle.waitForUpdate();
 
-    expect(UI_BUILDER_COUNT).toBe(47);
-    expect([...UI_BUILDER_NAMES]).toEqual(expect.arrayContaining(['indeterminateProgress', 'cardGrid', 'popoverGroup']));
+    expect(UI_BUILDER_COUNT).toBe(49);
+    expect([...UI_BUILDER_NAMES]).toEqual(expect.arrayContaining(['indeterminateProgress', 'cardGrid', 'popoverGroup', 'virtualList', 'scrollbar']));
 
     const builders = new Set<string>();
     for (let page = 0; page < GALLERY_PAGE_COUNT; page += 1) {
@@ -1001,6 +1066,7 @@ describe('Celestial Flight Deck', () => {
         if (frame.includes(`${builder}()`)) builders.add(builder);
       }
       expect(handle.snapshot().audit.violations.filter((violation) => violation.severity === 'error')).toEqual([]);
+      expect(interactionViolations(handle), `component page ${page + 1} at ${cols}x${rows}`).toEqual([]);
       if (page < GALLERY_PAGE_COUNT - 1) {
         handle.pressKey(']');
         await handle.waitForUpdate();
@@ -1016,6 +1082,7 @@ describe('Celestial Flight Deck', () => {
 
     expect(handle.model.checkbox.checked).toBe(!checkedBefore);
     expect(handle.model.completed.has('component')).toBe(true);
+    expect(interactionViolations(handle), `changed component state at ${cols}x${rows}`).toEqual([]);
   });
 
   it('persists state changes from every previously staged gallery descriptor', () => {
@@ -1036,6 +1103,8 @@ describe('Celestial Flight Deck', () => {
     dispatchGallery({ id: 'tagInput', msg: { type: 'remove-tag', index: 0 } });
     dispatchGallery({ id: 'colorPicker', msg: { type: 'set-slider', field: 'hue', value: 200 } });
     dispatchGallery({ id: 'optionList', msg: { type: 'opt-click', id: 'beta' } });
+    dispatchGallery({ id: 'virtualList', msg: { type: 'vl-click', key: 'receipt-2' } });
+    dispatchGallery({ id: 'scrollbar', msg: { type: 'sb-page', direction: 1 } });
     dispatchGallery({ id: 'cardGrid', msg: { type: 'hover-card', index: 0 } });
     dispatchGallery({ id: 'popover', msg: { type: 'toggle' } });
     dispatchGallery({ id: 'popoverGroup', msg: { type: 'toggle-at', index: 0 } });
@@ -1054,11 +1123,13 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.galleryModels.tagInput.tags).toEqual(['mouse']);
     expect(handle.model.galleryModels.colorPicker.hsl.h).toBe(200);
     expect(handle.model.galleryModels.optionList.highlightedIndex).toBe(1);
+    expect(handle.model.galleryModels.virtualList.selectedKey).toBe('receipt-2');
+    expect(handle.model.galleryModels.scrollbar.scroll).toBe(15);
     expect(handle.model.galleryModels.cardGrid.hoveredIndex).toBe(0);
     expect(handle.model.galleryModels.popover.visible).toBe(true);
     expect(handle.model.galleryModels.popoverGroup.activeIndex).toBe(0);
     expect(handle.model.galleryModels.hovercard.state).toBe('pending-show');
-    expect(handle.model.evidence.componentChanges).toBe(changesBefore + 17);
+    expect(handle.model.evidence.componentChanges).toBe(changesBefore + 19);
     expect(handle.model.completed.has('component')).toBe(true);
   });
 
@@ -1084,6 +1155,7 @@ describe('Celestial Flight Deck', () => {
     expect(sliderElement).toBeDefined();
     handle.click(sliderElement!.col + 'Density '.length, sliderElement!.row);
     expect(handle.model.slider.value).toBe(0);
+    expect(interactionViolations(handle), 'hovered and changed page 1 controls').toEqual([]);
 
     handle.dispatch({ type: 'component-page', page: 1 });
     await handle.waitForUpdate();
@@ -1091,6 +1163,7 @@ describe('Celestial Flight Deck', () => {
     expect(calendarDay).toBeDefined();
     fireMouse(handle.terminal, { type: 'move', col: calendarDay!.col, row: calendarDay!.row });
     expect(handle.model.galleryModels.datePicker.hovered).toBe('day:19');
+    expect(interactionViolations(handle), 'hovered calendar state').toEqual([]);
 
     handle.dispatch({ type: 'component-page', page: 2 });
     await handle.waitForUpdate();
@@ -1100,6 +1173,7 @@ describe('Celestial Flight Deck', () => {
     const unicodeTag = findText(handle.lastFrame(), 'unicode');
     fireMouse(handle.terminal, { type: 'move', col: unicodeTag.col, row: unicodeTag.row });
     expect(handle.model.galleryModels.tagInput.hoveredTag).toBe(0);
+    expect(interactionViolations(handle), 'hovered segmented control and tag state').toEqual([]);
 
     handle.dispatch({ type: 'component-page', page: 3 });
     await handle.waitForUpdate();
@@ -1109,6 +1183,7 @@ describe('Celestial Flight Deck', () => {
     const celestialCrumb = findText(handle.lastFrame(), 'Celestial');
     handle.click(celestialCrumb.col, celestialCrumb.row);
     expect(handle.model.breadcrumb.selectedIndex).toBe(0);
+    expect(interactionViolations(handle), 'hovered and selected breadcrumb state').toEqual([]);
 
     handle.dispatch({ type: 'component-page', page: 4 });
     await handle.waitForUpdate();
@@ -1133,6 +1208,24 @@ describe('Celestial Flight Deck', () => {
     await handle.waitForUpdate();
     expect(handle.model.table.columnWidths[0]).toBe(capabilityWidth + 4);
     expect(handle.model.table.columnResize).toBeNull();
+
+    const virtualRow = handle.snapshot().elements.find((element) => element.testId === 'showcase-virtual-list:row:receipt-0');
+    expect(virtualRow).toBeDefined();
+    fireMouse(handle.terminal, { type: 'move', col: virtualRow!.col + 2, row: virtualRow!.row });
+    expect(handle.model.galleryModels.virtualList.hoveredKey).toBe('receipt-0');
+    expect(interactionViolations(handle), 'hovered virtual-list row').toEqual([]);
+    handle.click(virtualRow!.col + 2, virtualRow!.row);
+    expect(handle.model.galleryModels.virtualList.selectedKey).toBe('receipt-0');
+    fireMouse(handle.terminal, { type: 'scroll', direction: 'down', col: virtualRow!.col + 2, row: virtualRow!.row });
+    expect(handle.model.galleryModels.virtualList.scrollOffset).toBe(3);
+    expect(handle.lastFrame()).toContain('Receipt 03');
+
+    const standaloneScrollbar = handle.snapshot().elements.find((element) => element.testId === 'showcase-scrollbar');
+    expect(standaloneScrollbar).toBeDefined();
+    handle.click(standaloneScrollbar!.col + standaloneScrollbar!.width - 1, standaloneScrollbar!.row);
+    expect(handle.model.galleryModels.scrollbar.scroll).toBe(15);
+    expect(handle.lastFrame()).toContain('offset 15/45');
+    expect(interactionViolations(handle), 'selected, resized, scrolled, and dragged component states').toEqual([]);
   });
 
   it('routes live mouse coordinates through raw and semantic hit regions after a lab switch', async () => {
@@ -1150,6 +1243,39 @@ describe('Celestial Flight Deck', () => {
     expect(handle.messageCoverage().byType['element-mouse']).toBeGreaterThan(0);
 
     const source = findText(handle.lastFrame(), 'verification receipt');
+    fireMouse(handle.terminal, { type: 'down', col: source.col + 2, row: source.row });
+    await handle.waitForUpdate();
+    expect(handle.model.dragDemo).toMatchObject({
+      phase: 'dragging',
+      sourceRect: {
+        x: expect.any(Number),
+        y: expect.any(Number),
+        width: expect.any(Number),
+        height: 7,
+      },
+    });
+    if (handle.model.dragDemo.phase !== 'dragging' || !handle.model.dragDemo.sourceRect) {
+      throw new Error('expected captured drag source bounds');
+    }
+    const sourceRect = handle.model.dragDemo.sourceRect;
+
+    fireMouse(handle.terminal, { type: 'move', col: source.col + 10, row: source.row + 2 });
+    await handle.waitForUpdate();
+    const movedSource = findText(handle.lastFrame(), 'verification receipt');
+    expect(movedSource).toEqual({ col: source.col + 8, row: source.row + 2 });
+    expect(handle.lastFrame()).toContain('release in the drop bay now');
+    expect(handle.lastFrame()).not.toContain('offset 8, 2');
+    const movedTopBorder = handle
+      .lastFrame()
+      .split('\n')[sourceRect.y + 2]!
+      .slice(sourceRect.x + 8, sourceRect.x + 8 + sourceRect.width);
+    expect(movedTopBorder.trimEnd()).toHaveLength(sourceRect.width);
+
+    fireMouse(handle.terminal, { type: 'up', col: movedSource.col, row: movedSource.row });
+    await handle.waitForUpdate();
+    expect(handle.model.dragDemo.phase).toBe('idle');
+    expect(findText(handle.lastFrame(), 'verification receipt')).toEqual(source);
+
     const dropTarget = findText(handle.lastFrame(), 'Drag the receipt here.');
     handle.drag(source.col + 2, source.row, dropTarget.col + 2, dropTarget.row);
     await handle.waitForUpdate();
@@ -1387,6 +1513,23 @@ describe('Celestial Flight Deck', () => {
     expect(handle.model.completed.has('window')).toBe(false);
     handle.dispatch({ type: 'window-action', id: 'telemetry', action: 'maximize' });
     expect(handle.model.completed.has('window')).toBe(true);
+  });
+
+  it('keeps keyboard focus inside the active window and above it in a modal', async () => {
+    const handle = flightDeck(140, 48);
+    const app = createCelestialShowcaseApp({ initialSize: { cols: 140, rows: 48 }, fast: true });
+    handle.pressKey('7');
+    await handle.waitForUpdate();
+
+    const windowTargets = collectFocusNodes(app.view(handle.model)).map((node) => node.id);
+    expect(windowTargets).toEqual(['showcase-window:telemetry:content']);
+    expect(handle.lastFrame()).toContain('keyboard layer');
+    expect(handle.lastFrame()).toContain('Telemetry instrument');
+
+    handle.dispatch({ type: 'open-surface', surface: 'modal' });
+    const modalTargets = collectFocusNodes(app.view(handle.model)).map((node) => node.id);
+    expect(modalTargets.length).toBeGreaterThan(0);
+    expect(modalTargets).not.toContain('showcase-window:telemetry:content');
   });
 
   // Every paged instrument wraps with `(page + delta + count) % count`. The `+ count`

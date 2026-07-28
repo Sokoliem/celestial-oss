@@ -6,14 +6,14 @@
  * and customizable date formatting.
  */
 
-import type { Color, SemanticTheme, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
+import type { Color, SemanticTheme, StateToken, ThemeInput, TokenContract, TypographyToken } from '@celestial/corona';
 import { style } from '@celestial/corona';
 import type { Msg, ThemeContext, VNode } from '@celestial/nebula';
 import { Cmd, column, event, row, Sub, setVNodeMeta, text } from '@celestial/nebula';
 import { type LocaleLike, measureTextWidth, resolveLocale, sliceTextByWidth } from '@celestial/rosetta';
 import { generateFocusGroupId } from './focus-group.js';
 import { boundedInteger } from './internal.js';
-import { useTokens } from './theme.js';
+import { applyState, useTokens } from './theme.js';
 import type { ComponentDescriptor } from './types.js';
 
 // ─── Token contract ─────────────────────────────────────────────────────────
@@ -25,6 +25,9 @@ export interface DatePickerTokens {
   border: Color;
   borderHover: Color;
   borderActive: Color;
+  hoverState: StateToken;
+  activeState: StateToken;
+  selectedState: StateToken;
   labelStyle: TypographyToken;
 }
 
@@ -35,6 +38,9 @@ export const datePickerContract: TokenContract<DatePickerTokens> = {
   border: (t: SemanticTheme) => t.colors.border,
   borderHover: (t: SemanticTheme) => t.colors.borderHover,
   borderActive: (t: SemanticTheme) => t.colors.borderActive,
+  hoverState: (t: SemanticTheme) => t.states.hover,
+  activeState: (t: SemanticTheme) => t.states.active,
+  selectedState: (t: SemanticTheme) => t.states.selected,
   labelStyle: (t: SemanticTheme) => t.typography.label,
 };
 
@@ -350,9 +356,9 @@ export function datePicker(config: DatePickerConfig): ComponentDescriptor<DatePi
 
       const titleStyle = style({ bold: true, color: tokens.selected });
       const headerStyle = style({ dim: true, color: tokens.muted });
-      const cursorStyle = style({ reverse: true, bold: true });
-      const hoverStyle = style({ color: tokens.borderHover, reverse: true, bold: true });
-      const selectedStyle = style({ color: tokens.selected, bold: true });
+      const cursorStyle = applyState(tokens.activeState, { bold: true });
+      const hoverStyle = applyState(tokens.hoverState);
+      const selectedStyle = applyState(tokens.selectedState, { bold: true });
       const todayStyle = style({ color: tokens.selected });
 
       const title = formatMonthTitle(locale, model.viewYear, model.viewMonth);

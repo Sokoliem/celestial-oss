@@ -12,6 +12,8 @@ export interface HitRegionInfo {
   readonly id: string;
   readonly handlers: EventHandlers;
   readonly rect: LayoutRect;
+  /** Original routed element bounds before ancestor clipping. */
+  readonly layoutRect?: LayoutRect;
   readonly zIndex: number;
   readonly isHover: boolean;
   readonly eventPath: readonly string[];
@@ -27,6 +29,9 @@ export function collectHitRegions(plan: LayoutPlan): HitRegionInfo[] {
   // Also collect from overlays (with their z-index for priority)
   if (plan.overlays) {
     for (const overlay of plan.overlays) {
+      if (overlay.pointerEvents === 'none' || (overlay.entry.node.kind === 'overlay' && overlay.entry.node.pointerEvents === 'none')) {
+        continue;
+      }
       collectFromEntry(overlay.entry, regions, overlay.zIndex, 0, 0, null, []);
     }
   }
@@ -133,6 +138,7 @@ function pushHitRegion(acc: HitRegionInfo[], region: HitRegionInfo, clipRect: La
 
   acc.push({
     ...region,
+    layoutRect: region.layoutRect ?? region.rect,
     rect: clippedRect,
   });
 }

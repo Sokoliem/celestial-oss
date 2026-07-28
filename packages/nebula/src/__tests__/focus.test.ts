@@ -9,6 +9,7 @@ import {
   focusPrev,
   popFocusGroup,
   pushFocusGroup,
+  syncFocusState,
 } from '../focus.js';
 import type { BoxNode, ColumnNode, FocusNode, RowNode, ScrollNode, VNode } from '../vdom.js';
 
@@ -117,6 +118,192 @@ describe('focus', () => {
       };
       const nodes = collectFocusNodes(outer);
       expect(nodes.map((n) => n.id)).toEqual(['outer', 'inner']);
+    });
+
+    it('restricts navigation to the highest active visual layer', () => {
+      const tree = mkColumn(
+        mkFocus('base'),
+        {
+          kind: 'overlay',
+          child: mkFocus('front-window'),
+          x: 0,
+          y: 0,
+          zIndex: 20,
+          focusMode: 'active',
+        },
+        {
+          kind: 'overlay',
+          child: mkFocus('back-window'),
+          x: 0,
+          y: 0,
+          zIndex: 10,
+          focusMode: 'active',
+        },
+        {
+          kind: 'overlay',
+          child: mkFocus('tooltip'),
+          x: 0,
+          y: 0,
+          zIndex: 30,
+          focusMode: 'passive',
+        },
+      );
+
+      expect(collectFocusNodes(tree).map((node) => node.id)).toEqual(['front-window']);
+    });
+
+    it('gives modal and blocked layers deterministic ownership', () => {
+      const modalTree = mkColumn(
+        {
+          kind: 'overlay',
+          child: mkFocus('active-window'),
+          x: 0,
+          y: 0,
+          zIndex: 100,
+          focusMode: 'active',
+        },
+        {
+          kind: 'overlay',
+          child: mkFocus('dialog'),
+          x: 0,
+          y: 0,
+          zIndex: 1,
+          focusMode: 'modal',
+        },
+      );
+      const blockedTree = mkColumn(
+        mkFocus('base'),
+        {
+          kind: 'overlay',
+          child: mkFocus('must-not-focus'),
+          x: 0,
+          y: 0,
+          focusMode: 'blocked',
+        },
+      );
+
+      expect(collectFocusNodes(modalTree).map((node) => node.id)).toEqual(['dialog']);
+      expect(collectFocusNodes(blockedTree)).toEqual([]);
+    });
+
+    it('treats active portals as visually frontmost focus owners', () => {
+      const tree = mkColumn(
+        {
+          kind: 'overlay',
+          child: mkFocus('window'),
+          x: 0,
+          y: 0,
+          zIndex: 5000,
+          focusMode: 'active',
+        },
+        {
+          kind: 'portal',
+          target: 'anchor',
+          child: mkFocus('menu'),
+          focusMode: 'active',
+        },
+      );
+
+      expect(collectFocusNodes(tree).map((node) => node.id)).toEqual(['menu']);
+    });
+
+    it('lets an active child layer own focus without escaping its modal ancestor', () => {
+      const tree = mkColumn(
+        {
+          kind: 'overlay',
+          child: mkFocus('unrelated-window'),
+          x: 0,
+          y: 0,
+          zIndex: 999,
+          focusMode: 'active',
+        },
+        {
+          kind: 'overlay',
+          x: 0,
+          y: 0,
+          zIndex: 10,
+          focusMode: 'modal',
+          child: mkColumn(
+            mkFocus('dialog-action'),
+            {
+              kind: 'overlay',
+              child: mkFocus('dialog-menu-action'),
+              x: 0,
+              y: 0,
+              zIndex: 20,
+              focusMode: 'active',
+            },
+          ),
+        },
+      );
+
+      expect(collectFocusNodes(tree).map((node) => node.id)).toEqual(['dialog-menu-action']);
+    });
+
+    it('does not allow nested layers to escape a blocked owner', () => {
+      const tree: VNode = {
+        kind: 'overlay',
+        x: 0,
+        y: 0,
+        focusMode: 'blocked',
+        child: {
+          kind: 'overlay',
+          x: 0,
+          y: 0,
+          zIndex: 100,
+          focusMode: 'modal',
+          child: mkFocus('nested'),
+        },
+      };
+
+      expect(collectFocusNodes(tree)).toEqual([]);
+    });
+
+    it('does not allow nested active or modal layers to escape a passive owner', () => {
+      const tree = mkColumn(
+        mkFocus('workspace'),
+        {
+          kind: 'overlay',
+          x: 0,
+          y: 0,
+          zIndex: 100,
+          focusMode: 'passive',
+          child: mkColumn(
+            mkFocus('passive-window'),
+            {
+              kind: 'overlay',
+              x: 0,
+              y: 0,
+              zIndex: 200,
+              focusMode: 'active',
+              child: mkFocus('nested-active'),
+            },
+            {
+              kind: 'portal',
+              target: 'passive-menu',
+              focusMode: 'modal',
+              child: mkFocus('nested-modal'),
+            },
+          ),
+        },
+      );
+
+      expect(collectFocusNodes(tree).map((node) => node.id)).toEqual(['workspace']);
+    });
+
+    it('evicts focus retained by an obscured layer', () => {
+      const tree = mkColumn(mkFocus('base'), {
+        kind: 'overlay',
+        child: mkFocus('dialog'),
+        x: 0,
+        y: 0,
+        focusMode: 'modal',
+      });
+
+      expect(syncFocusState(stateWith(['base'], 'base'), tree)).toMatchObject({
+        focusableIds: ['dialog'],
+        currentId: 'dialog',
+      });
     });
   });
 

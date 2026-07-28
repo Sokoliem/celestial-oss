@@ -266,7 +266,11 @@ export async function createPtyHarness(config: PtyHarnessConfig): Promise<PtyHar
         };
         const onAbort = (): void => cancel(signal ? abortError(signal) : new Error('PTY wait aborted.'));
         const timer = setTimeout(() => {
-          cancel(timeoutError(`waitForText(${String(match)})`, effectiveTimeout, normalizedOutput(transcript)));
+          // A PTY data callback and its timeout can become ready in the same
+          // event-loop turn on a saturated runner. Re-check the accumulated
+          // transcript at the deadline before rejecting so a receipt that is
+          // already present cannot be reported as missing.
+          if (!check()) cancel(timeoutError(`waitForText(${String(match)})`, effectiveTimeout, normalizedOutput(transcript)));
         }, effectiveTimeout);
         outputListeners.add(check);
         exitListeners.add(onExit);

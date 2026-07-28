@@ -121,7 +121,6 @@ export function badge(config: BadgeConfig): ComponentDescriptor<BadgeModel, Badg
         applyTypography(tokens.labelStyle, {
           color: model.hovered ? tokens.text : badgeColor,
           background: model.hovered ? tokens.hoverBackground : undefined,
-          bold: model.hovered,
         }),
       );
 

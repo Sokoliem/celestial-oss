@@ -122,7 +122,7 @@ export function modal(config: ModalConfig): ComponentDescriptor<ModalModel, Moda
       const borderColor = resolveAnimatedBorderColor(theme, theme.colors.borderHover, tokens.border, model.borderTick ?? 0);
       const titleStyle = applyTypography(tokens.titleStyle, { color: tokens.title });
       const hintStyle = applyTypography(tokens.hintStyle, { color: tokens.hint });
-      const closeStyle = model.hoveredClose ? applyState(tokens.actionHoverState, { bold: true }) : applyState(tokens.actionState);
+      const closeStyle = model.hoveredClose ? applyState(tokens.actionHoverState) : applyState(tokens.actionState);
       const borderStyle = style({ border: resolveElevationBorder(theme, 'modal'), color: borderColor, background: tokens.bg, width });
       const dividerStyle = style({ color: borderColor, background: tokens.bg });
       const groupedContent = assignFocusGroup(config.wrapContent === false ? config.content : enableModalTextWrapping(config.content), groupId);

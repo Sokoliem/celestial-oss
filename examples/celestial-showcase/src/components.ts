@@ -39,6 +39,7 @@ import {
   radioGroup,
   rangeSlider,
   rating,
+  scrollbar,
   segmentedControl,
   semanticGlyph,
   select,
@@ -53,10 +54,11 @@ import {
   toggleGroup,
   tooltip,
   tree,
+  virtualList,
 } from '@celestial/ui';
 import { UI_BUILDER_COUNT } from './coverage.js';
 import { headingStyle, labelStyle, mutedStyle } from './presentation.js';
-import type { CelestialShowcaseModel, CelestialShowcaseMsg, LabId, ShowcaseGalleryModels } from './types.js';
+import type { CelestialShowcaseModel, CelestialShowcaseMsg, LabId, ShowcaseGalleryModels, ShowcaseVirtualReceipt } from './types.js';
 
 export { UI_BUILDER_COUNT, UI_BUILDER_NAMES } from './coverage.js';
 
@@ -336,6 +338,33 @@ export function createShowcaseComponents(themeCtx: ThemeContext) {
     ],
     themeCtx,
   });
+  const virtualReceipts: ShowcaseVirtualReceipt[] = Array.from({ length: 12 }, (_, index) => ({
+    id: `receipt-${index}`,
+    label: `Receipt ${index.toString().padStart(2, '0')} · ${index % 3 === 0 ? 'runtime' : index % 3 === 1 ? 'layout' : 'input'}`,
+    disabled: index === 4,
+  }));
+  const virtualListComponent = virtualList({
+    id: 'showcase-virtual-list',
+    label: 'Windowed framework receipts',
+    items: virtualReceipts,
+    viewportRows: 3,
+    width: 28,
+    selection: 'single',
+    activateOnClick: false,
+    getKey: (item) => item.id,
+    isDisabled: (item) => item.disabled ?? false,
+    renderItem: (item, _index, state) => text(`${state.disabled ? '×' : state.selected ? '●' : '○'} ${item.label}`, state.disabled ? mutedStyle : undefined),
+    themeCtx,
+  });
+  const scrollbarComponent = scrollbar({
+    id: 'showcase-scrollbar',
+    label: 'Standalone viewport',
+    total: 60,
+    viewport: 15,
+    trackLength: 18,
+    orientation: 'horizontal',
+    themeCtx,
+  });
   const spinnerComponent = spinner({ style: 'arc', speed: 120, themeCtx });
   const indeterminateProgressComponent = indeterminateProgress({ width: 16, speed: 120, themeCtx });
   const cardGridComponent = cardGrid({
@@ -483,6 +512,8 @@ export function createShowcaseComponents(themeCtx: ThemeContext) {
     optionListComponent,
     tableComponent,
     treeComponent,
+    virtualListComponent,
+    scrollbarComponent,
     spinnerComponent,
     indeterminateProgressComponent,
     cardGridComponent,
@@ -544,6 +575,8 @@ export function initialComponentModels(components: ShowcaseComponents) {
       tagInput: components.tagInputComponent.init()[0],
       colorPicker: components.colorPickerComponent.init()[0],
       optionList: components.optionListComponent.init()[0],
+      virtualList: components.virtualListComponent.init()[0],
+      scrollbar: components.scrollbarComponent.init()[0],
       cardGrid: components.cardGridComponent.init()[0],
       popover: components.popoverComponent.init()[0],
       popoverGroup: components.popoverGroupComponent.init()[0],
@@ -571,7 +604,7 @@ function action(
   tone: 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info' = 'accent',
 ): VNode {
   return button({
-    id: `showcase-action:${id}`,
+    id: `showcase-component-action:${id}`,
     label,
     onClick: `showcase-action:${id}`,
     onRightClick: `showcase-context:action:${id}`,
@@ -684,13 +717,18 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
       );
     case 4:
       return column(
-        galleryHeader(4, 'Data structures - 3 builders'),
+        galleryHeader(4, 'Data structures - 5 builders'),
         named('dataTable()', focusable('table', 'Preview contract table', components.tableComponent.view(model.table))),
         text('Drag column dividers, or focus a column and use Alt+Left/Right. Ctrl+0 restores defaults.', mutedStyle, { wrap: true }),
         row(
           named('tree()', focusable('tree', 'Package tree', components.treeComponent.view(model.tree))),
           text('      '),
           named('list()', list({ items: ['deterministic runtime', 'semantic components', 'headless receipts'], ordered: true, maxRenderedItems: 3 })),
+        ),
+        named('virtualList()', galleryView(model, 'virtualList', components.virtualListComponent)),
+        row(
+          named('scrollbar()', galleryView(model, 'scrollbar', components.scrollbarComponent)),
+          text(`  offset ${model.galleryModels.scrollbar.scroll}/45`, mutedStyle),
         ),
       );
     case 5: {
