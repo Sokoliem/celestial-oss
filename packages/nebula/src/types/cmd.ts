@@ -178,10 +178,31 @@ export const Cmd = {
     );
   },
 
+  /** Wrap an async task with explicit onSuccess and onError callbacks. */
+  async<T, M>(
+    task: (signal: AbortSignal) => Promise<T>,
+    options: { onSuccess: (value: T) => M; onError: (error: Error) => M },
+  ): Cmd<M> {
+    return mkCmd({
+      kind: 'attempt',
+      task: task as (signal: AbortSignal) => Promise<unknown>,
+      toMsg: (res: Result<unknown, unknown>) =>
+        res.ok
+          ? options.onSuccess(res.value as T)
+          : options.onError(res.error instanceof Error ? res.error : new Error(String(res.error))),
+    });
+  },
+
   /** Delay starting a command and supersede any pending debounced command with the same key. */
   debounce<M>(ms: number, cmd: Cmd<M>, key = 'default'): Cmd<M> {
     assertDuration('Cmd.debounce duration', ms);
     return mkCmd({ kind: 'debounce', ms, cmd, key });
+  },
+
+  /** Throttle a command to run at most once per ms window for a given key. */
+  throttle<M>(ms: number, cmd: Cmd<M>, key = 'default'): Cmd<M> {
+    assertDuration('Cmd.throttle duration', ms);
+    return mkCmd({ kind: 'debounce', ms, cmd, key: `throttle:${key}` });
   },
 
   /** A command that tells the runtime to quit the application. */

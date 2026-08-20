@@ -57,6 +57,11 @@
       "types": "./dist/nexus.d.ts",
       "import": "./dist/nexus.js",
       "require": "./dist/nexus.cjs"
+    },
+    "./jsx": {
+      "types": "./dist/jsx.d.ts",
+      "import": "./dist/jsx.js",
+      "require": "./dist/jsx.cjs"
     }
   },
   "files": [

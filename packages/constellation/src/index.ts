@@ -350,3 +350,11 @@ export type {
   VirtualListTokens,
 } from './virtual-list.js';
 export { virtualList, virtualListContract } from './virtual-list.js';
+// ── AI & CLI Primitives ──────────────────────────────────────────────────
+export type { ToolCallConfig, ToolStatus } from './tool-call.js';
+export { toolCall } from './tool-call.js';
+export type { DiffLine, DiffViewerConfig } from './diff-viewer.js';
+export { diffViewer, parseUnifiedDiff } from './diff-viewer.js';
+export type { PromptConfirmOptions, PromptSelectOptions, PromptTextOptions } from './inline-prompt.js';
+export { inlinePrompt } from './inline-prompt.js';
+
