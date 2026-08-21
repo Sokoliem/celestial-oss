@@ -1,8 +1,39 @@
 # Celestial
 
+[![Preview CI](https://github.com/Sokoliem/celestial-oss/actions/workflows/ci.yml/badge.svg)](https://github.com/Sokoliem/celestial-oss/actions/workflows/ci.yml)
+[![npm @celestial/core](https://img.shields.io/npm/v/%40celestial/core/preview?label=npm)](https://www.npmjs.com/package/@celestial/core)
+[![Node ≥ 22](https://img.shields.io/badge/node-%E2%89%A522-339933)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Celestial is a TypeScript framework for building state-driven terminal user interfaces. It combines an Elm-style runtime, Unicode-aware text handling, terminal capability detection, styling, animation, layout, mouse interaction, forms, Markdown, syntax highlighting, and charting behind a focused public package set. Views can be written as plain function calls or as TSX.
 
 This repository is an **open-source preview**, not a 1.0 release. It contains a deliberately small, supported lane extracted from Celestial's broader research codebase.
+
+![The Celestial Flight Deck, a tour of all 18 public packages and 52 curated builders](docs/media/flight-deck.gif)
+
+*The Flight Deck demo, recorded deterministically from the framework's own renderer by [`scripts/record-demo.mjs`](scripts/record-demo.mjs).*
+
+## Why Celestial?
+
+If you're evaluating terminal UI frameworks, the honest comparison:
+
+| | Celestial | Ink | Textual | Ratatui | Blessed |
+| --- | --- | --- | --- | --- | --- |
+| Language/runtime | TypeScript (Node 22+) | TypeScript (Node) | Python | Rust | JavaScript (unmaintained) |
+| Programming model | Elm architecture, typed messages | React components | Reactive widgets | Immediate mode | Ad-hoc widgets |
+| Declarative TSX | Yes (optional) | Yes (required) | No | No | No |
+| Mouse support | First-class, contract-enforced | Limited/absent | First-class | Manual | Partial |
+| Component library | 52 audited builders | Small set | Large set | Examples only | Large but stale |
+| Window management | Splits, tabs, floating windows (beta) | No | Yes | No | Basic |
+| Headless testing | Deterministic harness + PTY | Render to string | Snapshot testing | Backend swapping | None |
+| Runtime dependencies | One (`zod`, forms only) | React + Yoga stack | Rich + Textual stack | Crate graph | Several |
+
+What Celestial does that we haven't found elsewhere in one package:
+
+- **An enforced interaction contract.** Every layered surface needs a visible close affordance and Escape dismissal; every interactive builder is exercised through both mouse and keyboard; the Flight Deck gates all 52 builders across nine themes at compact and wide widths with zero painted-audit violations.
+- **Grapheme-safe everything.** Emoji, ZWJ sequences, CJK, and bidi text survive resize, clipping, and animation because width, wrapping, and hit-testing operate on grapheme clusters, not UTF-16 units.
+- **Capability-driven degradation.** Atlas detects the terminal (Windows ConPTY included) and the framework falls back honestly — `NO_COLOR`, `TERM=dumb`, reduced motion, no-mouse — instead of spraying escape codes.
+- **A testing story.** `createTestApp` gives deterministic headless interaction, snapshot audits of hit regions and contrast, and a real PTY harness for end-to-end runs on Linux, macOS, and Windows.
 
 ## Start a new app
 
@@ -103,9 +134,9 @@ The same architecture powers four supported, local-only demos:
 
 | Demo | Command | What it exercises |
 | --- | --- | --- |
-| Task Console | `pnpm demo:tasks` | Real worker processes, streaming subscriptions, progress, cancellation, retry, responsive layout, and layered UI |
-| API Inspector | `pnpm demo:api` | Loopback HTTP, abortable commands, form controls, response tabs, history, and error states |
-| Horizon Workbench | `pnpm demo:horizon` | Beta splits, tabs, workspaces, responsive panes, managed floating windows, and window chrome |
+| Task Console | `pnpm demo:tasks` | Real worker processes, streaming subscriptions, progress, cancellation, retry, responsive layout, and layered UI — [recording](docs/media/task-console.gif) |
+| API Inspector | `pnpm demo:api` | Loopback HTTP, abortable commands, form controls, response tabs, history, and error states — [recording](docs/media/api-inspector.gif) |
+| Horizon Workbench | `pnpm demo:horizon` | Beta splits, tabs, workspaces, responsive panes, managed floating windows, and window chrome — [recording](docs/media/horizon-workbench.gif) |
 | Celestial Flight Deck | `pnpm demo:showcase` | A machine-backed tour of all 18 public packages and 52 curated builders, with Compass navigation, explicit Nebula config loading and diagnostics, Rosetta locale/bidi tools, deep Orbit and rich-output instruments, layered controls, context menus, and workspace-aware Horizon windows, shelf, snapping, tiling, and sessions |
 
 All four demos import only the supported preview packages. They use bundled/local fixtures and never require credentials or an external service. The Flight Deck's detailed manual and automated acceptance path is in [`examples/celestial-showcase/README.md`](examples/celestial-showcase/README.md).
@@ -136,6 +167,8 @@ All four demos import only the supported preview packages. They use bundled/loca
 `@celestial/core` provides both a concise golden path and explicit subpaths such as `@celestial/core/nebula` and `@celestial/core/corona`. The six implementation packages remain usable for consumers who need their full APIs.
 
 Tooling publishes alongside the framework packages: `create-celestial` (project scaffolder, `npm create celestial@latest`), the TSX layer (`jsxImportSource: "@celestial/core"`), the plugin-wired DevTools inspector (F12/Ctrl+D), and Node SEA / Bun single-binary bundlers (`pnpm bundle:sea`, `pnpm bundle:bun`) for shipping apps as standalone executables. The interactive documentation site lives at [sokoliem.github.io/celestial-oss](https://sokoliem.github.io/celestial-oss/) with framework-rendered component previews.
+
+Guides: [Getting started](docs/guides/getting-started.md) · [Platform support](docs/guides/platform-support.md) · [Troubleshooting](docs/guides/troubleshooting.md)
 
 ## Curated UI
 

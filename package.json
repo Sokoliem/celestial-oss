@@ -37,6 +37,7 @@
     "preview:pack:check": "node scripts/check-preview-packages.mjs",
     "bundle:sea": "node scripts/bundle-sea.mjs",
     "bundle:bun": "node scripts/bundle-bun.mjs",
+    "record": "pnpm tsx scripts/record-demo.mjs",
     "preview:publish:dry-run": "node scripts/publish-preview.mjs",
     "preview:validate": "pnpm run preview:boundary && pnpm run preview:licenses && pnpm run preview:lint && pnpm run preview:build && pnpm run preview:typecheck && pnpm run preview:test && pnpm run demos:typecheck && pnpm run demos:build && pnpm run demos:test && pnpm run preview:test:pty && pnpm run demos:test:pty && pnpm run preview:pack:check"
   },
@@ -44,6 +45,7 @@
     "@biomejs/biome": "^2.4.10",
     "@changesets/cli": "^2.27.0",
     "@types/node": "^25.5.0",
+    "gifenc": "^1.0.3",
     "postject": "^1.0.0-alpha.6",
     "tsup": "^8.3.0",
     "tsx": "^4.0.0",
