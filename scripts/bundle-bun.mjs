@@ -14,7 +14,9 @@ import { join, resolve } from 'node:path';
 import process from 'node:process';
 
 const entryFile = process.argv[2] || 'examples/task-console/src/index.ts';
-const outputName = process.argv[3] || 'celestial-app';
+const rawOutputName = process.argv[3] || 'celestial-app';
+// Normalize: callers may or may not pass the extension; exactly one is applied.
+const outputName = rawOutputName.replace(/\.exe$/i, '');
 const isWin = process.platform === 'win32';
 const distDir = resolve(process.cwd(), 'dist-bin');
 

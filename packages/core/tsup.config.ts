@@ -10,6 +10,8 @@ export default defineConfig({
     'src/gravity.ts',
     'src/nexus.ts',
     'src/jsx.ts',
+    'src/jsx-runtime.ts',
+    'src/jsx-dev-runtime.ts',
   ],
   format: ['esm', 'cjs'],
   dts: true,

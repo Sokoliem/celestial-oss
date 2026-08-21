@@ -26,16 +26,25 @@ body:
     attributes:
       label: Related Package
       options:
-        - nebula (core runtime)
-        - corona (styling/themes)
-        - aurora (animation)
-        - constellation (components)
-        - horizon (window management)
-        - gravity (layout)
-        - nexus (mouse/input)
-        - core (recommended facade)
-        - ui (curated components)
-        - test (testing utilities)
+        - '@celestial/core (recommended facade)'
+        - '@celestial/nebula (runtime)'
+        - '@celestial/ui (components)'
+        - '@celestial/corona (styling/themes)'
+        - '@celestial/aurora (animation)'
+        - '@celestial/atlas (capabilities)'
+        - '@celestial/rosetta (text/locale)'
+        - '@celestial/gravity (layout)'
+        - '@celestial/nexus (mouse/input)'
+        - '@celestial/compass (navigation)'
+        - '@celestial/orbit (forms/wizards)'
+        - '@celestial/spectrum (highlighting)'
+        - '@celestial/mirage (effects)'
+        - '@celestial/nova (transitions)'
+        - '@celestial/stellar (charts)'
+        - '@celestial/pulsar (markdown)'
+        - '@celestial/test (testing)'
+        - '@celestial/horizon (windows)'
+        - create-celestial (scaffolder)
         - Other / Multiple
     validations:
       required: true

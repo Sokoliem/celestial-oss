@@ -1,6 +1,6 @@
 {
   "name": "@celestial/demo-api-inspector",
-  "version": "0.0.0",
+  "version": "0.0.1-preview.0",
   "private": true,
   "description": "Supported Celestial preview demo for abortable loopback HTTP workflows",
   "type": "module",

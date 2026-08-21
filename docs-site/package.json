@@ -1,0 +1,22 @@
+{
+  "name": "docs-site",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Static documentation site for the Celestial preview, with previews generated from the real built packages",
+  "type": "module",
+  "scripts": {
+    "generate": "node generate.mjs"
+  },
+  "devDependencies": {
+    "@celestial/core": "workspace:*",
+    "@celestial/horizon": "workspace:*",
+    "@celestial/pulsar": "workspace:*",
+    "@celestial/test": "workspace:*",
+    "@celestial/ui": "workspace:*",
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

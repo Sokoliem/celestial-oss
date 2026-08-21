@@ -1,10 +1,54 @@
 # Changelog
 
+## 0.1.0-preview.2
+
+### Minor Changes
+
+- eca0f94: Add typed pointer-shape projection and harden resize interactions across windows,
+  split panes, and data-table columns. Resize state now handles directional
+  cursors, pointer capture, cancellation, keyboard parity, invalid inputs,
+  constraints, persistence boundaries, and accessible separator metadata through
+  framework-owned APIs.
+
+### Patch Changes
+
+- 5a8168a: Enforce deterministic pointer feedback for actionable regions. Nebula now
+  infers managed or calm, contrast-preserving text-cell hover contracts,
+  preserves terminal-native style effects through shaders and snapshots, and
+  audits every actionable non-spatial surface for visible hover behavior.
+
+  Harden semantic hover faces for virtual lists, assisted inputs, range sliders,
+  and popovers; repair context-menu token overrides for contrast; route Gravity
+  splitters through the canonical event builder; and reserve minimized-window
+  shelf rows through framework-owned shell and bounds helpers.
+
+- 062aeae: Harden terminal capability lifecycles, animation and responsive-layout boundaries, input protocols, direct runtime dispatch, mouse and clipboard fallbacks, beta window management, and the deterministic headless/PTY testing surface for the focused preview.
+- Updated dependencies [a723fb0]
+- Updated dependencies [48dd7fd]
+- Updated dependencies [3d47bc5]
+- Updated dependencies [5a8168a]
+- Updated dependencies [5a8168a]
+- Updated dependencies [5a8168a]
+- Updated dependencies [9407abc]
+- Updated dependencies [eca0f94]
+- Updated dependencies
+- Updated dependencies [8914391]
+- Updated dependencies [2776d8b]
+- Updated dependencies [aea524d]
+- Updated dependencies [9407abc]
+- Updated dependencies [062aeae]
+  - @celestial/corona@0.1.0-preview.2
+  - @celestial/nebula@0.1.0-preview.2
+  - @celestial/atlas@0.1.0-preview.2
+  - @celestial/aurora@0.1.0-preview.2
+
 All notable changes to `@celestial/nexus` are documented here.
 
 ## Unreleased — cross-platform parity release
 
-See [`docs/specs/2026-05-12-nexus-cross-platform-parity-prd.md`](../../docs/specs/2026-05-12-nexus-cross-platform-parity-prd.md) for full design.
+Design receipts for this release live in the donor ledger
+([`scripts/donor-imports.json`](../../scripts/donor-imports.json)) and the
+package's public API documentation below.
 
 ### Added
 
@@ -29,12 +73,14 @@ See [`docs/specs/2026-05-12-nexus-cross-platform-parity-prd.md`](../../docs/spec
 - **`MouseEvent.type`** widened to include `'scroll-left'` and `'scroll-right'` (DEC 1006 buttons 66 / 67).
 - **`MouseEvent`** now carries an `encoding` field (`'sgr' | 'urxvt' | 'x10'`) reporting which decoder won.
 
-  ⚠️  *Strict-mode TS consumers with exhaustive `switch (ev.type) { ... }` / `switch (ev.button) { ... }` will need new cases. The widened union surfaces previously-dropped events.*
+  ⚠️ _Strict-mode TS consumers with exhaustive `switch (ev.type) { ... }` / `switch (ev.button) { ... }` will need new cases. The widened union surfaces previously-dropped events._
+
 - `osc52Write` and the rest of the OSC-52-only family remain unchanged. They are now described in the README as the "low-level" path.
 
 ### Migration
 
 In-source clipboard duplication eliminated:
+
 - `apps/claude-wrapper/src/native-clipboard.ts` deleted.
 - `apps/solaris/src/reducers/selection.ts:copyToClipboardNative` rewritten to call `writeClipboard`.
 - `apps/genesis/src/runtime/diagnostics-runtime.ts:copyTextToClipboard` rewritten to delegate to `writeClipboard`; `apps/genesis/src/app.ts:1469` surfaces the structured error.

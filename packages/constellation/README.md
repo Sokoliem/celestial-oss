@@ -1,6 +1,6 @@
 # @celestial/ui
 
-A curated set of 49 terminal UI component builders for the Celestial preview.
+A curated set of 52 terminal UI component builders for the Celestial preview.
 
 ```ts
 import { button, cardGrid, combobox, dataTable, indeterminateProgress, modal, popoverGroup, statusBar, textInput } from '@celestial/ui';
@@ -123,3 +123,81 @@ if (message.type === 'activate-action') {
   return publish(message.id, model);
 }
 ```
+
+## AI & CLI primitives
+
+Three builders target agent-style and standalone-CLI surfaces.
+
+### `toolCall(config)` — interactive tool execution card
+
+A full component descriptor (`init`/`update`/`view`/`subscriptions`) that
+renders a tool call with status glyph, execution timing, and collapsible
+input/output sections. Mouse click toggles; Space/Enter toggles when focused;
+`onToggle(collapsed)` notifies the host. Theme tokens resolve through
+`toolCallContract` (including per-status tones and the focus ring), and long
+sections truncate with explicit `… (N more lines)` indicators
+(`maxInputLines` 10, `maxOutputLines` 15 by default).
+
+```ts
+import { toolCall, type ToolCallModel, type ToolCallMsg } from '@celestial/ui';
+
+const call = toolCall({
+  name: 'bash',
+  status: 'success',
+  input: { command: 'pnpm test' },
+  output: '✓ 68 tests passed [1.8s]',
+  durationMs: 1840,
+});
+
+// Host composition follows the standard descriptor pattern:
+type Msg = { type: 'call'; msg: ToolCallMsg };
+const [callModel, initCmd] = call.init();
+// update: thread msg.msg through call.update and Cmd.map
+// view:   call.view(model.call)
+// subs:   Sub.map(call.subscriptions?.(model.call) ?? Sub.none(), wrap)
+```
+
+### `diffViewer(config)` — unified diff rendering
+
+A presentational builder for unified diffs with line numbers and theme-token
+additions/deletions (`diffViewerContract`). The exported `parseUnifiedDiff`
+is state-accurate: `\ No newline at end of file` annotates the previous line
+(rendered with a `␤` marker) instead of corrupting counters, `---`/`+++` are
+headers only outside hunks, metadata and binary notices stay unnumbered, and
+combined (merge) hunks are preserved as unnumbered context. Content clips
+grapheme-safely when `width` is set.
+
+```ts
+import { diffViewer } from '@celestial/ui';
+
+diffViewer({ title: 'src/server.ts', diffText, width: 60 });
+```
+
+### `inlinePrompt` — standalone CLI prompts
+
+Promise-based prompts for CLIs, implemented as small Elm apps running in
+nebula's inline mode — no alternate screen, so scrollback is preserved.
+Escape/Ctrl+C reject with `PromptCancelledError` (never `process.exit`), and
+non-TTY streams resolve the defaults (`initial`/`initialIndex`). Text editing
+is grapheme-safe with cursor movement, `initial` prefill, and `validate`
+(return `true` or an error string).
+
+```ts
+import { inlinePrompt, PromptCancelledError } from '@celestial/ui';
+
+const name = await inlinePrompt.text({
+  message: 'Project name',
+  initial: 'my-cli',
+  validate: (v) => (v.length >= 3 ? true : 'Too short'),
+});
+const target = await inlinePrompt.select({
+  message: 'Target',
+  options: [{ label: 'Node SEA', value: 'sea', hint: 'recommended' }, { label: 'Bun', value: 'bun' }],
+});
+const ok = await inlinePrompt.confirm({ message: 'Continue?', initial: true });
+```
+
+For prompts *inside* a running Celestial app, use `@celestial/orbit`'s form
+and wizard descriptors instead. The `createTextPromptApp` /
+`createSelectPromptApp` / `createConfirmPromptApp` factories are public
+testing and composition seams and are not counted among the 52 builders.

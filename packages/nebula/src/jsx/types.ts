@@ -1,11 +1,21 @@
 import type { Border, Color, Responsive, Style } from '@celestial/corona';
-import type { EventHandlers, RegionMetadata, VNode } from '../vdom.js';
+import type { EventHandlers, MouseHandler, RegionMetadata, VNode } from '../vdom.js';
 
 export type Child = VNode | string | number | boolean | null | undefined | Child[];
 
 export interface BaseProps {
+  /**
+   * Accepted for React-style authoring compatibility. Celestial reconciles
+   * rendered cells positionally (not via keyed VNode lists), so `key` is
+   * currently ignored by the renderer and never forwarded to components.
+   */
   key?: string | number;
   children?: Child;
+  /**
+   * Explicit region id. Required for deterministic snapshots whenever more
+   * than one evented element shares the same handlers on one screen; when
+   * omitted, a deterministic id is derived from the handler tags.
+   */
   id?: string;
 }
 
@@ -27,6 +37,7 @@ export interface BoxProps extends BaseProps {
   underline?: boolean;
   strikethrough?: boolean;
   padding?: Responsive<number>;
+  /** Base style. Individual style props (color, bold, ...) override it. */
   style?: Style;
   onClick?: EventHandlers['onClick'];
   onMouseEnter?: EventHandlers['onMouseEnter'];
@@ -46,6 +57,7 @@ export interface TextProps extends BaseProps {
   strikethrough?: boolean;
   wrap?: boolean;
   href?: string;
+  /** Base style. Individual style props (color, bold, ...) override it. */
   style?: Style;
 }
 
@@ -73,18 +85,27 @@ export interface FocusProps extends BaseProps {
 
 export interface ButtonProps extends BaseProps {
   label?: string;
-  onClick?: string | (() => void);
+  /**
+   * Message tag dispatched when the button is clicked (a string tag or a
+   * modifier-aware handler). The message flows through the app's `update`
+   * loop like every other interaction.
+   */
+  onClick?: MouseHandler;
   focused?: boolean;
   disabled?: boolean;
   tone?: 'default' | 'primary' | 'secondary' | 'danger' | 'success';
 }
 
+/**
+ * Presentational text input for the JSX layer: it renders value, placeholder,
+ * focus chrome, and masking, but owns no editing state. For interactive input
+ * with cursor movement, selection, and change events, use the `textInput`
+ * builder from `@celestial/ui`, which is a full state-machine component.
+ */
 export interface TextInputProps extends BaseProps {
   value: string;
-  onChange?: (val: string) => void;
   placeholder?: string;
   focused?: boolean;
-  cursor?: number;
   mask?: boolean | string;
 }
 
@@ -134,27 +155,10 @@ export namespace JSX {
     focus: FocusProps;
     divider: DividerProps;
     badge: BadgeProps;
-    [elemName: string]: any;
+    button: ButtonProps;
+    textInput: TextInputProps;
+    progressBar: ProgressBarProps;
+    spinner: SpinnerProps;
+    card: CardProps;
   }
 }
-
-declare global {
-  namespace JSX {
-    type Element = VNode;
-    interface ElementChildrenAttribute {
-      children: {};
-    }
-    interface IntrinsicElements {
-      box: BoxProps;
-      text: TextProps;
-      row: RowProps;
-      column: ColumnProps;
-      scroll: ScrollProps;
-      focus: FocusProps;
-      divider: DividerProps;
-      badge: BadgeProps;
-      [elemName: string]: any;
-    }
-  }
-}
-

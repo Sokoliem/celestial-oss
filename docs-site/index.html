@@ -38,7 +38,7 @@
           The <span class="gradient-text">state-driven</span> TUI framework for TypeScript
         </h1>
         <p class="hero-subtitle">
-          Build deterministic, mouse-aware, beautiful terminal applications with Elm architecture or declarative TSX, grapheme-safe text, 49 tested UI components, sub-cell charts, and multi-window tiling.
+          Build deterministic, mouse-aware, beautiful terminal applications with Elm architecture or declarative TSX, grapheme-safe text, 52 tested UI builders, sub-cell charts, and multi-window tiling.
         </p>
         <div class="hero-actions">
           <div class="code-pill">
@@ -47,6 +47,9 @@
           </div>
           <a href="#playground" class="btn-primary">Explore Components</a>
         </div>
+        <p class="hero-note">
+          Preview release — the scaffolder publishes to npm at launch. Until then, <a href="https://github.com/Sokoliem/celestial-oss#readme" target="_blank">clone the repo</a> and run one of the supported demos.
+        </p>
       </div>
     </section>
 
@@ -60,7 +63,7 @@
         <div class="card">
           <div class="card-icon">⚡</div>
           <h3>Elm Runtime + Signals</h3>
-          <p>Deterministic Model-Update-View state loop with reactive signals, zero side-effect view rendering, and reproducible time-travel debugging.</p>
+          <p>Deterministic Model-Update-View state loop with reactive signals (signal/computed/effect), zero side-effect view rendering, and a headless test harness that replays real apps.</p>
         </div>
         <div class="card">
           <div class="card-icon">⚛️</div>
@@ -94,7 +97,7 @@
     <section id="playground" class="playground-section">
       <div class="section-header">
         <h2>Interactive Component Discovery</h2>
-        <p>Preview live terminal components and copy TypeScript snippets instantly.</p>
+        <p>Every terminal pane below is a real render: docs-site/generate.mjs runs the built @celestial packages through the framework's own headless layout pipeline, and each snippet is a typechecked file from docs-site/snippets/.</p>
       </div>
 
       <div class="playground-container">
@@ -106,10 +109,10 @@
           <button class="nav-item" onclick="selectComponent('streaming-md')">Streaming Markdown</button>
           <button class="nav-item" onclick="selectComponent('inline-prompt')">Inline Prompt</button>
 
-          <div class="nav-category">Curated UI (49)</div>
+          <div class="nav-category">Curated UI (52)</div>
           <button class="nav-item" onclick="selectComponent('progress')">ProgressBar & Spinner</button>
           <button class="nav-item" onclick="selectComponent('card')">Card & Badge</button>
-          <button class="nav-item" onclick="selectComponent('table')">DataTable & Tree</button>
+          <button class="nav-item" onclick="selectComponent('table')">DataTable</button>
           <button class="nav-item" onclick="selectComponent('horizon')">Horizon Window Beta</button>
           <button class="nav-item" onclick="selectComponent('tsx-box')">TSX &lt;Box&gt; Layout</button>
         </div>
@@ -123,7 +126,7 @@
                 <span class="dot yellow"></span>
                 <span class="dot green"></span>
               </div>
-              <div class="terminal-title" id="terminal-title">celestial-tui: 80x24</div>
+              <div class="terminal-title" id="terminal-title">celestial preview</div>
             </div>
             <div class="terminal-body" id="terminal-screen">
               <!-- ANSI content injected by app.js -->
@@ -152,7 +155,7 @@
       <div class="grid-2">
         <div class="guide-card">
           <h3>Migrating from React / Ink</h3>
-          <p>How Celestial's Elm architecture and optional JSX layer compare to Ink's React reconciler, with benchmarks on redraw performance and memory usage.</p>
+          <p>How Celestial's Elm architecture and optional JSX layer compare to Ink's React reconciler — the same declarative element shape, driven by an explicit model-update-view loop.</p>
           <pre><code>// Ink (React)
 &lt;Box flexDirection="column"&gt;
   &lt;Text color="cyan"&gt;Count: {count}&lt;/Text&gt;
@@ -178,11 +181,12 @@ node scripts/bundle-sea.mjs src/index.ts my-cli
 
   <footer>
     <div class="footer-content">
-      <p>Celestial is open-source software licensed under MIT.</p>
-      <p>Google DeepMind Advanced Agentic Coding Pair-Programming Suite.</p>
+      <p>Celestial is open-source software licensed under the <a href="https://github.com/Sokoliem/celestial-oss/blob/master/LICENSE" target="_blank">MIT License</a>.</p>
+      <p><a href="https://github.com/Sokoliem/celestial-oss" target="_blank">github.com/Sokoliem/celestial-oss</a></p>
     </div>
   </footer>
 
+  <script src="previews.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

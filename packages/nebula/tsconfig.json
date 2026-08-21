@@ -2,14 +2,18 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
+    "jsx": "react-jsx",
     "rootDirs": ["./src", "../rosetta/src"],
     "baseUrl": ".",
     "paths": {
       "@celestial/nebula": ["./src/index.ts"],
+      "@celestial/nebula/jsx": ["./src/jsx/index.ts"],
+      "@celestial/nebula/jsx-runtime": ["./src/jsx/jsx-runtime.ts"],
+      "@celestial/nebula/jsx-dev-runtime": ["./src/jsx/jsx-dev-runtime.ts"],
       "@celestial/nebula/*": ["./src/*"],
       "@celestial/rosetta": ["../rosetta/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["dist"]
 }

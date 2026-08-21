@@ -38,6 +38,7 @@ const INTRINSIC_MAP: Record<string, ComponentFunction> = {
 /**
  * Main JSX createElement pragma for Celestial.
  * Allows `<Box>`, `<Text>`, `<Row>`, or custom functional components `(props) => VNode`.
+ * Unknown string tags throw — a typo'd intrinsic is a bug, not a Box.
  */
 export function h(type: string | ComponentFunction, props: any, ...children: any[]): any {
   const normalizedProps = { ...(props || {}) };
@@ -57,20 +58,24 @@ export function h(type: string | ComponentFunction, props: any, ...children: any
     if (intrinsic) {
       return intrinsic(normalizedProps);
     }
-    // Fallback: default to Box
-    return Box(normalizedProps);
+    throw new Error(
+      `Unknown JSX intrinsic element <${type}>. Known intrinsics: ${Object.keys(INTRINSIC_MAP).join(', ')}. ` +
+        'Use a function component for custom elements.',
+    );
   }
 
   return Fragment(normalizedProps);
 }
 
 /** React 17+ Automatic JSX Transform entry point */
-export function jsx(type: any, props: any, key?: any): any {
-  const merged = key !== undefined ? { ...props, key } : props;
+export function jsx(type: any, props: any, _key?: any): any {
+  // `key` is accepted for React-style authoring but never forwarded to
+  // components — Celestial reconciles rendered cells positionally.
+  const { key: _ignored, ...rest } = props ?? {};
   if (typeof type === 'function') {
-    return type(merged);
+    return type(rest);
   }
-  return h(type, merged);
+  return h(type, rest);
 }
 
 export const jsxs = jsx;

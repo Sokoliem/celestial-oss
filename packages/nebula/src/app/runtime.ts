@@ -100,6 +100,8 @@ export function app<Model, M>(initialConfig: AppConfig<Model, M>, options?: AppO
       ctx.resetCompositorState();
       ctx.render();
     },
+    getLayoutPlan: () => ctx.lastLayoutPlan,
+    getHitRegions: () => ctx.currentHitRegions,
     get model() {
       return ctx.model;
     },

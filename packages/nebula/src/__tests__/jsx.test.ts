@@ -1,4 +1,4 @@
-import { color } from '@celestial/corona';
+import { color, style } from '@celestial/corona';
 import { describe, expect, it } from 'vitest';
 import {
   Badge,
@@ -82,5 +82,53 @@ describe('JSX / TSX Layer', () => {
   it('works with React 17+ jsx runtime transform', () => {
     const node = jsx(Box, { children: jsx(Text, { children: 'Auto runtime' }) });
     expect(node.kind).toBe('box');
+  });
+
+  it('throws on unknown intrinsic elements instead of silently rendering a Box', () => {
+    expect(() => h('buttton', { label: 'typo' })).toThrow(/Unknown JSX intrinsic element <buttton>/);
+  });
+
+  it('derives deterministic Button event ids from the onClick tag', () => {
+    const a = Button({ label: 'Add', onClick: 'increment' });
+    const b = Button({ label: 'Add', onClick: 'increment' });
+    expect(a.kind).toBe('event');
+    expect(b.kind).toBe('event');
+    if (a.kind === 'event' && b.kind === 'event') {
+      expect(a.id).toBe('btn:increment');
+      expect(b.id).toBe(a.id);
+      expect(a.handlers.onClick).toBe('increment');
+    }
+  });
+
+  it('derives deterministic Box event ids without render-time counters', () => {
+    const a = Box({ onClick: 'open', children: 'x' });
+    const b = Box({ onClick: 'open', children: 'x' });
+    expect(a.kind).toBe('event');
+    if (a.kind === 'event' && b.kind === 'event') {
+      expect(a.id).toBe('box:open');
+      expect(b.id).toBe(a.id);
+    }
+  });
+
+  it('does not forward key to component props', () => {
+    let received: any;
+    const Probe = (props: any) => {
+      received = props;
+      return Text({ children: 'probe' });
+    };
+    jsx(Probe, { children: 'x' }, 'list-key');
+    expect(received).not.toHaveProperty('key');
+    expect(received.children).toBe('x');
+  });
+
+  it('merges the style prop as a base with individual props winning', () => {
+    const base = style({ color: color.red, dim: true });
+    const node = Text({ children: 'styled', style: base, bold: true });
+    expect(node.kind).toBe('text');
+    if (node.kind === 'text') {
+      expect(node.style?.bold).toBe(true);
+      expect(node.style?.dim).toBe(true);
+      expect(node.style?.fg).toBeDefined();
+    }
   });
 });

@@ -1,5 +1,9 @@
 name: Release Binaries
 
+# Builds standalone Flight Deck demo binaries (the celestial-showcase example)
+# via Node SEA. Triggered by version tags or manually. npm publishing is a
+# separate, manual workflow (release.yml).
+
 on:
   push:
     tags:
@@ -19,34 +23,34 @@ jobs:
         include:
           - os: ubuntu-latest
             arch: x64
-            artifact_name: celestial-linux-x64
-            binary_name: celestial
+            artifact_name: celestial-flight-deck-linux-x64
+            binary_name: celestial-flight-deck
           - os: macos-latest
             arch: arm64
-            artifact_name: celestial-darwin-arm64
-            binary_name: celestial
+            artifact_name: celestial-flight-deck-darwin-arm64
+            binary_name: celestial-flight-deck
           - os: macos-13
             arch: x64
-            artifact_name: celestial-darwin-x64
-            binary_name: celestial
+            artifact_name: celestial-flight-deck-darwin-x64
+            binary_name: celestial-flight-deck
           - os: windows-latest
             arch: x64
-            artifact_name: celestial-windows-x64
-            binary_name: celestial.exe
+            artifact_name: celestial-flight-deck-windows-x64
+            binary_name: celestial-flight-deck.exe
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9.15.0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -91,4 +95,4 @@ jobs:
           files: all-artifacts/**/*
           generate_release_notes: true
           draft: false
-          prerelease: false
+          prerelease: true

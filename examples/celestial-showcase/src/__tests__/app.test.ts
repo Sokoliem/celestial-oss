@@ -21,7 +21,7 @@ import {
   UI_BUILDER_COUNT,
   UI_BUILDER_NAMES,
 } from '../components.js';
-import { SHOWCASE_PACKAGE_COVERAGE, UI_BUILDER_COVERAGE, validateShowcaseCoverage } from '../coverage.js';
+import { SHOWCASE_PACKAGE_COVERAGE, UI_BUILDER_COVERAGE, UI_NON_BUILDER_EXPORTS, validateShowcaseCoverage } from '../coverage.js';
 import {
   describeLocaleSupport,
   LOCALE_SAMPLE_COUNT,
@@ -257,11 +257,9 @@ describe('Celestial Flight Deck', () => {
   });
 
   it('matches every curated builder name against the real @celestial/ui export surface', () => {
-    const exported = new Set(
-      Object.entries(ui)
-        .filter(([, value]) => typeof value === 'function')
-        .map(([name]) => name),
-    );
+    // All runtime export names, not just functions: inlinePrompt is an object of
+    // prompt runners, and it is still a curated builder.
+    const exported = new Set(Object.keys(ui));
     for (const name of UI_BUILDER_NAMES) expect(exported).toContain(name);
 
     // contextMenuView is a real export that is deliberately kept out of the curated
@@ -271,6 +269,19 @@ describe('Celestial Flight Deck', () => {
     expect(exported).toContain('contextMenuView');
     expect([...UI_BUILDER_NAMES]).not.toContain('contextMenuView');
     expect(SHOWCASE_PACKAGE_COVERAGE.find((entry) => entry.packageName === '@celestial/ui')?.capabilities).toContain('context menu helper');
+  });
+
+  it('classifies the entire @celestial/ui runtime export surface as builder or helper', () => {
+    // Reverse direction of the ledger check: every runtime export must be either a
+    // curated builder or a consciously listed non-builder helper. An unclassified
+    // new export fails here until it is placed, so the barrel cannot drift ahead
+    // of the ledger the demo renders.
+    const exported = new Set(Object.keys(ui));
+    const classified = new Set<string>([...UI_BUILDER_NAMES, ...UI_NON_BUILDER_EXPORTS]);
+
+    const unclassified = [...exported].filter((name) => !classified.has(name));
+    const stale = [...classified].filter((name) => !exported.has(name));
+    expect({ unclassified: unclassified.sort(), stale: stale.sort() }).toEqual({ unclassified: [], stale: [] });
   });
 
   it('detects whether the runtime actually carries locale data for a sample', () => {
@@ -1056,7 +1067,7 @@ describe('Celestial Flight Deck', () => {
     handle.pressKey('2');
     await handle.waitForUpdate();
 
-    expect(UI_BUILDER_COUNT).toBe(49);
+    expect(UI_BUILDER_COUNT).toBe(52);
     expect([...UI_BUILDER_NAMES]).toEqual(expect.arrayContaining(['indeterminateProgress', 'cardGrid', 'popoverGroup', 'virtualList', 'scrollbar']));
 
     const builders = new Set<string>();
@@ -1709,7 +1720,7 @@ describe('Celestial Flight Deck', () => {
     const handle = flightDeck(100, 40);
     handle.dispatch({ type: 'switch-lab', lab: 'components' });
     const registry = handle.model.galleryModels;
-    handle.dispatch({ type: 'component-page', page: GALLERY_PAGE_COUNT - 1 });
+    handle.dispatch({ type: 'component-page', page: 7 });
     await handle.waitForUpdate();
 
     expect(handle.model.galleryContextMenu.open).toBe(true);

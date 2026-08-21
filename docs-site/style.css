@@ -144,6 +144,12 @@ a:hover {
   flex-wrap: wrap;
 }
 
+.hero-note {
+  margin-top: 1.25rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
 .code-pill {
   display: flex;
   align-items: center;

@@ -1,1 +1,1 @@
-export * from '@celestial/nebula';
+export * from '@celestial/nebula/jsx';

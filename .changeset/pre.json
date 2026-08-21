@@ -23,7 +23,34 @@
     "@celestial/demo-api-inspector": "0.0.0",
     "@celestial/demo-horizon-workbench": "0.0.0",
     "@celestial/demo-showcase": "0.0.0",
-    "@celestial/demo-task-console": "0.0.0"
+    "@celestial/demo-task-console": "0.0.0",
+    "docs-site": "0.0.0",
+    "create-celestial": "0.1.0-preview.1"
   },
-  "changesets": []
+  "changesets": [
+    "ai-cli-primitives",
+    "app-shell-foundations",
+    "bright-celestial-preview",
+    "command-spine",
+    "consistent-interaction-contracts",
+    "create-celestial",
+    "deterministic-hover-surfaces",
+    "deterministic-interaction-audits",
+    "deterministic-layer-focus",
+    "explicit-config-loading",
+    "harden-resize-surfaces",
+    "headless-app-shell",
+    "jsx-devtools-runtime",
+    "observable-render-errors",
+    "patient-pty-deadlines",
+    "quiet-window-shelf",
+    "reachable-persistence",
+    "scroll-coherence",
+    "semantic-flight-deck-surfaces",
+    "steady-compass-navigation",
+    "steady-flight-deck-surfaces",
+    "steady-preview-foundations",
+    "unified-notification-system",
+    "windowed-scroll-surfaces"
+  ]
 }

@@ -1,6 +1,6 @@
-import { type Border, border, color, style as createStyle, type Style } from '@celestial/corona';
+import { type Border, border, color, style as createStyle, type Style, type StyleProps } from '@celestial/corona';
 import { box, column, columnWithGap, empty, event, focus, row, rowWithGap, scroll, text } from '../elements.js';
-import type { VNode } from '../vdom.js';
+import type { EventHandlers, MouseHandler, VNode } from '../vdom.js';
 import type {
   BadgeProps,
   BoxProps,
@@ -18,7 +18,34 @@ import type {
   TextProps,
 } from './types.js';
 
-let componentAutoId = 0;
+/**
+ * Render a mouse handler descriptor to a stable string. Event region ids are
+ * derived from these tags so the same props always produce the same id across
+ * renders — no render-time counters.
+ */
+function handlerTag(handler: MouseHandler | string | undefined): string | undefined {
+  if (typeof handler === 'string') return handler;
+  if (handler && typeof handler === 'object') {
+    const parts = ['default', 'shift', 'ctrl', 'alt', 'shiftCtrl', 'shiftAlt', 'ctrlAlt', 'shiftCtrlAlt']
+      .map((key) => (handler as Record<string, string | undefined>)[key])
+      .filter((v): v is string => typeof v === 'string');
+    return parts.length > 0 ? parts.join('|') : undefined;
+  }
+  return undefined;
+}
+
+/** Derive a deterministic event region id from the handlers and region metadata. */
+function deriveEventId(prefix: string, handlers: EventHandlers, regionId?: string): string {
+  const tags = [
+    handlerTag(handlers.onClick),
+    handlerTag(handlers.onMouseEnter),
+    handlerTag(handlers.onMouseLeave),
+    handlerTag(handlers.onMouseDown),
+    handlerTag(handlers.onMouseUp),
+    regionId,
+  ].filter((v): v is string => typeof v === 'string');
+  return tags.length > 0 ? `${prefix}:${tags.join(':')}` : prefix;
+}
 
 /** Flatten arbitrary JSX children into an array of concrete VNodes */
 export function normalizeChildren(children: Child): VNode[] {
@@ -59,8 +86,6 @@ function buildInlineStyle(props: {
   padding?: any;
   border?: any;
 }): Style | undefined {
-  if (props.style) return props.style;
-
   const hasProps =
     props.color !== undefined ||
     props.bg !== undefined ||
@@ -73,7 +98,7 @@ function buildInlineStyle(props: {
     props.padding !== undefined ||
     props.border !== undefined;
 
-  if (!hasProps) return undefined;
+  if (!hasProps) return props.style;
 
   let b: Border | undefined;
   if (typeof props.border === 'object' && 'chars' in props.border) {
@@ -88,7 +113,8 @@ function buildInlineStyle(props: {
     b = border.thick;
   }
 
-  return createStyle({
+  // Individual props act as overrides on top of the base `style` prop.
+  const overrides: Partial<StyleProps> = {
     color: props.color,
     background: props.bg,
     bold: props.bold,
@@ -99,10 +125,16 @@ function buildInlineStyle(props: {
     borderColor: props.borderColor,
     padding: props.padding,
     border: b,
-  });
+  };
+
+  if (props.style) return props.style.merge(overrides);
+  return createStyle(overrides);
 }
 
-/** JSX Fragment container */
+/**
+ * JSX Fragment container. A fragment with multiple children composes them in
+ * a column — terminal layout is directional, so a fragment must pick one.
+ */
 export function Fragment(props: { children?: Child }): VNode {
   const children = normalizeChildren(props.children);
   if (children.length === 0) return empty();
@@ -139,22 +171,24 @@ export function Box(props: BoxProps): VNode {
     props.region;
 
   if (hasEvent) {
-    const id = props.id ?? `box-${++componentAutoId}`;
-    node = event(
-      id,
-      node,
-      {
-        onClick: props.onClick,
-        onMouseEnter: props.onMouseEnter,
-        onMouseLeave: props.onMouseLeave,
-        onMouseDown: props.onMouseDown,
-        onMouseUp: props.onMouseUp,
-      },
-      props.region,
-    );
+    const handlers: EventHandlers = {
+      onClick: props.onClick,
+      onMouseEnter: props.onMouseEnter,
+      onMouseLeave: props.onMouseLeave,
+      onMouseDown: props.onMouseDown,
+      onMouseUp: props.onMouseUp,
+    };
+    const id = props.id ?? deriveEventId('box', handlers, regionId(props.region));
+    node = event(id, node, handlers, props.region);
   }
 
   return node;
+}
+
+function regionId(region: BoxProps['region']): string | undefined {
+  if (!region || typeof region !== 'object') return undefined;
+  const id = (region as { id?: unknown }).id;
+  return typeof id === 'string' ? id : undefined;
 }
 
 /** Declarative Text component */
@@ -222,15 +256,14 @@ export function Button(props: ButtonProps): VNode {
   });
 
   const node = box(text(`[ ${label} ]`), btnStyle);
-  if (props.onClick && !props.disabled) {
-    const id = props.id ?? `btn-${++componentAutoId}`;
-    const clickTag = typeof props.onClick === 'string' ? props.onClick : id;
-    return event(id, node, { onClick: clickTag });
+  if (props.onClick !== undefined && !props.disabled) {
+    const id = props.id ?? `btn:${handlerTag(props.onClick) ?? 'unlabeled'}`;
+    return event(id, node, { onClick: props.onClick });
   }
   return node;
 }
 
-/** Declarative TextInput component */
+/** Declarative TextInput component (presentational — see TextInputProps) */
 export function TextInput(props: TextInputProps): VNode {
   const isFocused = props.focused ?? false;
   const val = props.value || (props.placeholder ? props.placeholder : '');

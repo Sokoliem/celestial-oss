@@ -1,6 +1,6 @@
 {
   "name": "@celestial/core",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "The stable entry point for the Celestial TypeScript TUI runtime",
   "keywords": [
     "tui",
@@ -62,6 +62,16 @@
       "types": "./dist/jsx.d.ts",
       "import": "./dist/jsx.js",
       "require": "./dist/jsx.cjs"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "import": "./dist/jsx-runtime.js",
+      "require": "./dist/jsx-runtime.cjs"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-dev-runtime.d.ts",
+      "import": "./dist/jsx-dev-runtime.js",
+      "require": "./dist/jsx-dev-runtime.cjs"
     }
   },
   "files": [

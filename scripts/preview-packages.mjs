@@ -16,6 +16,7 @@ export const requiredPreviewPackages = Object.freeze([
   '@celestial/stellar',
   '@celestial/pulsar',
   '@celestial/test',
+  'create-celestial',
 ]);
 
 export const conditionalPreviewPackages = Object.freeze(['@celestial/horizon']);
@@ -41,6 +42,7 @@ export const previewPackageDirectories = Object.freeze({
   '@celestial/pulsar': 'packages/pulsar',
   '@celestial/test': 'packages/telescope',
   '@celestial/horizon': 'packages/horizon',
+  'create-celestial': 'tools/create-celestial',
 });
 
 export const previewPackageSet = new Set(previewPackages);

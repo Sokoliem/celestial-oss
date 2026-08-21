@@ -116,6 +116,7 @@ export function installLifecycle<Model, M>(ctx: RuntimeContext<Model, M>): void 
     ctx.combinatorThrottleTimestamps.clear();
     ctx.combinatorDistinctLast.clear();
     ctx.clearDebouncedCmdTimers();
+    ctx.throttledCmdTimestamps.clear();
     ctx.clearIdleTimers();
     ctx.idleSubs = [];
     ctx.prevTimerKey = '';
@@ -173,6 +174,7 @@ export function installLifecycle<Model, M>(ctx: RuntimeContext<Model, M>): void 
     ctx.combinatorDebounceTimers.clear();
     ctx.combinatorThrottleTimestamps.clear();
     ctx.combinatorDistinctLast.clear();
+    ctx.throttledCmdTimestamps.clear();
     ctx.clearIdleTimers();
     ctx.idleSubs = [];
 

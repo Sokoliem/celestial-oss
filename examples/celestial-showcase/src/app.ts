@@ -842,7 +842,9 @@ function topSurface(
   if (model.drawer.open) return 'drawer';
   if (model.helpOpen) return 'help';
   if (model.tooltip.visible) return 'tooltip';
-  if (model.activeLab === 'components' && model.componentPage === GALLERY_PAGE_COUNT - 1 && model.galleryContextMenu.open) return 'gallery-context-menu';
+  // The sample context menu lives on the contextual-surfaces page (index 7),
+  // which is no longer the last gallery page.
+  if (model.activeLab === 'components' && model.componentPage === 7 && model.galleryContextMenu.open) return 'gallery-context-menu';
   if (model.toast.toasts.length > 0) return 'toast';
   return null;
 }
@@ -1069,7 +1071,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           const page = Math.max(0, Math.min(GALLERY_PAGE_COUNT - 1, message.page));
           const cancelled = cancelActiveInteractions(model, true);
           const galleryContextMenu =
-            page === GALLERY_PAGE_COUNT - 1 && page !== model.componentPage ? sampleGalleryContextMenu(true, cancelled) : cancelled.galleryContextMenu;
+            page === 7 && page !== model.componentPage ? sampleGalleryContextMenu(true, cancelled) : cancelled.galleryContextMenu;
           return [
             withAction({ ...cancelled, componentPage: page, galleryContextMenu }, `Opened curated UI page ${page + 1}/${GALLERY_PAGE_COUNT}.`),
             Cmd.none(),
@@ -1285,6 +1287,15 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
                 component.msg,
                 (msg) => ({ type: 'gallery-component', component: { id: 'hovercard', msg } }),
                 'Changed hovercard().',
+              );
+            case 'toolCall':
+              return updateGalleryDescriptor(
+                model,
+                component.id,
+                components.toolCallComponent,
+                component.msg,
+                (msg) => ({ type: 'gallery-component', component: { id: 'toolCall', msg } }),
+                'Toggled toolCall().',
               );
           }
           return [model, Cmd.none()];
@@ -1814,7 +1825,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
           if (model.drawer.open) return this.update({ type: 'drawer', msg: { type: 'close' } }, model);
           if (model.helpOpen) return [{ ...model, helpOpen: false, lastAction: 'Closed contextual help.' }, Cmd.none()];
           if (model.tooltip.visible) return this.update({ type: 'tooltip', msg: { type: 'hide' } }, model);
-          if (model.activeLab === 'components' && model.componentPage === GALLERY_PAGE_COUNT - 1 && model.galleryContextMenu.open) {
+          if (model.activeLab === 'components' && model.componentPage === 7 && model.galleryContextMenu.open) {
             return this.update({ type: 'gallery-context-menu', open: false }, model);
           }
           if (model.toast.toasts.length) return this.update({ type: 'toast', msg: { type: 'dismiss-latest' } }, model);
@@ -2052,7 +2063,14 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
         );
       }
       if (surface === 'gallery-context-menu') {
-        return Sub.batch(...persistent, Sub.key('escape', { type: 'gallery-context-menu', open: false }));
+        // The sample menu is transient: Escape dismisses it, and gallery page
+        // navigation keeps working through it (the page change closes it).
+        return Sub.batch(
+          ...persistent,
+          Sub.key('escape', { type: 'gallery-context-menu', open: false }),
+          Sub.key('[', { type: 'component-page', page: model.componentPage - 1 }),
+          Sub.key(']', { type: 'component-page', page: model.componentPage + 1 }),
+        );
       }
 
       const base: Subscription<CelestialShowcaseMsg>[] = [
@@ -2166,7 +2184,7 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
               component: { id: 'cardGrid', msg },
             })),
           );
-        } else if (model.componentPage === GALLERY_PAGE_COUNT - 1) {
+        } else if (model.componentPage === 7) {
           base.push(
             mapSubscriptions(components.popoverComponent, model.galleryModels.popover, (msg) => ({
               type: 'gallery-component',
@@ -2179,6 +2197,13 @@ export function createCelestialShowcaseApp(options: CelestialShowcaseOptions = {
             mapSubscriptions(components.hovercardComponent, model.galleryModels.hovercard, (msg) => ({
               type: 'gallery-component',
               component: { id: 'hovercard', msg },
+            })),
+          );
+        } else if (model.componentPage === GALLERY_PAGE_COUNT - 1) {
+          base.push(
+            mapSubscriptions(components.toolCallComponent, model.galleryModels.toolCall, (msg) => ({
+              type: 'gallery-component',
+              component: { id: 'toolCall', msg },
             })),
           );
         }

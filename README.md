@@ -1,10 +1,21 @@
 # Celestial
 
-Celestial is a TypeScript framework for building state-driven terminal user interfaces. It combines an Elm-style runtime, Unicode-aware text handling, terminal capability detection, styling, animation, layout, mouse interaction, forms, Markdown, syntax highlighting, and charting behind a focused public package set.
+Celestial is a TypeScript framework for building state-driven terminal user interfaces. It combines an Elm-style runtime, Unicode-aware text handling, terminal capability detection, styling, animation, layout, mouse interaction, forms, Markdown, syntax highlighting, and charting behind a focused public package set. Views can be written as plain function calls or as TSX.
 
 This repository is an **open-source preview**, not a 1.0 release. It contains a deliberately small, supported lane extracted from Celestial's broader research codebase.
 
-## Install
+## Start a new app
+
+The fastest on-ramp is the scaffolder — four templates, from a minimal counter to an agent-style assistant:
+
+```bash
+npm create celestial@latest my-app
+cd my-app
+pnpm install
+pnpm dev
+```
+
+## Install into an existing app
 
 Node.js 22 or newer is required.
 
@@ -95,7 +106,7 @@ The same architecture powers four supported, local-only demos:
 | Task Console | `pnpm demo:tasks` | Real worker processes, streaming subscriptions, progress, cancellation, retry, responsive layout, and layered UI |
 | API Inspector | `pnpm demo:api` | Loopback HTTP, abortable commands, form controls, response tabs, history, and error states |
 | Horizon Workbench | `pnpm demo:horizon` | Beta splits, tabs, workspaces, responsive panes, managed floating windows, and window chrome |
-| Celestial Flight Deck | `pnpm demo:showcase` | A machine-backed tour of all 18 public packages and 49 curated builders, with Compass navigation, explicit Nebula config loading and diagnostics, Rosetta locale/bidi tools, deep Orbit and rich-output instruments, layered controls, context menus, and workspace-aware Horizon windows, shelf, snapping, tiling, and sessions |
+| Celestial Flight Deck | `pnpm demo:showcase` | A machine-backed tour of all 18 public packages and 52 curated builders, with Compass navigation, explicit Nebula config loading and diagnostics, Rosetta locale/bidi tools, deep Orbit and rich-output instruments, layered controls, context menus, and workspace-aware Horizon windows, shelf, snapping, tiling, and sessions |
 
 All four demos import only the supported preview packages. They use bundled/local fixtures and never require credentials or an external service. The Flight Deck's detailed manual and automated acceptance path is in [`examples/celestial-showcase/README.md`](examples/celestial-showcase/README.md).
 
@@ -112,7 +123,7 @@ All four demos import only the supported preview packages. They use bundled/loca
 | `@celestial/gravity` | Preview | Flex, grid, responsive, and spatial layout primitives |
 | `@celestial/nexus` | Preview | Hit testing, mouse interaction, focus stacks, and pointer primitives |
 | `@celestial/compass` | Preview | Local URLs, deterministic route matching, immutable history, headless routing, and modal-safe screen navigation |
-| `@celestial/ui` | Preview | A curated set of 49 tested input, navigation, data, feedback, and contextual-surface builders |
+| `@celestial/ui` | Preview | A curated set of 52 tested input, navigation, data, feedback, and contextual-surface builders |
 | `@celestial/orbit` | Preview | Forms, validation, prompts, schema-driven fields, and branching wizards |
 | `@celestial/spectrum` | Preview | State-machine syntax highlighting, language detection, and diagnostics |
 | `@celestial/mirage` | Preview | Grapheme-safe gradients and reduced-motion-aware text effects |
@@ -124,9 +135,11 @@ All four demos import only the supported preview packages. They use bundled/loca
 
 `@celestial/core` provides both a concise golden path and explicit subpaths such as `@celestial/core/nebula` and `@celestial/core/corona`. The six implementation packages remain usable for consumers who need their full APIs.
 
+Tooling publishes alongside the framework packages: `create-celestial` (project scaffolder, `npm create celestial@latest`), the TSX layer (`jsxImportSource: "@celestial/core"`), the plugin-wired DevTools inspector (F12/Ctrl+D), and Node SEA / Bun single-binary bundlers (`pnpm bundle:sea`, `pnpm bundle:bun`) for shipping apps as standalone executables. The interactive documentation site lives at [sokoliem.github.io/celestial-oss](https://sokoliem.github.io/celestial-oss/) with framework-rendered component previews.
+
 ## Curated UI
 
-The preview publishes 49 builders instead of the full repository's experimental catalog:
+The preview publishes 52 builders instead of the full repository's experimental catalog:
 
 - Input: `button`, `textInput`, `textarea`, `checkbox`, `radioGroup`, `select`, `toggle`, `slider`
 - Grouped and assisted input: `checkboxGroup`, `toggleGroup`, `autocomplete`, `combobox`, `datePicker`, `multiSelect`, `numberInput`
@@ -136,10 +149,14 @@ The preview publishes 49 builders instead of the full repository's experimental 
 - Feedback: `badge`, `alert`, `statusBar`, `tooltip`, `createToastManager`
 - Layers: `modal`, `confirmDialog`, `drawer`
 - Context: `popover`, `popoverGroup`, `hovercard`
+- AI and CLI primitives: `toolCall`, `diffViewer`, `inlinePrompt`
 
 `contextMenuView`, `createNotificationCenter`, and their controlled
 reducer/measurement helpers are public composition primitives rather than
-component-owned stores. They are not counted as component builders.
+component-owned stores. They are not counted as component builders. The
+`createTextPromptApp`/`createSelectPromptApp`/`createConfirmPromptApp`
+factories behind `inlinePrompt` are public testing and composition seams and
+are likewise outside the builder count.
 
 The public surface is mouse-aware, has keyboard fallbacks where appropriate, uses semantic theme tokens, reflows at narrow widths, and requires visible close affordances plus Escape dismissal for layered surfaces.
 
@@ -178,7 +195,7 @@ Horizon is intentionally labeled beta. Its published runtime dependency closure 
 
 ## Repository scope
 
-This focused repository contains only the packages and demos listed above. Exploratory work such as 3D and browser rendering, remote sharing, multiprocess orchestration, agent tooling, demoscene effects, and binary terminal images is developed separately. Additional surfaces will be brought in selectively after their dependency boundary, tests, documentation, and release contract are ready.
+This focused repository contains only the packages, tooling, and demos listed above. Exploratory work such as 3D and browser rendering, remote sharing, multiprocess orchestration, agent *runtime* tooling (protocols, transports, models), demoscene effects, and binary terminal images is developed separately. Agent-facing UI components (`toolCall`, `diffViewer`, `inlinePrompt`) and single-executable app bundling are in scope and ship here. Additional surfaces will be brought in selectively after their dependency boundary, tests, documentation, and release contract are ready.
 
 See [`docs/preview-scope.md`](docs/preview-scope.md) for the exact boundary.
 

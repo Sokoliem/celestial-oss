@@ -1,6 +1,6 @@
 {
   "name": "@celestial/nexus",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Terminal mouse intelligence and hyperlinks",
   "keywords": [
     "tui",

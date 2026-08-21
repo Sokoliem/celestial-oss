@@ -6,7 +6,7 @@ import { conditionalPreviewPackages, previewDemos, previewPackageDirectories, pr
 
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const donorLedgerPath = join(repositoryRoot, 'scripts', 'donor-imports.json');
-const workspaceRoots = ['packages', 'apps', 'examples'];
+const workspaceRoots = ['packages', 'apps', 'examples', 'tools', 'docs-site'];
 const conditionalSet = new Set(conditionalPreviewPackages);
 const manifests = [];
 const supportedDemoNames = Object.keys(previewDemos);
@@ -179,11 +179,19 @@ for (const packageName of previewPackageSet) {
   if (entry.publicPath !== expectedDirectory) {
     errors.push(`${packageName} donor publicPath is ${entry.publicPath}; expected ${expectedDirectory}`);
   }
-  if (typeof entry.donorPath !== 'string' || !entry.donorPath.startsWith('packages/')) {
-    errors.push(`${packageName} donorPath must identify a package directory`);
-  }
-  if (typeof entry.donorCommit !== 'string' || !/^[0-9a-f]{40}$/.test(entry.donorCommit)) {
-    errors.push(`${packageName} donorCommit must be a full lowercase Git commit`);
+  if (entry.origin === 'native') {
+    // Repo-native packages never passed through the donor; they still carry
+    // the same review burden.
+    if (entry.donorPath !== undefined || entry.donorCommit !== undefined) {
+      errors.push(`${packageName} is repo-native but records donor fields`);
+    }
+  } else {
+    if (typeof entry.donorPath !== 'string' || !entry.donorPath.startsWith('packages/')) {
+      errors.push(`${packageName} donorPath must identify a package directory`);
+    }
+    if (typeof entry.donorCommit !== 'string' || !/^[0-9a-f]{40}$/.test(entry.donorCommit)) {
+      errors.push(`${packageName} donorCommit must be a full lowercase Git commit`);
+    }
   }
   if (typeof entry.importedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.importedAt)) {
     errors.push(`${packageName} importedAt must use YYYY-MM-DD`);

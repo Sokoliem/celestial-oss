@@ -353,6 +353,9 @@ import { Cmd, type Result } from '@celestial/nebula';
 | `Cmd.toMachine(registry, machineId, event)` | Send event to Phase state machine |
 | `Cmd.custom(tag, payload, toMsg?)` | Custom command (handler in `AppOptions.commandHandlers`) |
 | `Cmd.announce(message, priority?, toMsg?)` | Screen reader announcement |
+| `Cmd.async(task, { onSuccess, onError })` | Async task with explicit success/error message mapping |
+| `Cmd.debounce(ms, cmd, key?)` | Run after a quiet period; supersedes pending same-key commands |
+| `Cmd.throttle(ms, cmd, key?)` | Leading edge: run immediately, drop same-key repeats inside the window |
 | `Cmd.pushFocusGroup(group)` | Restrict focus navigation to a group |
 | `Cmd.popFocusGroup()` | Pop the topmost focus group |
 
@@ -1042,6 +1045,78 @@ debugPlugin({
   output: (line) => console.log(line),
 });
 ```
+
+## DevTools Inspector
+
+An in-terminal inspector that records every message through the update loop
+and overlays layout bounds and hit regions from the last committed frame.
+Wire it as a plugin, then press **F12** or **Ctrl+D** to cycle
+messages → layout → hitboxes. The overlay is a passive layer: it never joins
+the focus order and never intercepts pointer input.
+
+```typescript
+import { app, createDevTools, withPlugins } from '@celestial/nebula';
+
+const devtools = createDevTools<Model, Msg>({ maxMessages: 50 });
+const handle = app(withPlugins(config, [devtools.plugin]));
+devtools.attach(handle); // enables the layout/hitbox modes via the handle's
+                         // getLayoutPlan() / getHitRegions() inspection APIs
+```
+
+## JSX / TSX Layer
+
+Write views as TSX with the automatic transform; components compile to the
+same VNode tree as the element builders above.
+
+```tsx
+// tsconfig.json: "jsx": "react-jsx", "jsxImportSource": "@celestial/nebula"
+import { Box, Button, Row, Text } from '@celestial/nebula/jsx';
+
+const view = (model: Model) => (
+  <Box border="rounded" padding={1}>
+    <Text bold>Count: {model.count}</Text>
+    <Row gap={2}>
+      <Button label="[+] Add" onClick="increment" />
+    </Row>
+  </Box>
+);
+```
+
+- `onClick` is a **message tag** (`string` or modifier-handler object), never
+  a closure — clicks reach `update` through `Sub.elementMouse` like all
+  interaction.
+- Event region ids are derived deterministically from handler tags
+  (`btn:increment`); no render-time counters.
+- `TextInput` is presentational; interactive input is `@celestial/ui`'s
+  `textInput`.
+- Unknown intrinsics throw, and the `JSX.IntrinsicElements` map has no
+  catch-all, so typos fail typecheck.
+- `key` is accepted for authoring familiarity but ignored — Celestial
+  reconciles painted cells positionally.
+
+See `docs/decisions/0005-jsx-layer.md` for the full contract.
+
+## Component Stores
+
+`createStore` is a small reducer store over a signal, for shared state that
+lives outside a single app's model:
+
+```typescript
+import { createStore } from '@celestial/nebula';
+
+const store = createStore({ count: 0 }, (state, msg: { type: 'inc' }) =>
+  msg.type === 'inc' ? { count: state.count + 1 } : state,
+);
+
+store.dispatch({ type: 'inc' });
+store.getState(); // { count: 1 }
+store.subscribe((state) => renderSidebar(state));
+```
+
+Store dispatches do **not** flow through an app's `update` and do not trigger
+renders by themselves — bridge them in through `effect()`/subscriptions when
+an app must react. Prefer the Elm model for app state; stores are for
+cross-cutting or cross-process state.
 
 ## Hit Regions
 

@@ -140,7 +140,7 @@ export type {
 export { installCrashRecovery } from './crash-recovery.js';
 export { type DebugOptions, debugPlugin } from './debug.js';
 export { type DevOptions, devPlugin, loadState, saveState, withStateRecovery } from './dev.js';
-export { createDevTools, type DevToolsMessageRecord, type DevToolsOptions, type DevToolsState } from './devtools/inspector.js';
+export { createDevTools, type DevToolsController, type DevToolsMessageRecord, type DevToolsOptions, type DevToolsState } from './devtools/inspector.js';
 export type { FocusOptions, PortalOptions } from './elements.js';
 export {
   animated,

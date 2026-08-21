@@ -1,0 +1,3 @@
+# False positive: the phrase "semantic design tokens" in contributor guidance
+# matches gitleaks' generic-api-key rule. No credential exists at this path.
+CONTRIBUTING.md:generic-api-key:11

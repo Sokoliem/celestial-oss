@@ -1,6 +1,6 @@
 {
   "name": "@celestial/compass",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Validated routing, immutable history, and modal-safe screen navigation for terminal applications",
   "keywords": [
     "tui",

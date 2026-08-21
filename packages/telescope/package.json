@@ -1,6 +1,6 @@
 {
   "name": "@celestial/test",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Headless and PTY testing utilities for Celestial terminal applications",
   "keywords": [
     "tui",

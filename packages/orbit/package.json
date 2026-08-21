@@ -1,6 +1,6 @@
 {
   "name": "@celestial/orbit",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Forms, validation, prompts, and schema-driven wizards for Celestial terminal applications",
   "keywords": [
     "tui",

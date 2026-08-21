@@ -1,6 +1,6 @@
 {
   "name": "@celestial/gravity",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Responsive flex/grid layout engine for the Celestial TUI ecosystem",
   "keywords": [
     "tui",
