@@ -20,6 +20,10 @@
     "url": "https://github.com/Sokoliem/celestial-oss.git",
     "directory": "packages/aurora"
   },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/aurora",
   "publishConfig": {
     "access": "public"
   },

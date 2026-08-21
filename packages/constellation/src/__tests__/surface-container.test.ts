@@ -34,9 +34,15 @@ describe('surfaceContainer', () => {
     const view = component.view(model);
     const closeEvent = findCloseEvent(view);
     expect(closeEvent).toBeDefined();
+    const closeTag = closeEvent!.handlers.onClick;
+    expect(typeof closeTag).toBe('string');
     const message = mouse.toMsg({
       elementId: closeEvent!.id,
-      handlerTag: closeEvent!.handlers.onClick!,
+      handlerTag: closeTag as string,
+      phase: 'target',
+      targetId: closeEvent!.id,
+      currentTargetId: closeEvent!.id,
+      path: [closeEvent!.id],
       type: 'press',
       button: 0,
       x: 0,
@@ -44,6 +50,8 @@ describe('surfaceContainer', () => {
       ctrl: false,
       alt: false,
       shift: false,
+      stopPropagation() {},
+      isPropagationStopped: () => false,
     });
     const [closed, command] = component.update(message, model);
 
@@ -67,7 +75,8 @@ describe('surfaceContainer', () => {
 });
 
 function findCloseEvent(node: import('@celestial/core/nebula').VNode): import('@celestial/core/nebula').EventNode | undefined {
-  if (node.kind === 'event' && node.handlers.onClick?.endsWith(':close-button')) return node;
+  const onClick = node.kind === 'event' ? node.handlers.onClick : undefined;
+  if (node.kind === 'event' && typeof onClick === 'string' && onClick.endsWith(':close-button')) return node;
   if (node.kind === 'row' || node.kind === 'column' || node.kind === 'box' || node.kind === 'tabGroup') {
     for (const child of node.children) {
       const found = findCloseEvent(child);

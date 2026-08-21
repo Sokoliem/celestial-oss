@@ -192,10 +192,10 @@ describe('modal', () => {
       width: 24,
       content: column(
         memo(() => text('Memo content keeps its final letter.'), []),
-        localState(
+        localState<unknown, unknown>(
           'modal-local',
           () => 0,
-          (state: number) => state,
+          (state) => state,
           () => text('Local content also remains complete.'),
         ),
       ),

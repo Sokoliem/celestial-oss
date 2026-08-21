@@ -246,7 +246,7 @@ describe('unbindableActionShortcuts', () => {
     // A single KeyBinding cannot express `ctrl+k ctrl+s`; actionKeyBindings
     // drops it with no signal, so an action can declare a shortcut that simply
     // never fires. This is the reporting path that makes that visible.
-    const withChord = registry([{ id: 'file.saveAll', title: 'Save all', shortcuts: ['ctrl+k ctrl+s'], run: () => ({ kind: 'none' }) }]);
+    const withChord = registry([{ id: 'file.saveAll', title: 'Save all', shortcuts: ['ctrl+k ctrl+s'], run: () => null }]);
 
     const bindings = actionKeyBindings(withChord, { canSave: true }, { toMsg });
     expect(bindings.find((binding) => binding.description.startsWith('Save all'))).toBeUndefined();

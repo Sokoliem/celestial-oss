@@ -261,7 +261,7 @@ describe('popoverGroup', () => {
       ],
     });
 
-    const sub = comp.subscriptions!({ activeIndex: 0 });
+    const sub = comp.subscriptions!({ activeIndex: 0, hoveredIndex: -1, hoveredClose: false });
     expect((sub as any)._kind.kind).toBe('batch');
     expect(JSON.stringify(sub)).toContain('escape');
   });

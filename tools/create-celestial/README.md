@@ -11,11 +11,15 @@ pnpm install
 pnpm dev
 ```
 
-Or run it directly:
+Pick the template non-interactively (scripts and CI welcome):
 
 ```bash
-pnpm dlx create-celestial my-app
+npm create celestial my-app -- --template tsx-app
+# or
+pnpm dlx create-celestial my-app tsx-app
 ```
+
+`--help` and `--version` are supported.
 
 ## Templates
 
@@ -28,7 +32,9 @@ pnpm dlx create-celestial my-app
 
 Every template scaffolds a `package.json`, `tsconfig.json` (preconfigured for
 the Celestial JSX transform via `jsxImportSource: "@celestial/core"`), a
-README, and a runnable `src/` entry point.
+README, a runnable `src/` entry point, **a headless test suite using
+`@celestial/test`, and a GitHub Actions CI workflow** that typechecks and
+runs it on every push.
 
 ## Requirements
 

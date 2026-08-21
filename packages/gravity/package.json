@@ -19,6 +19,10 @@
     "url": "https://github.com/Sokoliem/celestial-oss.git",
     "directory": "packages/gravity"
   },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/gravity",
   "publishConfig": {
     "access": "public"
   },

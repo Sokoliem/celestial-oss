@@ -21,6 +21,10 @@
     "url": "https://github.com/Sokoliem/celestial-oss.git",
     "directory": "packages/constellation"
   },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/constellation",
   "publishConfig": {
     "access": "public"
   },

@@ -20,6 +20,7 @@ import {
   type NotificationModel,
   type NotificationStore,
 } from '../notification-store.js';
+import type { NotificationCenterHoverTarget } from '../notification-center.js';
 
 interface HostModel {
   readonly canSave: boolean;
@@ -844,11 +845,11 @@ describe('createAppShell validation and focus ownership', () => {
       },
       {
         ...model.notificationCenter,
-        hoveredTarget: `action:1:${encodeURIComponent(oversizedActionId)}`,
+        hoveredTarget: `action:1:${encodeURIComponent(oversizedActionId)}` as NotificationCenterHoverTarget,
       },
       {
         ...model.notificationCenter,
-        hoveredTarget: `row:${'1'.repeat(4_097)}`,
+        hoveredTarget: `row:${'1'.repeat(4_097)}` as NotificationCenterHoverTarget,
       },
     ];
 

@@ -16,6 +16,10 @@
     "url": "https://github.com/Sokoliem/celestial-oss.git",
     "directory": "tools/create-celestial"
   },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/tools/create-celestial",
   "publishConfig": {
     "access": "public"
   },
@@ -50,6 +54,7 @@
   },
   "devDependencies": {
     "@celestial/core": "workspace:*",
+    "@celestial/test": "workspace:*",
     "@celestial/ui": "workspace:*",
     "@types/node": "^25.5.0",
     "tsup": "^8.3.0",

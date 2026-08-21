@@ -71,7 +71,7 @@ describe('card', () => {
   });
 
   it('normalizes unsafe dimensions and snapshots content arrays', () => {
-    const content = [{ kind: 'text', content: 'Original' } as const];
+    const content: Array<{ readonly kind: 'text'; content: string }> = [{ kind: 'text', content: 'Original' }];
     const comp = card({ content, width: Number.POSITIVE_INFINITY, height: -1, padding: Number.NaN });
     content[0] = { kind: 'text', content: 'Mutated' };
     const view = comp.view(comp.init()[0]);

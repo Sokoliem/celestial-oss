@@ -13,6 +13,7 @@ type HostMsg = { readonly type: 'run' };
 
 const hostModel: HostModel = { enabled: true };
 const viewport = { cols: 70, rows: 32 } as const;
+const renderSize = { width: viewport.cols, height: viewport.rows } as const;
 
 function harness() {
   const registry = createActionRegistry<HostModel, HostMsg>([
@@ -50,7 +51,7 @@ describe('AppShell controlled view adapter', () => {
     });
     const base = text('HOST BASE');
     const layered = view.layer(base, model, { hostModel, viewport });
-    const frame = renderToText(layered, viewport);
+    const frame = renderToText(layered, renderSize);
 
     expect(frame).toContain('MODAL CONFIRMATION');
     expect(frame).toContain('[Approve]');
@@ -103,7 +104,7 @@ describe('AppShell controlled view adapter', () => {
     const layered = view.layer(text('HOST BASE'), model, { hostModel, viewport });
     const serialized = JSON.stringify(layered);
 
-    expect(renderToText(layered, viewport)).toContain('ACTION PALETTE');
+    expect(renderToText(layered, renderSize)).toContain('ACTION PALETTE');
     expect(serialized).toContain('view-test:palette-highlight');
     expect(serialized).toContain('view-test:palette-select');
     expect(serialized).toContain('view-test:palette-scroll');
