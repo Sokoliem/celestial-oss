@@ -64,6 +64,16 @@ export {
   text,
   type TerminalBackend,
   type VNode,
+  // Plugins & DevTools
+  createDevTools,
+  createPlugin,
+  debugPlugin,
+  withPlugins,
+  type DebugOptions,
+  type DevToolsController,
+  type DevToolsOptions,
+  type DevToolsState,
+  type Plugin,
   // JSX Layer
   Box,
   Fragment,

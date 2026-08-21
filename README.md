@@ -168,7 +168,7 @@ All four demos import only the supported preview packages. They use bundled/loca
 
 Tooling publishes alongside the framework packages: `create-celestial` (project scaffolder, `npm create celestial@latest`), the TSX layer (`jsxImportSource: "@celestial/core"`), the plugin-wired DevTools inspector (F12/Ctrl+D), and Node SEA / Bun single-binary bundlers (`pnpm bundle:sea`, `pnpm bundle:bun`) for shipping apps as standalone executables. The interactive documentation site lives at [sokoliem.github.io/celestial-oss](https://sokoliem.github.io/celestial-oss/) with framework-rendered component previews.
 
-Guides: [Getting started](docs/guides/getting-started.md) · [Platform support](docs/guides/platform-support.md) · [Troubleshooting](docs/guides/troubleshooting.md)
+Guides: [Getting started](docs/guides/getting-started.md) · [Migrating from Ink](docs/guides/migrating-from-ink.md) · [Platform support](docs/guides/platform-support.md) · [Troubleshooting](docs/guides/troubleshooting.md)
 
 ## Curated UI
 
@@ -259,7 +259,7 @@ pnpm run preview:pack:check
 
 ## Stability
 
-Preview versions can change APIs between releases. Only exports documented by the packages in this repository are supported.
+Preview versions can change APIs between releases. Only exports documented by the packages in this repository are supported. The maintenance intent and the path to 1.0 are in [`ROADMAP.md`](ROADMAP.md).
 
 Contributions should target the preview lane. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md) before opening a report.
 Maintainers should use the [`preview release checklist`](docs/release-checklist.md) for changesets, validation, publication, and post-publish verification.

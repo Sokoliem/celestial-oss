@@ -23,7 +23,7 @@
     "preview:build": "node scripts/run-preview.mjs build",
     "preview:test": "node scripts/run-preview.mjs test",
     "preview:test:framework": "node scripts/run-preview.mjs test --exclude=@celestial/nebula",
-    "preview:test:pty": "pnpm --filter @celestial/test exec vitest run --config vitest.preview.config.ts src/__tests__/preview-pty.test.ts src/__tests__/preview-pty-lifecycle.test.ts",
+    "preview:test:pty": "pnpm --filter @celestial/test exec vitest run --config vitest.preview.config.ts src/__tests__/preview-pty.test.ts src/__tests__/preview-pty-lifecycle.test.ts && pnpm --filter @celestial/ui test:pty",
     "preview:typecheck": "node scripts/run-preview.mjs typecheck",
     "preview:clean": "node scripts/run-preview.mjs clean",
     "demo:tasks": "pnpm --filter @celestial/demo-task-console dev",

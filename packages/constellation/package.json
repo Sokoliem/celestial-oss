@@ -46,7 +46,8 @@
     "test:watch": "vitest --config vitest.preview.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.preview.json",
     "typecheck:all": "tsc --noEmit",
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "test:pty": "vitest run src/__tests__/pty-inline-prompt.test.ts"
   },
   "dependencies": {
     "@celestial/core": "workspace:*",
