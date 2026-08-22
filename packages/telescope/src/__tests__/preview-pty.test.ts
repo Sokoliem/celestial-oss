@@ -41,4 +41,25 @@ describe('PTY harness', () => {
     harness.write('b\r');
     await expect(harness.waitForText('tick', { since: mark })).resolves.toContain('tick');
   });
+
+  it('keeps marks valid when the rolling transcript evicts older output', async () => {
+    const program = [
+      "process.stdin.setEncoding('utf8')",
+      "console.log('boot:' + 'b'.repeat(600) + ':ready')",
+      "process.stdin.on('data', () => { console.log('eviction-target'); console.log('p'.repeat(300)); console.log('eviction-end') })",
+    ].join(';');
+    const harness = await createPtyHarness({ command: process.execPath, args: ['-e', program], timeoutMs: 10_000, maxBufferBytes: 512 });
+    activeHarnesses.push(harness);
+
+    await harness.waitForText('ready');
+    // The 600-character boot banner has already capped the 512-byte rolling
+    // tail, so every character of the reply below evicts one from the front.
+    // A tail-relative mark would point past 'eviction-target' once the window
+    // shifts (observed as waitForText timing out while the text sits plainly
+    // in the transcript); an absolute mark still finds it.
+    const mark = harness.mark();
+    harness.write('a\r');
+    await expect(harness.waitForText('eviction-target', { since: mark })).resolves.toContain('eviction-target');
+    await expect(harness.waitForText('eviction-end', { since: mark })).resolves.toContain('eviction-end');
+  });
 });
