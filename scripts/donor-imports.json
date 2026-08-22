@@ -14,7 +14,13 @@
       "donorPath": "packages/atlas",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/corona",
@@ -22,7 +28,13 @@
       "donorPath": "packages/corona",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/aurora",
@@ -30,7 +42,13 @@
       "donorPath": "packages/aurora",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/rosetta",
@@ -38,7 +56,13 @@
       "donorPath": "packages/rosetta",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/nebula",
@@ -46,7 +70,13 @@
       "donorPath": "packages/nebula",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/gravity",
@@ -54,7 +84,13 @@
       "donorPath": "packages/gravity",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/nexus",
@@ -62,7 +98,13 @@
       "donorPath": "packages/nexus",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/core",
@@ -70,7 +112,13 @@
       "donorPath": "packages/app",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/compass",
@@ -78,7 +126,13 @@
       "donorPath": "packages/compass",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-25",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/ui",
@@ -86,7 +140,13 @@
       "donorPath": "packages/constellation",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/orbit",
@@ -94,7 +154,13 @@
       "donorPath": "packages/orbit",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/spectrum",
@@ -102,7 +168,13 @@
       "donorPath": "packages/spectrum",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/mirage",
@@ -110,7 +182,13 @@
       "donorPath": "packages/mirage",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/nova",
@@ -118,7 +196,13 @@
       "donorPath": "packages/nova",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/stellar",
@@ -126,7 +210,13 @@
       "donorPath": "packages/stellar",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/pulsar",
@@ -134,7 +224,13 @@
       "donorPath": "packages/pulsar",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/test",
@@ -142,7 +238,13 @@
       "donorPath": "packages/telescope",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     },
     {
       "package": "@celestial/horizon",
@@ -150,7 +252,26 @@
       "donorPath": "packages/horizon",
       "donorCommit": "d2d23c79d14aba1e7214cf9c459d40dd06cdf328",
       "importedAt": "2026-07-20",
-      "reviews": ["license", "dependencies", "public-api", "tests", "security"]
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
+    },
+    {
+      "package": "create-celestial",
+      "publicPath": "tools/create-celestial",
+      "origin": "native",
+      "importedAt": "2026-08-20",
+      "reviews": [
+        "license",
+        "dependencies",
+        "public-api",
+        "tests",
+        "security"
+      ]
     }
   ]
 }

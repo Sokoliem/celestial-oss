@@ -140,6 +140,7 @@ export type {
 export { installCrashRecovery } from './crash-recovery.js';
 export { type DebugOptions, debugPlugin } from './debug.js';
 export { type DevOptions, devPlugin, loadState, saveState, withStateRecovery } from './dev.js';
+export { createDevTools, type DevToolsController, type DevToolsMessageRecord, type DevToolsOptions, type DevToolsState } from './devtools/inspector.js';
 export type { FocusOptions, PortalOptions } from './elements.js';
 export {
   animated,
@@ -177,6 +178,48 @@ export {
   text,
   truncatedText,
 } from './elements.js';
+// ─── JSX / TSX Layer ────────────────────────────────────────────────────────
+export {
+  Badge as JsxBadge,
+  Box,
+  Button as JsxButton,
+  Card as JsxCard,
+  Column as JsxColumn,
+  Divider as JsxDivider,
+  Focus as JsxFocus,
+  Fragment,
+  h,
+  jsx,
+  jsxDEV,
+  jsxs,
+  normalizeChildren,
+  normalizeSingleChild,
+  ProgressBar as JsxProgressBar,
+  Row as JsxRow,
+  Scroll as JsxScroll,
+  Spinner as JsxSpinner,
+  Text as JsxText,
+  TextInput as JsxTextInput,
+} from './jsx/index.js';
+export type {
+  BadgeProps as JsxBadgeProps,
+  BaseProps as JsxBaseProps,
+  BoxProps,
+  ButtonProps as JsxButtonProps,
+  CardProps as JsxCardProps,
+  Child as JsxChild,
+  ColumnProps as JsxColumnProps,
+  ComponentFunction,
+  DividerProps as JsxDividerProps,
+  FocusProps as JsxFocusProps,
+  JSX,
+  ProgressBarProps as JsxProgressBarProps,
+  RowProps as JsxRowProps,
+  ScrollProps as JsxScrollProps,
+  SpinnerProps as JsxSpinnerProps,
+  TextInputProps as JsxTextInputProps,
+  TextProps as JsxTextProps,
+} from './jsx/index.js';
 export type { ErrorBoundaryOptions, ErrorInfo, RecoveryStrategy } from './error-boundary.js';
 // ─── Error Boundary ─────────────────────────────────────────────────────────
 export {
@@ -345,6 +388,7 @@ export {
   shaders,
 } from './shader.js';
 export { batch, computed, createSignalContext, derived, effect, history, previous, type Signal, type SignalContext, signal } from './signals.js';
+export { createStore, type Store } from './state/store.js';
 export type { TaskDescriptor, TaskState, TaskStatus } from './tasks.js';
 export {
   cancelTask,

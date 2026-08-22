@@ -1,5 +1,6 @@
 import type { AccessibilitySink } from '../a11y.js';
 import type { CompositorOptions } from '../compositor.js';
+import type { HitRegionInfo } from '../hit-regions.js';
 import type { RenderCause } from '../message-priority.js';
 import type { RenderTracer } from '../profiler.js';
 import type { Priority } from '../scheduler.js';
@@ -194,6 +195,10 @@ export interface AppHandle<M = unknown> {
   replaceConfig(newConfig: AppConfig<any, any>, options?: ReplaceConfigOptions): void;
   /** Force a full re-render, discarding the diff cache. Useful for programmatic screenshots and Lens agent captures. */
   requestRedraw(): void;
+  /** The layout plan committed by the most recent completed render, if any. Read-only inspection surface for tooling. */
+  getLayoutPlan(): LayoutPlan | null;
+  /** The hit regions committed by the most recent completed render. Read-only inspection surface for tooling. */
+  getHitRegions(): readonly HitRegionInfo[];
   /** The current model state (read-only) */
   readonly model: unknown;
 }

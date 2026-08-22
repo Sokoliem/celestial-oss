@@ -119,7 +119,7 @@ function assertPackedPackage(packageName, result, manifest) {
   }
 
   const paths = new Set(result.files.map((file) => file.path.replaceAll('\\', '/')));
-  for (const requiredPath of ['package.json', 'README.md', 'dist/index.js', 'dist/index.cjs', 'dist/index.d.ts']) {
+  for (const requiredPath of ['package.json', 'README.md', 'LICENSE', 'dist/index.js', 'dist/index.cjs', 'dist/index.d.ts']) {
     if (!paths.has(requiredPath)) throw new Error(`${packageName} tarball is missing ${requiredPath}.`);
   }
 

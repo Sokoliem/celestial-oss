@@ -71,6 +71,8 @@ import type {
   ToggleGroupMsg,
   ToggleModel,
   ToggleMsg,
+  ToolCallModel,
+  ToolCallMsg,
   TooltipModel,
   TooltipMsg,
   TreeModel,
@@ -103,6 +105,7 @@ export interface ShowcaseGalleryModels {
   popover: PopoverModel;
   popoverGroup: PopoverGroupModel;
   hovercard: HovercardModel;
+  toolCall: ToolCallModel;
 }
 
 export interface ShowcaseVirtualReceipt {
@@ -130,7 +133,8 @@ export type ShowcaseGalleryComponentMsg =
   | { id: 'cardGrid'; msg: CardGridMsg }
   | { id: 'popover'; msg: PopoverMsg }
   | { id: 'popoverGroup'; msg: PopoverMsg }
-  | { id: 'hovercard'; msg: HovercardMsg };
+  | { id: 'hovercard'; msg: HovercardMsg }
+  | { id: 'toolCall'; msg: ToolCallMsg };
 
 export type LabId =
   | 'core'

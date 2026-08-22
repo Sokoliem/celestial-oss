@@ -144,7 +144,7 @@ describe('keyMap', () => {
       subscriptions: (model) =>
         Sub.batch(
           Sub.keyEvent(() => ({ type: 'raw' as const })),
-          keyMap([{ key: 'escape', msg: { type: model.open ? ('close' as const) : ('save' as const) }, description: 'Contextual action' }]),
+          keyMap<ReconciledMsg>([{ key: 'escape', msg: { type: model.open ? ('close' as const) : ('save' as const) }, description: 'Contextual action' }]),
         ),
     });
 

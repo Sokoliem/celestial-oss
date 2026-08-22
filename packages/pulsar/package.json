@@ -1,24 +1,54 @@
 {
   "name": "@celestial/pulsar",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Unicode-aware terminal Markdown parser and renderer for Celestial applications",
-  "keywords": ["tui", "terminal", "typescript", "celestial", "markdown", "syntax-highlighting"],
+  "keywords": [
+    "tui",
+    "terminal",
+    "typescript",
+    "celestial",
+    "markdown",
+    "syntax-highlighting"
+  ],
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/Sokoliem/celestial-oss.git", "directory": "packages/pulsar" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sokoliem/celestial-oss.git",
+    "directory": "packages/pulsar"
+  },
   "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/pulsar",
-  "bugs": { "url": "https://github.com/Sokoliem/celestial-oss/issues" },
-  "publishConfig": { "access": "public" },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" },
-    "./overlay": { "types": "./dist/overlay.d.ts", "import": "./dist/overlay.js", "require": "./dist/overlay.cjs" },
-    "./fence-renderers": { "types": "./dist/fence-renderers.d.ts", "import": "./dist/fence-renderers.js", "require": "./dist/fence-renderers.cjs" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./overlay": {
+      "types": "./dist/overlay.d.ts",
+      "import": "./dist/overlay.js",
+      "require": "./dist/overlay.cjs"
+    },
+    "./fence-renderers": {
+      "types": "./dist/fence-renderers.d.ts",
+      "import": "./dist/fence-renderers.js",
+      "require": "./dist/fence-renderers.cjs"
+    }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsup",
     "test": "vitest run --config vitest.preview.config.ts",
@@ -35,6 +65,12 @@
     "@celestial/spectrum": "workspace:*",
     "@celestial/stellar": "workspace:*"
   },
-  "devDependencies": { "tsup": "^8.3.0", "typescript": "^5.7.0", "vitest": "^2.1.0" },
-  "engines": { "node": ">=22.0.0" }
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
 }

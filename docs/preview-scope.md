@@ -15,6 +15,7 @@ The following packages may be published:
 - Rich rendering: `@celestial/spectrum`, `@celestial/mirage`, `@celestial/nova`, `@celestial/stellar`, `@celestial/pulsar`
 - Testing: `@celestial/test`
 - Conditional beta: `@celestial/horizon`
+- Tooling: `create-celestial` (repo-native project scaffolder; recorded in the donor ledger with `origin: "native"` because it never passed through the donor)
 
 The machine-readable allowlist is [`scripts/preview-packages.mjs`](../scripts/preview-packages.mjs). CI and release automation fail if any other workspace becomes publishable.
 
@@ -25,7 +26,7 @@ Four private workspaces demonstrate the supported packages without widening the 
 - `examples/task-console` uses `@celestial/core` and `@celestial/ui` with bundled Node worker fixtures.
 - `examples/api-inspector` uses `@celestial/core` and `@celestial/ui` with an ephemeral loopback HTTP server.
 - `examples/horizon-workbench` adds the `@celestial/horizon` beta surface for window and workspace management.
-- `examples/celestial-showcase` combines the entire focused preview into an adaptive, mouse-first Flight Deck with nine labs, five of them paged, a machine-checked 18-package/49-builder ledger, deterministic painted interaction audits, Compass navigation, explicit Nebula config-loading and diagnostic receipts, Rosetta locale and bidi receipts, deep Orbit and rich-rendering instruments, target-specific right-click menus, and Horizon windows with deterministic layer focus, shelf, snap, tile, and session behavior.
+- `examples/celestial-showcase` combines the entire focused preview into an adaptive, mouse-first Flight Deck with nine labs, five of them paged, a machine-checked 18-package/52-builder ledger, deterministic painted interaction audits, Compass navigation, explicit Nebula config-loading and diagnostic receipts, Rosetta locale and bidi receipts, deep Orbit and rich-rendering instruments, target-specific right-click menus, and Horizon windows with deterministic layer focus, shelf, snap, tile, and session behavior.
 
 The boundary checker validates both their manifests and source imports. `@celestial/test` and `@celestial/test/pty` are permitted only in test files. Other applications and examples are outside this repository's scope.
 
@@ -36,12 +37,12 @@ The boundary checker validates both their manifests and source imports. `@celest
 
 ## UI boundary
 
-`@celestial/ui` exposes 49 component builders. Its public barrel is the contract; files elsewhere in `packages/constellation/src` are not deep-import APIs. The selected interaction-heavy components are exercised through both mouse and keyboard paths in the headless harness. Modals and contextual surfaces must reflow at supported widths, expose a visible close affordance, and respond to Escape. Public keyboard-help, context-menu, and controlled notification-center composition helpers are not included in the builder count.
+`@celestial/ui` exposes 52 component builders. Its public barrel is the contract; files elsewhere in `packages/constellation/src` are not deep-import APIs. The selected interaction-heavy components are exercised through both mouse and keyboard paths in the headless harness. Modals and contextual surfaces must reflow at supported widths, expose a visible close affordance, and respond to Escape. Public keyboard-help, context-menu, controlled notification-center, and inline-prompt app-factory composition helpers are not included in the builder count; the full runtime export surface is verified against the showcase ledger by exact set equality.
 
 Every Nebula automation snapshot audits the exact clipped mouse regions and
 painted cells for labels, safe IDs and handler tags, handler/affordance
 agreement, cursors, disabled inertness, and contrast. The Flight Deck applies
-the zero-violation gate to all 49 builders across all nine themes at compact and
+the zero-violation gate to all 52 builders across all nine themes at compact and
 wide widths, then rechecks representative hover, selection, resize, drag, and
 scroll states.
 
@@ -76,6 +77,8 @@ The following areas are intentionally unpublished:
 - Remote sharing (`warp`)
 - Multiprocess coordination (`cluster`)
 - Agent and MCP tooling (`agent`, `beacon`, `quasar`, and related packages)
+
+Agent-facing *components* are in scope and distinct from agent runtime tooling: `toolCall`, `diffViewer`, and `inlinePrompt` are presentational/interactive UI builders with no agent protocol, transport, or model dependency.
 - Demoscene effects (`flicker`)
 - Binary terminal image protocols and Canvas-backed Mermaid rendering
 - Product applications under `apps/*` and legacy examples under `examples/*`, except the four supported demos above

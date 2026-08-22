@@ -282,6 +282,14 @@ export function installCommands<Model, M>(ctx: RuntimeContext<Model, M>): void {
           options.signal.addEventListener('abort', onAbort, { once: true });
         });
 
+      case 'throttle': {
+        const last = ctx.throttledCmdTimestamps.get(kind.key) ?? Number.NEGATIVE_INFINITY;
+        const now = Date.now();
+        if (now - last < kind.ms) return undefined;
+        ctx.throttledCmdTimestamps.set(kind.key, now);
+        return await runCmd(kind.cmd, options);
+      }
+
       case 'sendToAgent': {
         try {
           await ctx.connectionManager.send(kind.agentId, kind.message);

@@ -1,6 +1,6 @@
 {
   "name": "@celestial/atlas",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Terminal capability and environment detection utilities for Celestial packages",
   "keywords": [
     "tui",
@@ -15,6 +15,10 @@
     "url": "https://github.com/Sokoliem/celestial-oss.git",
     "directory": "packages/atlas"
   },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/atlas",
   "publishConfig": {
     "access": "public"
   },

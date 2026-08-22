@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Celestial — The TypeScript Framework for Terminal User Interfaces</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="logo">
+        <span class="logo-icon">✦</span>
+        <span class="logo-text">Celestial</span>
+        <span class="badge">Preview 0.1.0</span>
+      </div>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#playground">Interactive Discovery</a>
+        <a href="#guides">Guides</a>
+        <a href="#ai-stack">AI & Agentic</a>
+        <a href="https://github.com/Sokoliem/celestial-oss" target="_blank" class="btn-github">
+          <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+          GitHub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero Section -->
+    <section class="hero">
+      <div class="hero-content">
+        <h1 class="hero-title">
+          The <span class="gradient-text">state-driven</span> TUI framework for TypeScript
+        </h1>
+        <p class="hero-subtitle">
+          Build deterministic, mouse-aware, beautiful terminal applications with Elm architecture or declarative TSX, grapheme-safe text, 52 tested UI builders, sub-cell charts, and multi-window tiling.
+        </p>
+        <div class="hero-actions">
+          <div class="code-pill">
+            <code>npm create celestial@latest my-app</code>
+            <button class="copy-btn" onclick="copyCommand('npm create celestial@latest my-app')">Copy</button>
+          </div>
+          <a href="#playground" class="btn-primary">Explore Components</a>
+        </div>
+        <p class="hero-note">
+          Preview release — the scaffolder publishes to npm at launch. Until then, <a href="https://github.com/Sokoliem/celestial-oss#readme" target="_blank">clone the repo</a> and run one of the supported demos.
+        </p>
+      </div>
+    </section>
+
+    <!-- Key Pillars Section -->
+    <section id="features" class="features-section">
+      <div class="section-header">
+        <h2>Engineered for Production Terminals</h2>
+        <p>Everything you need to ship reliable CLIs without terminal escape code headaches.</p>
+      </div>
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <h3>Elm Runtime + Signals</h3>
+          <p>Deterministic Model-Update-View state loop with reactive signals (signal/computed/effect), zero side-effect view rendering, and a headless test harness that replays real apps.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">⚛️</div>
+          <h3>Optional TSX / JSX Layer</h3>
+          <p>Write declarative <code>&lt;Box&gt;</code>, <code>&lt;Text&gt;</code>, and <code>&lt;Button&gt;</code> elements with standard React-like component ergonomics.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔤</div>
+          <h3>Grapheme & Bidi Safe</h3>
+          <p>True Unicode segmentation (Rosetta). Emojis, zero-width joiners, and right-to-left text never tear or corrupt terminal layout bounds.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🖱️</div>
+          <h3>First-Class Mouse & Focus</h3>
+          <p>Full hit testing (Nexus), drag-and-drop, right-click contextual menus, scroll wheels, and keyboard focus trap rings.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🤖</div>
+          <h3>AI & Agentic Ready</h3>
+          <p>Progressive token-streaming Markdown, collapsible tool-call execution cards, syntax-highlighted diff viewers, and inline prompt runners.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📦</div>
+          <h3>Single Native Binary</h3>
+          <p>Compile your entire TypeScript TUI into a standalone <code>.exe</code>, Linux ELF, or macOS executable using Node SEA or Bun compile.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Component Discovery / Simulator -->
+    <section id="playground" class="playground-section">
+      <div class="section-header">
+        <h2>Interactive Component Discovery</h2>
+        <p>Every terminal pane below is a real render: docs-site/generate.mjs runs the built @celestial packages through the framework's own headless layout pipeline, and each snippet is a typechecked file from docs-site/snippets/.</p>
+      </div>
+
+      <div class="playground-container">
+        <!-- Sidebar Navigation -->
+        <div class="component-nav">
+          <div class="nav-category">AI & Agentic</div>
+          <button class="nav-item active" onclick="selectComponent('tool-call')">Tool Call Card</button>
+          <button class="nav-item" onclick="selectComponent('diff-viewer')">Git Diff Viewer</button>
+          <button class="nav-item" onclick="selectComponent('streaming-md')">Streaming Markdown</button>
+          <button class="nav-item" onclick="selectComponent('inline-prompt')">Inline Prompt</button>
+
+          <div class="nav-category">Curated UI (52)</div>
+          <button class="nav-item" onclick="selectComponent('progress')">ProgressBar & Spinner</button>
+          <button class="nav-item" onclick="selectComponent('card')">Card & Badge</button>
+          <button class="nav-item" onclick="selectComponent('table')">DataTable</button>
+          <button class="nav-item" onclick="selectComponent('horizon')">Horizon Window Beta</button>
+          <button class="nav-item" onclick="selectComponent('tsx-box')">TSX &lt;Box&gt; Layout</button>
+        </div>
+
+        <!-- Terminal Simulator Output -->
+        <div class="preview-pane">
+          <div class="terminal-window">
+            <div class="terminal-header">
+              <div class="terminal-buttons">
+                <span class="dot red"></span>
+                <span class="dot yellow"></span>
+                <span class="dot green"></span>
+              </div>
+              <div class="terminal-title" id="terminal-title">celestial preview</div>
+            </div>
+            <div class="terminal-body" id="terminal-screen">
+              <!-- ANSI content injected by app.js -->
+            </div>
+          </div>
+
+          <!-- Code Snippet -->
+          <div class="code-container">
+            <div class="code-header">
+              <span id="code-filename">example.ts</span>
+              <button class="copy-btn" onclick="copyCode()">Copy Snippet</button>
+            </div>
+            <pre><code id="code-snippet"></code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Migration Guides & Architecture -->
+    <section id="guides" class="guides-section">
+      <div class="section-header">
+        <h2>Guides & Architecture</h2>
+        <p>Learn how to build, test, and distribute your Celestial applications.</p>
+      </div>
+
+      <div class="grid-2">
+        <div class="guide-card">
+          <h3>Migrating from React / Ink</h3>
+          <p>How Celestial's Elm architecture and optional JSX layer compare to Ink's React reconciler — the same declarative element shape, driven by an explicit model-update-view loop.</p>
+          <pre><code>// Ink (React)
+&lt;Box flexDirection="column"&gt;
+  &lt;Text color="cyan"&gt;Count: {count}&lt;/Text&gt;
+&lt;/Box&gt;
+
+// Celestial (TSX)
+&lt;Box flexDirection="column"&gt;
+  &lt;Text color={color.brightCyan}&gt;Count: {model.count}&lt;/Text&gt;
+&lt;/Box&gt;</code></pre>
+        </div>
+
+        <div class="guide-card">
+          <h3>Compiling to Single Binary</h3>
+          <p>Package your app into a single native executable with zero external Node runtime required on the user's machine.</p>
+          <pre><code># Using Node.js 20+ Single Executable Application
+node scripts/bundle-sea.mjs src/index.ts my-cli
+
+# Output: dist-bin/my-cli.exe (Windows) or dist-bin/my-cli (Linux/macOS)</code></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-content">
+      <p>Celestial is open-source software licensed under the <a href="https://github.com/Sokoliem/celestial-oss/blob/master/LICENSE" target="_blank">MIT License</a>.</p>
+      <p><a href="https://github.com/Sokoliem/celestial-oss" target="_blank">github.com/Sokoliem/celestial-oss</a></p>
+    </div>
+  </footer>
+
+  <script src="previews.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

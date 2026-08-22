@@ -101,6 +101,7 @@ export interface RuntimeContext<Model, M> {
   combinatorThrottleTimestamps: Map<string, number>;
   combinatorDistinctLast: Map<string, { value: unknown }>;
   debouncedCmdTimers: Map<string, { timer: NodeJS.Timeout; cancel: () => void }>;
+  throttledCmdTimestamps: Map<string, number>;
   idleTimers: Map<number, NodeJS.Timeout>;
   idleSubs: Array<{ ms: number; fire: () => void }>;
   activePhaseIds: Set<string>;
@@ -271,6 +272,7 @@ export function createRuntimeContext<Model, M>(initialConfig: AppConfig<Model, M
     combinatorThrottleTimestamps: new Map(),
     combinatorDistinctLast: new Map(),
     debouncedCmdTimers: new Map(),
+    throttledCmdTimestamps: new Map(),
     idleTimers: new Map(),
     idleSubs: [],
     activePhaseIds: new Set(),

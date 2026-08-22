@@ -1,6 +1,6 @@
 {
   "name": "@celestial/test",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Headless and PTY testing utilities for Celestial terminal applications",
   "keywords": [
     "tui",
@@ -19,6 +19,10 @@
     "url": "https://github.com/Sokoliem/celestial-oss.git",
     "directory": "packages/telescope"
   },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/telescope",
   "publishConfig": {
     "access": "public"
   },

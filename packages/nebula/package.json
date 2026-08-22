@@ -1,6 +1,6 @@
 {
   "name": "@celestial/nebula",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Elm + Signals TUI framework for TypeScript",
   "keywords": [
     "tui",
@@ -20,6 +20,10 @@
     "url": "https://github.com/Sokoliem/celestial-oss.git",
     "directory": "packages/nebula"
   },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/nebula",
   "publishConfig": {
     "access": "public"
   },
@@ -32,6 +36,21 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./jsx": {
+      "types": "./dist/jsx/index.d.ts",
+      "import": "./dist/jsx/index.js",
+      "require": "./dist/jsx/index.cjs"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx/jsx-runtime.d.ts",
+      "import": "./dist/jsx/jsx-runtime.js",
+      "require": "./dist/jsx/jsx-runtime.cjs"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx/jsx-dev-runtime.d.ts",
+      "import": "./dist/jsx/jsx-dev-runtime.js",
+      "require": "./dist/jsx/jsx-dev-runtime.cjs"
     }
   },
   "files": [

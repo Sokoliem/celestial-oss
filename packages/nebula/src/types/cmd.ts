@@ -11,6 +11,7 @@ export type CmdKind<M> =
   | { kind: 'attempt'; task: (signal: AbortSignal) => Promise<unknown>; toMsg: (result: Result<unknown, unknown>) => M }
   | { kind: 'map'; cmd: Cmd<unknown>; fn: (a: unknown) => M }
   | { kind: 'debounce'; ms: number; cmd: Cmd<M>; key: string }
+  | { kind: 'throttle'; ms: number; cmd: Cmd<M>; key: string }
   | { kind: 'quit' }
   | { kind: 'sendToAgent'; agentId: string; message: AgentMessage; toMsg?: (result: Result<void, Error>) => M }
   | { kind: 'phase-send'; registry: MachineRegistry; machineId: string; event: unknown }
@@ -178,10 +179,35 @@ export const Cmd = {
     );
   },
 
+  /** Wrap an async task with explicit onSuccess and onError callbacks. */
+  async<T, M>(
+    task: (signal: AbortSignal) => Promise<T>,
+    options: { onSuccess: (value: T) => M; onError: (error: Error) => M },
+  ): Cmd<M> {
+    return mkCmd({
+      kind: 'attempt',
+      task: task as (signal: AbortSignal) => Promise<unknown>,
+      toMsg: (res: Result<unknown, unknown>) =>
+        res.ok
+          ? options.onSuccess(res.value as T)
+          : options.onError(res.error instanceof Error ? res.error : new Error(String(res.error))),
+    });
+  },
+
   /** Delay starting a command and supersede any pending debounced command with the same key. */
   debounce<M>(ms: number, cmd: Cmd<M>, key = 'default'): Cmd<M> {
     assertDuration('Cmd.debounce duration', ms);
     return mkCmd({ kind: 'debounce', ms, cmd, key });
+  },
+
+  /**
+   * Throttle a command to run at most once per ms window for a given key.
+   * Leading edge: the first command in a window runs immediately; subsequent
+   * commands with the same key are dropped until the window elapses.
+   */
+  throttle<M>(ms: number, cmd: Cmd<M>, key = 'default'): Cmd<M> {
+    assertDuration('Cmd.throttle duration', ms);
+    return mkCmd({ kind: 'throttle', ms, cmd, key });
   },
 
   /** A command that tells the runtime to quit the application. */

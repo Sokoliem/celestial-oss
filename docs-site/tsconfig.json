@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "@celestial/core",
+    "types": ["node"]
+  },
+  "include": ["snippets/**/*.ts", "snippets/**/*.tsx"]
+}

@@ -171,9 +171,30 @@ jobs:
         env:
           CELESTIAL_DEMO_FAST: 1
 
+  node-compat:
+    name: Node 23 forward-compat (build + framework tests)
+    needs: boundary-and-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 23
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run preview:build
+      - run: pnpm run preview:test:framework
+
   package-smoke:
     name: Packed package smoke test
-    needs: [build-and-typecheck, demo-headless, framework-tests, nebula-tests, pty-smoke]
+    needs: [build-and-typecheck, demo-headless, framework-tests, nebula-tests, pty-smoke, node-compat]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

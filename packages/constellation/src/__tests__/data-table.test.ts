@@ -587,11 +587,14 @@ describe('dataTable', () => {
       const [model] = component.init();
       const header = findEventByIdSuffix(component.view(model), ':header:0');
 
-      expect(header?.metadata).toMatchObject({
-        intent: 'observe',
-        affordances: [],
-      });
-      expect(header?.metadata?.cursor).toBeUndefined();
+      expect(header?.kind).toBe('event');
+      if (header?.kind === 'event') {
+        expect(header.metadata).toMatchObject({
+          intent: 'observe',
+          affordances: [],
+        });
+        expect(header.metadata?.cursor).toBeUndefined();
+      }
       expect(getVNodeMeta(header!)?.a11y).toEqual({ label: 'Name' });
     });
 

@@ -18,9 +18,11 @@ import {
   contextMenuUpdate,
   contextMenuView,
   createContextMenuState,
+  createSelectPromptApp,
   createToastManager,
   dataTable,
   datePicker,
+  diffViewer,
   divider,
   drawer,
   emptyState,
@@ -52,6 +54,7 @@ import {
   textInput,
   toggle,
   toggleGroup,
+  toolCall,
   tooltip,
   tree,
   virtualList,
@@ -69,7 +72,7 @@ interface CapabilityRow {
   state: string;
 }
 
-export const GALLERY_PAGE_COUNT = 8;
+export const GALLERY_PAGE_COUNT = 9;
 
 const capabilityRows: CapabilityRow[] = [
   { id: 'runtime', capability: 'Elm runtime', package: '@celestial/core', state: 'ready' },
@@ -85,9 +88,9 @@ const helpCopy: Record<LabId, { purpose: string; mouse: string; verify: string }
     verify: 'Confirm capability detection, theme contrast, motion, bidi formatting, and all public package receipts are visible.',
   },
   components: {
-    purpose: 'Tour every curated @celestial/ui builder across eight compact pages.',
+    purpose: 'Tour every curated @celestial/ui builder across nine compact pages.',
     mouse: 'Click controls to focus, toggle, advance, or open their real layered surface.',
-    verify: `Advance through pages 1-8; each page names its builders, and page 7 carries the ${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} curated badge.`,
+    verify: `Advance through pages 1-9; each page names its builders, and page 7 carries the ${UI_BUILDER_COUNT}/${UI_BUILDER_COUNT} curated badge.`,
   },
   workflows: {
     purpose: 'Exercise Orbit schema forms, validation rules, prompt descriptors, and branch-aware wizard state using the same Elm update loop.',
@@ -483,6 +486,15 @@ export function createShowcaseComponents(themeCtx: ThemeContext) {
     ]),
   ) as Record<LabId, ReturnType<typeof drawer>>;
 
+  const toolCallComponent = toolCall({
+    name: 'release.validate',
+    status: 'success',
+    input: { command: 'pnpm run preview:validate' },
+    output: '✓ 19 packages · 45 export surfaces · 0 boundary violations',
+    durationMs: 1840,
+    themeCtx,
+  });
+
   return {
     themeCtx,
     textInputComponent,
@@ -525,6 +537,7 @@ export function createShowcaseComponents(themeCtx: ThemeContext) {
     popoverComponent,
     popoverGroupComponent,
     hovercardComponent,
+    toolCallComponent,
     paletteComponent,
     helpDrawers,
   };
@@ -581,6 +594,9 @@ export function initialComponentModels(components: ShowcaseComponents) {
       popover: components.popoverComponent.init()[0],
       popoverGroup: components.popoverGroupComponent.init()[0],
       hovercard: components.hovercardComponent.init()[0],
+      // Start collapsed so page 9 fits compact viewports; clicking or
+      // focus-then-Space expands the card through its real update loop.
+      toolCall: { ...components.toolCallComponent.init()[0], collapsed: true },
     },
     galleryContextMenu: contextMenuUpdate(
       {
@@ -796,7 +812,7 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
         text('Each layered builder opens as a real stacked surface; Escape always dismisses.', mutedStyle, { wrap: true }),
       );
     }
-    default: {
+    case 7: {
       const contextNode = contextMenuView({
         state: model.galleryContextMenu,
         width: 22,
@@ -817,6 +833,33 @@ export function renderComponentGallery(components: ShowcaseComponents, model: Ce
         model.cols >= 100 ? row(popoverNode, text('  '), hovercardNode) : column(popoverNode, hovercardNode),
         named('popoverGroup()', galleryView(model, 'popoverGroup', components.popoverGroupComponent)),
         text('Click popovers, hover the package card, and use their visible close controls or Escape.', mutedStyle, { wrap: true }),
+      );
+    }
+    default: {
+      const promptApp = createSelectPromptApp({
+        message: 'Deploy the release?',
+        options: [
+          { label: 'Preview channel', value: 'preview', hint: 'recommended' },
+          { label: 'Latest channel', value: 'latest' },
+        ],
+      });
+      const promptFrame = promptApp.view({ status: 'active', selectedIndex: 0 });
+      return column(
+        galleryHeader(8, 'AI and CLI primitives - 3 builders'),
+        named('toolCall()', galleryView(model, 'toolCall', components.toolCallComponent)),
+        named(
+          'diffViewer()',
+          diffViewer({
+            title: 'packages/nebula/src/scheduler.ts',
+            diffText: '@@ -1,2 +1,2 @@\n-const priority = lane;\n+const priority = classify(message);',
+            width: Math.max(28, Math.min(52, model.cols - 10)),
+            themeCtx: components.themeCtx,
+          }),
+        ),
+        named('inlinePrompt()', promptFrame),
+        text('Click or focus-then-Space the tool card to collapse it; the prompt frame renders from the real inline-prompt app.', mutedStyle, {
+          wrap: true,
+        }),
       );
     }
   }

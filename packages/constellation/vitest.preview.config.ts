@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: [
       'src/__tests__/preview-*.test.ts',
+      'src/__tests__/ai-primitives.test.ts',
       'src/__tests__/clickable.test.ts',
       'src/__tests__/text-input.test.ts',
       'src/__tests__/textarea.test.ts',
@@ -59,6 +60,7 @@ export default defineConfig({
       'src/__tests__/context-menu-view.test.ts',
       'src/__tests__/popover.test.ts',
       'src/__tests__/hovercard.test.ts',
+      'src/__tests__/inline-prompt.test.ts',
     ],
   },
 });

@@ -1,6 +1,6 @@
 {
   "name": "@celestial/horizon",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-preview.2",
   "description": "Window and pane management for Celestial TUI apps",
   "keywords": [
     "tui",
@@ -20,6 +20,10 @@
     "url": "https://github.com/Sokoliem/celestial-oss.git",
     "directory": "packages/horizon"
   },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/horizon",
   "publishConfig": {
     "access": "public"
   },

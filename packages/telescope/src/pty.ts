@@ -181,6 +181,11 @@ export async function createPtyHarness(config: PtyHarnessConfig): Promise<PtyHar
   });
 
   let transcript = '';
+  // Number of transcript characters evicted from the front of the rolling
+  // tail so far. Marks are absolute stream positions; subtracting this at
+  // read time maps a mark back into the current tail no matter how much
+  // output has been evicted since the mark was taken.
+  let droppedChars = 0;
   let exit: PtyExit | undefined;
   let disposed = false;
   const outputListeners = new Set<() => void>();
@@ -188,7 +193,12 @@ export async function createPtyHarness(config: PtyHarnessConfig): Promise<PtyHar
   const pendingWaitRejectors = new Set<(reason: Error) => void>();
 
   const dataSubscription = processHandle.onData((chunk) => {
-    transcript = utf8Tail(transcript + chunk, maxBufferBytes);
+    const combined = transcript + chunk;
+    const trimmed = utf8Tail(combined, maxBufferBytes);
+    // utf8Tail removes an exact string prefix, so the length difference is
+    // the number of characters that fell off the front.
+    droppedChars += combined.length - trimmed.length;
+    transcript = trimmed;
     for (const listener of [...outputListeners]) listener();
   });
   const exitSubscription = processHandle.onExit((event) => {
@@ -221,18 +231,28 @@ export async function createPtyHarness(config: PtyHarnessConfig): Promise<PtyHar
     },
     mark() {
       assertActive();
-      return { offset: normalizedOutput(transcript).length };
+      // Absolute position in the raw output stream, not the current tail
+      // length: the tail is a rolling window, so a tail-relative offset would
+      // drift past post-mark output as eviction shifts the window.
+      return { offset: droppedChars + transcript.length };
     },
     waitForText(match, options) {
       assertActive();
       const effectiveTimeout = positiveInteger(options?.timeoutMs ?? timeoutMs, 'PTY wait timeout');
       const signal = options?.signal;
       if (signal?.aborted) return Promise.reject(abortError(signal));
-      // The transcript is a rolling tail, so a mark can fall off the front. Clamping
-      // means an evicted mark degrades to "search everything" rather than throwing.
-      const searchable = (value: string): string => (options?.since ? value.slice(Math.min(options.since.offset, value.length)) : value);
+      // Slice the raw transcript before normalizing: the mark is an absolute
+      // raw-stream position, so it must be mapped into the current raw tail
+      // first. A mark that has itself fallen off the front degrades to
+      // "search everything" rather than throwing.
+      const searchable = (raw: string): string => {
+        if (!options?.since) return raw;
+        const start = options.since.offset - droppedChars;
+        if (start <= 0) return raw;
+        return raw.slice(Math.min(start, raw.length));
+      };
       const current = normalizedOutput(transcript);
-      if (matches(searchable(current), match)) return Promise.resolve(current);
+      if (matches(normalizedOutput(searchable(transcript)), match)) return Promise.resolve(current);
       if (exit) return Promise.reject(exitError(`waitForText(${String(match)})`, exit, current));
       return new Promise((resolve, reject) => {
         let settled = false;
@@ -257,7 +277,7 @@ export async function createPtyHarness(config: PtyHarnessConfig): Promise<PtyHar
         };
         const check = (): boolean => {
           const next = normalizedOutput(transcript);
-          if (!matches(searchable(next), match)) return false;
+          if (!matches(normalizedOutput(searchable(transcript)), match)) return false;
           succeed(next);
           return true;
         };

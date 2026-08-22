@@ -1,19 +1,44 @@
 {
   "name": "@celestial/stellar",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Accessible terminal canvas, sub-cell rendering, and charting for Celestial applications",
-  "keywords": ["tui", "terminal", "typescript", "celestial", "canvas", "braille", "charts"],
+  "keywords": [
+    "tui",
+    "terminal",
+    "typescript",
+    "celestial",
+    "canvas",
+    "braille",
+    "charts"
+  ],
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/Sokoliem/celestial-oss.git", "directory": "packages/stellar" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sokoliem/celestial-oss.git",
+    "directory": "packages/stellar"
+  },
   "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/stellar",
-  "bugs": { "url": "https://github.com/Sokoliem/celestial-oss/issues" },
-  "publishConfig": { "access": "public" },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" } },
-  "files": ["dist", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsup",
     "test": "vitest run --config vitest.preview.config.ts",
@@ -28,7 +53,13 @@
     "@celestial/nexus": "workspace:*",
     "@celestial/rosetta": "workspace:*"
   },
-  "devDependencies": { "tsup": "^8.3.0", "typescript": "^5.7.0", "vitest": "^2.1.0" },
-  "engines": { "node": ">=22.0.0" },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "sideEffects": false
 }

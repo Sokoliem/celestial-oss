@@ -73,7 +73,7 @@ keyboard parity remains an explicit component behavior test.
 
 - `buildAutomationSnapshot()` checks framework components and app-defined
   event regions through one seam.
-- The Flight Deck renders all 49 curated builders through nine themes at
+- The Flight Deck renders all 52 curated builders through nine themes at
   70- and 140-column widths and requires zero interaction violations.
 - Hovered, selected, resized, dragged, and scrolled component states are
   re-audited through live test handles.

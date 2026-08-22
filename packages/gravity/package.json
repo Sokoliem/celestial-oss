@@ -1,6 +1,6 @@
 {
   "name": "@celestial/gravity",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Responsive flex/grid layout engine for the Celestial TUI ecosystem",
   "keywords": [
     "tui",
@@ -19,6 +19,10 @@
     "url": "https://github.com/Sokoliem/celestial-oss.git",
     "directory": "packages/gravity"
   },
+  "bugs": {
+    "url": "https://github.com/Sokoliem/celestial-oss/issues"
+  },
+  "homepage": "https://github.com/Sokoliem/celestial-oss/tree/master/packages/gravity",
   "publishConfig": {
     "access": "public"
   },
